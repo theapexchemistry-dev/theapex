@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Student, Batch } from '../../types';
 import { StorageService } from '../../lib/storage';
 import {
@@ -39,21 +39,157 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const paidFeesAmount = feeRecords.filter(f => f.status === 'paid').reduce((a, b) => a + b.amount, 0);
   const dueFeesAmount = totalFeesAmount - paidFeesAmount;
 
-  // Calendar scheduled days highlight calculation
+    // ===== REAL SYNCED CALENDAR =====
   const scheduledDays = studentBatch?.days || ['Mon', 'Wed', 'Fri'];
 
-  // Current month day numbers for interactive calendar
+  // Month navigation state (so the calendar is navigable, not static)
   const today = new Date();
   const currentMonthName = today.toLocaleString('en-US', { month: 'long', year: 'numeric' });
-  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-  const calendarDays = Array.from({ length: daysInMonth }, (_, i) => {
-    const dayNum = i + 1;
-    const dateObj = new Date(today.getFullYear(), today.getMonth(), dayNum);
-    const dayName = dateObj.toLocaleString('en-US', { weekday: 'short' });
-    const isScheduledClass = scheduledDays.includes(dayName);
-    const isToday = dayNum === today.getDate();
-    return { dayNum, dayName, isScheduledClass, isToday };
+  const [calCursor, setCalCursor] = useState({
+    year: today.getFullYear(),
+    month: today.getMonth()
   });
+  const [selectedDay, setSelectedDay] = useState<number | null>(today.getDate());
+
+  const displayedFirstDay = new Date(calCursor.year, calCursor.month, 1);
+  const displayedMonthName = displayedFirstDay.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+  const isViewingCurrentMonth =
+    calCursor.year === today.getFullYear() && calCursor.month === today.getMonth();
+
+  const goPrevMonth = () =>
+    setCalCursor(c => {
+      const m = c.month - 1;
+      return m < 0 ? { year: c.year - 1, month: 11 } : { year: c.year, month: m };
+    });
+  const goNextMonth = () =>
+    setCalCursor(c => {
+      const m = c.month + 1;
+      return m > 11 ? { year: c.year + 1, month: 0 } : { year: c.year, month: m };
+    });
+
+  // Build real events for the displayed month from the app's database
+  const monthEvents = useMemo<Record<number, { type: string; label: string; detail: string }[]>>(() => {
+    const events: Record<number, { type: string; label: string; detail: string }[]> = {};
+    const add = (day: number, ev: { type: string; label: string; detail: string }) => {
+      (events[day] ||= []).push(ev);
+    };
+
+    // 1) Monthly fee due on the 5th (only show if unpaid for the displayed month)
+    const feeForDisplayedMonth = feeRecords.find(f => f.month === displayedMonthName);
+    if (feeForDisplayedMonth && feeForDisplayedMonth.status !== 'paid') {
+      add(5, {
+        type: 'fee',
+        label: 'Fee Due',
+        detail: `₹${feeForDisplayedMonth.amount} pending for ${displayedMonthName}. Pay via UPI in the Fees panel.`
+      });
+    } else if (!feeForDisplayedMonth && displayedMonthName === currentMonthName) {
+      add(5, {
+        type: 'fee',
+        label: 'Fee Due',
+        detail: `₹${student.fees} monthly fee due on the 5th.`
+      });
+    }
+
+    // 2) Test dates for the student's batch in the displayed month
+    tests.forEach(t => {
+      if (!t.date) return;
+      const td = new Date(t.date);
+      if (td.getFullYear() === calCursor.year && td.getMonth() === calCursor.month) {
+        add(td.getDate(), {
+          type: 'test',
+          label: 'Test',
+          detail: `${t.title} • ${t.totalMarks} marks`
+        });
+      }
+    });
+
+    // 3) Notes uploaded for the student's batch in the displayed month
+    StorageService.getNotes()
+      .filter(n => n.batchId === student.batchId)
+      .forEach(n => {
+        if (!n.createdAt) return;
+        const nd = new Date(n.createdAt);
+        if (nd.getFullYear() === calCursor.year && nd.getMonth() === calCursor.month) {
+          add(nd.getDate(), {
+            type: 'note',
+            label: 'Notes',
+            detail: `"${n.title}" uploaded (${n.subject})`
+          });
+        }
+      });
+
+    // 4) The student's own doubts asked / answered in the displayed month
+    doubts.forEach(d => {
+      if (d.createdAt) {
+        const dd = new Date(d.createdAt.replace(' ', 'T'));
+        if (dd.getFullYear() === calCursor.year && dd.getMonth() === calCursor.month) {
+          add(dd.getDate(), {
+            type: 'doubt',
+            label: 'Doubt Asked',
+            detail: d.question.length > 50 ? d.question.slice(0, 50) + '…' : d.question
+          });
+        }
+      }
+      if (d.answeredAt) {
+        const ad = new Date(d.answeredAt.replace(' ', 'T'));
+        if (ad.getFullYear() === calCursor.year && ad.getMonth() === calCursor.month) {
+          add(ad.getDate(), {
+            type: 'answered',
+            label: 'Doubt Answered',
+            detail: 'Faculty replied to your question.'
+          });
+        }
+      }
+    });
+
+    return events;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [calCursor, feeRecords, tests, doubts, student, displayedMonthName, currentMonthName]);
+
+  // Calendar grid cells (with leading blanks for the first weekday)
+  const calendarCells = useMemo(() => {
+    const startWeekday = displayedFirstDay.getDay(); // 0 = Sunday
+    const daysInMonth = new Date(calCursor.year, calCursor.month + 1, 0).getDate();
+    const cells: (null | {
+      dayNum: number;
+      dayName: string;
+      isScheduledClass: boolean;
+      isToday: boolean;
+      hasEvents: boolean;
+    })[] = [];
+    for (let i = 0; i < startWeekday; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateObj = new Date(calCursor.year, calCursor.month, d);
+      const dayName = dateObj.toLocaleString('en-US', { weekday: 'short' });
+      cells.push({
+        dayNum: d,
+        dayName,
+        isScheduledClass: scheduledDays.includes(dayName),
+        isToday:
+          isViewingCurrentMonth && d === today.getDate(),
+        hasEvents: !!monthEvents[d]
+      });
+    }
+    return cells;
+  }, [calCursor, scheduledDays, monthEvents, displayedFirstDay, isViewingCurrentMonth, today]);
+
+  const selectedDayEvents = selectedDay ? monthEvents[selectedDay] || [] : [];
+
+  // Event type → tailwind classes for the dot + the legend
+  const eventStyle: Record<string, string> = {
+    fee: 'bg-rose-500',
+    test: 'bg-amber-500',
+    note: 'bg-emerald-500',
+    doubt: 'bg-indigo-500',
+    answered: 'bg-purple-500'
+  };
+  const eventLegend: { type: string; label: string }[] = [
+    { type: 'fee', label: 'Fee Due' },
+    { type: 'test', label: 'Test' },
+    { type: 'note', label: 'Notes' },
+    { type: 'doubt', label: 'Doubt Asked' },
+    { type: 'answered', label: 'Answered' }
+  ];
 
   // Recent test score with auto-calculated rank
   const latestTest = tests[0];
@@ -96,60 +232,129 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
       {/* Main Grid: Calendar & Fee Overview */}
       <div className="grid lg:grid-cols-12 gap-6">
         {/* INTERACTIVE CALENDAR HIGHLIGHTING ADMIN SCHEDULED DAYS */}
+                {/* REAL SYNCED CALENDAR — events pulled from the database */}
         <div className="lg:col-span-7 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
           <div className="flex justify-between items-center pb-3 border-b border-slate-100">
             <div>
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <CalendarIcon className="w-5 h-5 text-indigo-600" /> Class Schedule Calendar
+                <CalendarIcon className="w-5 h-5 text-indigo-600" /> My Calendar
               </h3>
-              <p className="text-xs text-slate-500">{currentMonthName} • Highlighted days are scheduled classes</p>
+              <p className="text-xs text-slate-500">
+                {displayedMonthName} • Click a day to see your events
+              </p>
             </div>
-
-            <div className="flex items-center gap-2 text-xs">
-              <span className="flex items-center gap-1 font-bold text-indigo-600">
-                <span className="w-3 h-3 bg-indigo-600 rounded-full inline-block" /> Class Day
+            {/* Month navigation */}
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={goPrevMonth}
+                className="px-2.5 py-1 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 font-bold text-xs transition-colors"
+                aria-label="Previous month"
+              >
+                ‹
+              </button>
+              <span className="text-xs font-extrabold text-slate-800 min-w-[110px] text-center">
+                {displayedMonthName}
               </span>
+              <button
+                onClick={goNextMonth}
+                className="px-2.5 py-1 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 font-bold text-xs transition-colors"
+                aria-label="Next month"
+              >
+                ›
+              </button>
             </div>
           </div>
 
-          {/* Calendar Grid */}
-          <div className="grid grid-cols-7 gap-2 text-center text-xs">
+          {/* Calendar grid */}
+          <div className="grid grid-cols-7 gap-1.5 text-center text-xs">
             {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
               <div key={d} className="font-bold text-slate-400 py-1 uppercase text-[10px]">
                 {d}
               </div>
             ))}
 
-            {calendarDays.map(({ dayNum, isScheduledClass, isToday }) => (
-              <div
-                key={dayNum}
-                className={`p-2.5 rounded-xl font-bold transition-all relative ${
-                  isToday
-                    ? 'bg-slate-900 text-white ring-2 ring-indigo-400 shadow-md'
-                    : isScheduledClass
-                    ? 'bg-indigo-50 text-indigo-950 border border-indigo-200 shadow-sm font-black'
-                    : 'bg-slate-50 text-slate-600 border border-slate-100'
-                }`}
-              >
-                <span>{dayNum}</span>
-                {isScheduledClass && (
-                  <span className="block text-[9px] font-extrabold text-indigo-600 uppercase mt-0.5 leading-none">
-                    Class
+            {calendarCells.map((cell, idx) =>
+              cell === null ? (
+                <div key={`blank-${idx}`} />
+              ) : (
+                <button
+                  key={cell.dayNum}
+                  onClick={() => setSelectedDay(cell.dayNum)}
+                  className={`p-2 rounded-xl font-bold transition-all relative flex flex-col items-center justify-start gap-1 min-h-[52px] ${
+                    selectedDay === cell.dayNum
+                      ? 'ring-2 ring-indigo-400 bg-indigo-50'
+                      : cell.isToday
+                      ? 'bg-slate-900 text-white shadow-md'
+                      : cell.hasEvents
+                      ? 'bg-amber-50/60 border border-amber-200/60 hover:bg-amber-100/60'
+                      : cell.isScheduledClass
+                      ? 'bg-indigo-50/70 text-indigo-950 border border-indigo-200/60 hover:bg-indigo-100/70'
+                      : 'bg-slate-50 text-slate-600 border border-slate-100 hover:bg-slate-100'
+                  }`}
+                >
+                  <span className={cell.isToday && selectedDay !== cell.dayNum ? 'text-white' : ''}>
+                    {cell.dayNum}
                   </span>
-                )}
-              </div>
-            ))}
+
+                  {/* Event dots */}
+                  {cell.hasEvents && (
+                    <div className="flex gap-0.5 flex-wrap justify-center">
+                      {(monthEvents[cell.dayNum] || []).slice(0, 4).map((ev, i) => (
+                        <span
+                          key={i}
+                          className={`w-1.5 h-1.5 rounded-full ${eventStyle[ev.type] || 'bg-slate-400'}`}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Class-day badge */}
+                  {cell.isScheduledClass && !cell.hasEvents && (
+                    <span className="text-[8px] font-extrabold text-indigo-500 uppercase leading-none">
+                      Class
+                    </span>
+                  )}
+                </button>
+              )
+            )}
           </div>
 
-          <div className="pt-2 border-t border-slate-100 text-xs text-slate-500 flex items-center gap-2">
-            <span className="font-semibold text-slate-800">Weekly Days Selected by Faculty:</span>
-            <div className="flex gap-1">
-              {scheduledDays.map(d => (
-                <span key={d} className="px-2 py-0.5 bg-slate-900 text-indigo-300 font-bold text-[10px] rounded-md">
-                  {d}
-                </span>
-              ))}
-            </div>
+          {/* Legend */}
+          <div className="flex flex-wrap gap-2.5 pt-2 border-t border-slate-100">
+            {eventLegend.map(l => (
+              <span key={l.type} className="flex items-center gap-1 text-[10px] font-bold text-slate-500">
+                <span className={`w-2.5 h-2.5 rounded-full ${eventStyle[l.type]}`} /> {l.label}
+              </span>
+            ))}
+            <span className="flex items-center gap-1 text-[10px] font-bold text-slate-500">
+              <span className="w-2.5 h-2.5 rounded-full bg-indigo-200 border border-indigo-300" /> Class Day
+            </span>
+          </div>
+
+          {/* Selected day's events */}
+          <div className="pt-2 border-t border-slate-100">
+            <p className="text-xs font-bold text-slate-700 mb-2">
+              {selectedDay ? `${displayedMonthName} ${selectedDay}` : 'Select a day'} —{' '}
+              {selectedDayEvents.length} event{selectedDayEvents.length === 1 ? '' : 's'}
+            </p>
+            {selectedDayEvents.length === 0 ? (
+              <p className="text-xs text-slate-400">No events on this day.</p>
+            ) : (
+              <ul className="space-y-1.5 max-h-40 overflow-y-auto">
+                {selectedDayEvents.map((ev, i) => (
+                  <li
+                    key={i}
+                    className="flex items-start gap-2 p-2 rounded-lg bg-slate-50 border border-slate-100"
+                  >
+                    <span className={`w-2 h-2 rounded-full mt-1 shrink-0 ${eventStyle[ev.type]}`} />
+                    <div>
+                      <p className="text-xs font-bold text-slate-800">{ev.label}</p>
+                      <p className="text-[11px] text-slate-500 leading-snug">{ev.detail}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
 
