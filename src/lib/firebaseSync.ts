@@ -1,4 +1,4 @@
-import { collection, doc, setDoc, getDocs, deleteDoc, onSnapshot } from 'firebase/firestore';
+import { collection, doc, setDoc, getDoc, getDocs, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { db } from './firebase';
 
 export async function syncDocToFirestore(collectionName: string, item: any) {
@@ -63,21 +63,21 @@ export function setupFirestoreListeners() {
   });
 }
 
-export async function loadInitialDataFromFirestore() {
+// Pure fetch (no listener re-attach). Used by the admin Refresh button.
+export async function fetchDataFromFirestore(): Promise<boolean> {
   const collectionsToLoad = [
-    { key: 'batches', col: 'batches' },
-    { key: 'students', col: 'students' },
-    { key: 'fees', col: 'feeRecords' },
-    { key: 'notes', col: 'notes' },
-    { key: 'doubts', col: 'doubts' },
-    { key: 'tests', col: 'tests' },
+    { key: 'batches',    col: 'batches' },
+    { key: 'students',   col: 'students' },
+    { key: 'fees',       col: 'feeRecords' },
+    { key: 'notes',      col: 'notes' },
+    { key: 'doubts',     col: 'doubts' },
+    { key: 'tests',      col: 'tests' },
     { key: 'notifications', col: 'notifications' }
   ];
 
   let hasData = false;
-  
-  const timeoutPromise = new Promise((_, reject) => 
-    setTimeout(() => reject(new Error('Firestore load timeout')), 3000)
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('Firestore load timeout')), 5000)
   );
 
   try {
@@ -92,17 +92,34 @@ export async function loadInitialDataFromFirestore() {
           localStorage.setItem(`apex_${key}_v2`, JSON.stringify([]));
         }
       } catch (err) {
-        // Ignore single collection fetch fail
+        // ignore single collection fetch fail
       }
     });
-
     await Promise.race([Promise.allSettled(fetchPromises), timeoutPromise]);
   } catch (err) {
-    console.debug("Firestore initial sync notice:", err);
+    console.debug('Firestore fetch notice:', err);
   }
 
-  // Start background real-time listeners
-  setupFirestoreListeners();
+  // Also pull the custom website logo (cross-device branding sync)
+  try {
+    const logoDoc = await getDoc(doc(db, 'siteSettings', 'logo'));
+    if (logoDoc.exists() && logoDoc.data()?.logoData) {
+      localStorage.setItem('apex_site_logo', logoDoc.data().logoData);
+    }
+  } catch (e) {
+    // ignore logo fetch fail
+  }
 
+  // Tell every component that localStorage changed so they re-render
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('apex_storage_updated'));
+  }
+  return hasData;
+}
+
+// Original boot-time loader (kept for main.tsx) — fetch + attach listeners once.
+export async function loadInitialDataFromFirestore() {
+  const hasData = await fetchDataFromFirestore();
+  setupFirestoreListeners();
   return hasData;
 }
