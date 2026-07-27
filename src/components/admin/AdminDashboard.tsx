@@ -1,3 +1,6 @@
+import { loadInitialDataFromFirestore } from '../../lib/firebaseSync'; // (not strictly needed, kept for reference)
+import { RefreshCw } from 'lucide-react';
+import { fetchDataFromFirestore } from '../../lib/firebaseSync';
 import React, { useState } from 'react';
 import { googleSignIn } from '../../lib/auth';
 import { syncFeeRemindersToCalendar } from '../../lib/calendar';
@@ -13,7 +16,8 @@ import {
   Clock,
   CheckCircle2,
   Bell,
-  FileText
+  FileText,
+  RefreshCw
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -39,6 +43,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
     }
   };
 
+const [isRefreshing, setIsRefreshing] = useState(false);
+const [refreshTick, setRefreshTick] = useState(0); // bumps to force stats re-read
+
+const handleRefreshDatabase = async () => {
+  try {
+    setIsRefreshing(true);
+    await fetchDataFromFirestore(); // re-pull all 7 collections + logo from Firestore
+    setRefreshTick(t => t + 1);     // force this component to re-read stats
+    // eslint-disable-next-line no-console
+    console.log('Database refreshed from Firestore. tick =', refreshTick + 1);
+  } catch (err: any) {
+    console.error('Refresh failed:', err);
+    alert('Failed to refresh database: ' + (err?.message || 'Unknown error'));
+  } finally {
+    setIsRefreshing(false);
+  }
+};
+  
   const students = StorageService.getStudents();
   const batches = StorageService.getBatches();
   const doubts = StorageService.getDoubts();
@@ -95,6 +117,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
             className="col-span-2 sm:col-span-1 w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5"
           >
             <CalendarSync className="w-4 h-4" /> {isSyncingCalendar ? 'Syncing...' : 'Sync Calendar'}
+          </button>
+          <button
+          onClick={handleRefreshDatabase}
+          disabled={isRefreshing}
+          title="Pull the latest data from the cloud database"
+          className="col-span-2 sm:col-span-1 w-full sm:w-auto px-4 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5"
+        >
+          <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          {isRefreshing ? 'Refreshing...' : 'Refresh Database'}
           </button>
           <button
             onClick={() => onNavigate('students')}
