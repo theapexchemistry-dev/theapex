@@ -99,7 +99,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         setLoading(false);
       }
     } else {
-    } else {
       const students = StorageService.getStudents();
       const match = students.find(
         s => s.id.toLowerCase() === username.trim().toLowerCase() && 
