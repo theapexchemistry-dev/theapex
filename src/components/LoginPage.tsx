@@ -63,7 +63,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     e.preventDefault();
     setError('');
 
-    if (activeTab === 'admin') {
+        if (activeTab === 'admin') {
       const inputUser = username.trim();
       const inputPass = password.trim();
 
@@ -72,15 +72,33 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         return;
       }
 
+      // --- HARDENED ADMIN CREDENTIALS CHECK ---
+      const ADMIN_EMAIL = 'theapexchemistry@gmail.com';
+      const ADMIN_PASSWORD = 'subha1122';
+
+      // Step 1: Strict match on the exact allowed credentials
+      if (
+        inputUser.toLowerCase() !== ADMIN_EMAIL.toLowerCase() ||
+        inputPass !== ADMIN_PASSWORD
+      ) {
+        setError('Invalid Admin credentials. Access denied.');
+        return;
+      }
+
+      // Step 2: Verify with Firebase Auth (optional layer of security)
       setLoading(true);
       try {
         await signInWithEmailAndPassword(auth, inputUser, inputPass);
         onLoginSuccess('admin');
       } catch (err: any) {
-        onLoginSuccess('admin');
+        // Credentials matched our hardcoded check, but Firebase rejected them.
+        // Show an error instead of silently logging in.
+        console.warn('Firebase admin sign-in failed:', err?.code || err?.message);
+        setError('Authentication failed. Please check your credentials and try again.');
       } finally {
         setLoading(false);
       }
+    } else {
     } else {
       const students = StorageService.getStudents();
       const match = students.find(
