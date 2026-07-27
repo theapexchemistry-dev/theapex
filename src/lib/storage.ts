@@ -28,7 +28,8 @@ const KEYS = {
   DOUBTS: 'apex_doubts_v2',
   TESTS: 'apex_tests_v2',
   NOTIFICATIONS: 'apex_notifications_v2',
-  SUPABASE_CONFIG: 'apex_supabase_config_v2'
+  SUPABASE_CONFIG: 'apex_supabase_config_v2',
+  SITE_LOGO: 'apex_site_logo'            // 👈 ADD THIS LINE
 };
 
 function getItem<T>(key: string, fallback: T): T {
@@ -63,7 +64,44 @@ export class StorageService {
   static saveSupabaseConfig(config: SupabaseConfig): void {
     setItem(KEYS.SUPABASE_CONFIG, config);
   }
+  // Website Logo (admin-customizable branding)
+  static getSiteLogo(): string | null {
+    try {
+      return localStorage.getItem(KEYS.SITE_LOGO);
+    } catch {
+      return null;
+    }
+  }
 
+  static saveSiteLogo(base64DataUrl: string): void {
+    try {
+      localStorage.setItem(KEYS.SITE_LOGO, base64DataUrl);
+      // Sync to Firestore so it loads on other devices too
+      // (logo is resized to ~400px in AdminSettings, so it stays well under Firestore's 1MB doc limit)
+      syncDocToFirestore('siteSettings', {
+        id: 'logo',
+        logoData: base64DataUrl,
+        updatedAt: new Date().toISOString()
+      });
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('apex_storage_updated'));
+      }
+    } catch (e) {
+      console.error('Error saving site logo', e);
+    }
+  }
+
+  static clearSiteLogo(): void {
+    try {
+      localStorage.removeItem(KEYS.SITE_LOGO);
+      deleteFromFirestore('siteSettings', 'logo');
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('apex_storage_updated'));
+      }
+    } catch (e) {
+      console.error('Error clearing site logo', e);
+    }
+  }
   // Batches
   static getBatches(): Batch[] {
     return getItem<Batch[]>(KEYS.BATCHES, INITIAL_BATCHES);
