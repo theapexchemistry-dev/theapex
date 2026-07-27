@@ -1,3 +1,4 @@
+import { googleSignIn } from '../../lib/auth';
 import React, { useState } from 'react';
 import { StorageService } from '../../lib/storage';
 import { runMonthlyFeeReminderTask } from '../../lib/scheduledTasks';
@@ -26,7 +27,7 @@ export const AdminFees: React.FC = () => {
   const [selectedBatchId, setSelectedBatchId] = useState('');
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-
+  const [reminderLoading, setReminderLoading] = useState(false);
   const [reminderSentMessage, setReminderSentMessage] = useState('');
   
   const [screenshotModalOpen, setScreenshotModalOpen] = useState(false);
@@ -87,12 +88,31 @@ The Apex Chemistry`;
     setTimeout(() => setReminderSentMessage(''), 3000);
   };
 
-  // Trigger 5th of Month Automated Batch Fee Reminders
-  const handleTriggerMonthlyAutoReminders = () => {
-    const result = runMonthlyFeeReminderTask(true);
-    refreshData();
-    setReminderSentMessage(result.message);
-    setTimeout(() => setReminderSentMessage(''), 5000);
+    // Trigger 5th of Month Automated Batch Fee Reminders
+  // → sends in-app notifications AND emails to registered students
+  const handleTriggerMonthlyAutoReminders = async () => {
+    setReminderLoading(true);
+    setReminderSentMessage('');
+    try {
+      // Ensure the admin is signed into Google so we can send emails via Gmail.
+      // If the popup is cancelled, we still send in-app notifications.
+      try {
+        await googleSignIn();
+      } catch (e: any) {
+        console.warn('Google sign-in skipped/failed — emails will be skipped:', e);
+      }
+
+      const result = await runMonthlyFeeReminderTask(true);
+      refreshData();
+      setReminderSentMessage(result.message);
+      setTimeout(() => setReminderSentMessage(''), 8000);
+    } catch (err: any) {
+      console.error('Monthly reminder trigger failed:', err);
+      setReminderSentMessage('Failed to trigger reminders: ' + (err?.message || 'Unknown error'));
+      setTimeout(() => setReminderSentMessage(''), 8000);
+    } finally {
+      setReminderLoading(false);
+    }
   };
 
   const handleVerifyPayment = (recordId: string, status: 'paid' | 'unpaid') => {
@@ -127,9 +147,15 @@ The Apex Chemistry`;
         {/* 5th of Month Auto Reminder Banner Button */}
         <button
           onClick={handleTriggerMonthlyAutoReminders}
-          className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2"
+          disabled={reminderLoading}
+          className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2"
         >
-          <Calendar className="w-4 h-4" /> Trigger 5th-Day Monthly Fee Reminder
+          {reminderLoading ? (
+            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <Calendar className="w-4 h-4" />
+          )}
+          {reminderLoading ? 'Sending Reminders...' : 'Trigger 5th-Day Monthly Fee Reminder'}
         </button>
       </div>
 
