@@ -5,13 +5,6 @@ export async function syncDocToFirestore(collectionName: string, id: string, dat
   await setDoc(doc(db, collectionName, id), data, { merge: true });
 }
 
-export async function syncDocToFirestore(collectionName: string, item: any): Promise<void> {
-  if (item && item.id) {
-    const cleanItem = JSON.parse(JSON.stringify(item));
-    await setDoc(doc(db, collectionName, item.id), cleanItem); // throws on failure
-  }
-}
-
 export async function syncArrayToFirestore(collectionName: string, items: any[]) {
   try {
     for (const item of items) {
