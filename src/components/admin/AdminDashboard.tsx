@@ -87,14 +87,24 @@ const handleRefreshDatabase = async () => {
   // Monthly fee collection data (Last 6 months dynamically)
   const chartData = Array.from({ length: 6 }).map((_, i) => {
     const d = new Date();
+    d.setDate(1); // ← CRITICAL FIX: prevents month overflow (e.g. "Feb 31" → "Mar 3")
     d.setMonth(d.getMonth() - (5 - i));
     const fullMonth = d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
     const label = d.toLocaleString('en-US', { month: 'short' });
-    
+
+    // Deduplicate fee records: keep only one record per student per month
+    // (prevents double-counting if duplicate records exist in the DB)
+    const seenStudents = new Set<string>();
     const monthPaid = paidFees
-      .filter(f => f.month === fullMonth)
+      .filter(f => {
+        if (f.month !== fullMonth) return false;
+        const key = `${f.studentId}_${f.month}`;
+        if (seenStudents.has(key)) return false; // skip duplicate
+        seenStudents.add(key);
+        return true;
+      })
       .reduce((acc, f) => acc + (Number(f.amount) || 0), 0);
-      
+
     return { month: label, earnings: monthPaid };
   });
 
