@@ -223,8 +223,22 @@ export class StorageService {
   static generateStudentCredentials(): { id: string; pass: string } {
     const year = new Date().getFullYear();
     const existing = this.getStudents();
-    const nextNum = 100 + existing.length + 1;
+
+    // Build a set of all IDs ever used (current + deleted blacklist)
+    const usedIds = new Set<string>();
+    existing.forEach(s => usedIds.add(s.id));
+
+    const deletedIds = this.getDeletedStudentIds();
+    deletedIds.forEach(id => usedIds.add(id));
+
+    // Find the next available number starting from 101
+    let nextNum = 101;
+    while (usedIds.has(`APEX${year}${nextNum}`)) {
+      nextNum++;
+    }
     const id = `APEX${year}${nextNum}`;
+
+    // Random password — always different from any previous one
     const pass = 'apex' + Math.floor(1000 + Math.random() * 9000);
     return { id, pass };
   }
@@ -248,6 +262,32 @@ export class StorageService {
     const updated = [newStudent, ...students];
     this.saveStudents(updated);
 
+  // Deleted student IDs blacklist — prevents ID reuse after deletion
+  static getDeletedStudentIds(): string[] {
+    try {
+      return JSON.parse(localStorage.getItem(KEYS.DELETED_STUDENT_IDS) || '[]');
+    } catch {
+      return [];
+    }
+  }
+
+  static async addDeletedStudentId(id: string): Promise<void> {
+    const deleted = this.getDeletedStudentIds();
+    if (!deleted.includes(id)) {
+      deleted.push(id);
+      localStorage.setItem(KEYS.DELETED_STUDENT_IDS, JSON.stringify(deleted));
+      // Sync to Firestore so the blacklist applies on all devices
+      try {
+        await syncDocToFirestore('siteSettings', {
+          id: 'deletedStudentIds',
+          ids: deleted,
+          updatedAt: new Date().toISOString()
+        });
+      } catch (e) {
+        console.error('Error syncing deleted student IDs:', e);
+      }
+    }
+  }
     // Initialize fee records for current month
     const currentMonth = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
     this.addFeeRecord({
@@ -282,6 +322,14 @@ export class StorageService {
   }
 
   static deleteStudent(id: string): void {
+    // Blacklist the ID so it can NEVER be reused
+    this.addDeletedStudentId(id);
+
+    // Also delete the student's fee records
+    const allFees = this.getFeeRecords();
+    const remainingFees = allFees.filter(f => f.studentId !== id);
+    this.saveFeeRecords(remainingFees);
+
     deleteFromFirestore('students', id);
     const students = this.getStudents().filter(s => s.id !== id);
     this.saveStudents(students);
