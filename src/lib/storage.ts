@@ -29,7 +29,7 @@ const KEYS = {
   TESTS: 'apex_tests_v2',
   NOTIFICATIONS: 'apex_notifications_v2',
   SUPABASE_CONFIG: 'apex_supabase_config_v2',
-  SITE_LOGO: 'apex_site_logo'            // 👈 ADD THIS LINE
+  SITE_LOGO: 'apex_site_logo',            // 👈 ADD THIS LINE
   SITE_NAME: 'apex_site_name',        // ← ADD
   TAGLINE: 'apex_tagline',            // ← ADD
   DELETED_STUDENT_IDS: 'apex_deleted_student_ids'  // ← ADD (for Fix 4)
