@@ -52,7 +52,24 @@ function setItem<T>(key: string, value: T): void {
     console.error('Error writing to localStorage', e);
   }
 }
+static KEYS = {
+  // ...existing keys...
+  SITE_LOGO: 'apex_site_logo_v2',
+  SITE_NAME: 'apex_site_name_v2',
+  TAGLINE: 'apex_tagline_v2',
+};
 
+static getSiteLogo(): string {
+  return localStorage.getItem(this.KEYS.SITE_LOGO) || '';
+}
+
+static getSiteName(): string {
+  return localStorage.getItem(this.KEYS.SITE_NAME) || '';
+}
+
+static getTagline(): string {
+  return localStorage.getItem(this.KEYS.TAGLINE) || '';
+}
 export class StorageService {
   // Config
   static getSupabaseConfig(): SupabaseConfig {
