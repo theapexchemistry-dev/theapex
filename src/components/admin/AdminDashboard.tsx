@@ -1,10 +1,7 @@
-import { loadInitialDataFromFirestore } from '../../lib/firebaseSync'; // (not strictly needed, kept for reference)
-import { RefreshCw } from 'lucide-react';
-import { fetchDataFromFirestore } from '../../lib/firebaseSync';
 import React, { useState } from 'react';
 import { googleSignIn } from '../../lib/auth';
 import { syncFeeRemindersToCalendar } from '../../lib/calendar';
-import { CalendarSync } from 'lucide-react';
+import { fetchDataFromFirestore } from '../../lib/firebaseSync';
 import { StorageService } from '../../lib/storage';
 import {
   Users,
@@ -17,7 +14,8 @@ import {
   CheckCircle2,
   Bell,
   FileText,
-  RefreshCw
+  RefreshCw,
+  CalendarSync
 } from 'lucide-react';
 
 interface AdminDashboardProps {
