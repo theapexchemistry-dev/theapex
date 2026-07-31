@@ -6,7 +6,68 @@ import { db, collection, getDocs, deleteDoc, doc } from '../../lib/firebase';
 export const AdminSettings: React.FC = () => {
   const [wiping, setWiping] = useState(false);
   const [statusMsg, setStatusMsg] = useState('');
+  // Branding state
+  const [siteName, setSiteName] = useState(() => StorageService.getSiteName());
+  const [tagline, setTagline] = useState(() => StorageService.getTagline());
+  const [brandingSaving, setBrandingSaving] = useState(false);
 
+  const handleSaveBranding = async () => {
+    setBrandingSaving(true);
+    setStatusMsg('');
+    try {
+      await StorageService.saveSiteName(siteName.trim() || 'THE APEX WORLD');
+      await StorageService.saveTagline(tagline.trim() || 'Empowering Minds, Enriching Futures');
+      setStatusMsg('✓ Website name and tagline updated and synced to the cloud!');
+    } catch (err: any) {
+      setStatusMsg('Failed to save branding: ' + (err?.message || 'Unknown error'));
+    } finally {
+      setBrandingSaving(false);
+      setTimeout(() => setStatusMsg(''), 6000);
+    }
+  };
+
+          {/* Website Name & Tagline */}
+        <div className="lg:col-span-6 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+          <h3 className="text-base font-bold text-slate-900 flex items-center gap-2 pb-2 border-b border-slate-100">
+            <Key className="w-5 h-5 text-indigo-500" /> Website Name & Tagline
+          </h3>
+
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1 uppercase tracking-wider">
+                Website Name
+              </label>
+              <input
+                type="text"
+                value={siteName}
+                onChange={e => setSiteName(e.target.value)}
+                placeholder="THE APEX WORLD"
+                className="w-full px-3 py-2.5 text-xs font-medium border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1 uppercase tracking-wider">
+                Tagline
+              </label>
+              <input
+                type="text"
+                value={tagline}
+                onChange={e => setTagline(e.target.value)}
+                placeholder="Empowering Minds, Enriching Futures"
+                className="w-full px-3 py-2.5 text-xs font-medium border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-400 focus:border-amber-400 outline-none"
+              />
+            </div>
+
+            <button
+              onClick={handleSaveBranding}
+              disabled={brandingSaving}
+              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
+            >
+              {brandingSaving ? 'Saving...' : 'Save Branding'}
+            </button>
+          </div>
+        </div>
   // Logo state
   const [logoUploading, setLogoUploading] = useState(false);
   const [logoPreview, setLogoPreview] = useState<string | null>(() => StorageService.getSiteLogo());
