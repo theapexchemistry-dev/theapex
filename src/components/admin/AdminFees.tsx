@@ -88,6 +88,46 @@ The Apex Chemistry`;
     setTimeout(() => setReminderSentMessage(''), 3000);
   };
 
+  // Mark a student's current-month fee as paid manually (cash payment)
+  const handleMarkPaidManually = (student: Student) => {
+    const currentMonth = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
+
+    // Find the current month's fee record (or create one if none exists)
+    let record = feeRecords.find(
+      f => f.studentId === student.id && f.month === currentMonth
+    );
+
+    if (!record) {
+      // No fee record exists yet — create one and mark it paid
+      record = StorageService.addFeeRecord({
+        studentId: student.id,
+        studentName: student.name,
+        batchId: student.batchId,
+        month: currentMonth,
+        amount: student.fees,
+        status: 'unpaid'
+      });
+    }
+
+    // Mark as paid with a cash transaction reference
+    StorageService.updateFeeStatus(record.id, 'paid', 'CASH_MANUAL', undefined);
+
+    // Notify the student
+    StorageService.addNotification({
+      title: `Fee Received - ${currentMonth}`,
+      message: `Your fee of ₹${student.fees} for ${currentMonth} has been marked as paid by cash. Thank you!`,
+      type: 'payment_received',
+      timestamp: 'Just now',
+      targetRole: 'student',
+      targetStudentId: student.id,
+      read: false
+    });
+
+    refreshData();
+    setReminderSentMessage(`✓ ${student.name}'s fee for ${currentMonth} marked as PAID (Cash).`);
+    setTimeout(() => setReminderSentMessage(''), 4000);
+  };
+  
     // Trigger 5th of Month Automated Batch Fee Reminders
   // → sends in-app notifications AND emails to registered students
   const handleTriggerMonthlyAutoReminders = async () => {
@@ -251,6 +291,7 @@ The Apex Chemistry`;
                 <th className="p-3.5">Payment History</th>
                 <th className="p-3.5">Verification</th>
                 <th className="p-3.5 text-right">Personal Fee Reminder</th>
+                <th className="p-3.5 text-right">Fee Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -394,7 +435,28 @@ The Apex Chemistry`;
           </table>
         </div>
       </div>
+                    <td className="p-3.5 text-right">
+                      <div className="flex flex-col gap-1.5 items-end">
+                        {/* Always-visible: Mark Paid Manually (Cash) */}
+                        <button
+                          onClick={() => handleMarkPaidManually(student)}
+                          title="Mark this month's fee as paid via cash"
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all flex items-center gap-1.5"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Mark Paid (Cash)
+                        </button>
 
+                        {/* Conditional: Send WhatsApp reminder (only when due) */}
+                        {totalDue > 0 && (
+                          <button
+                            onClick={() => handleSendReminder(student, totalDue)}
+                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" /> Send Reminder
+                          </button>
+                        )}
+                      </div>
+                    </td>
       {/* Screenshot Viewer Modal */}
       {screenshotModalOpen && selectedModalRecord && selectedModalStudent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
