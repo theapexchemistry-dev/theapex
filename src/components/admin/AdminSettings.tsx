@@ -51,15 +51,21 @@ export const AdminSettings: React.FC = () => {
     setLogoUploading(true);
     setStatusMsg('');
     try {
-      const dataUrl = await resizeImage(file, 400, 400, 0.85);
-      StorageService.saveSiteLogo(dataUrl);
-      setLogoPreview(dataUrl);
-      setStatusMsg('Website logo updated successfully! It is now live across the portal.');
+      // Compress aggressively: 300x300, quality 0.8 → ~20-40KB base64 (well under Firestore's 1MB limit)
+      const dataUrl = await resizeImage(file, 300, 300, 0.8);
+      const result = await StorageService.saveSiteLogo(dataUrl);
+      if (result.success) {
+        setLogoPreview(dataUrl);
+        setStatusMsg('✓ Website logo updated and synced to the cloud database successfully! It will appear on all devices.');
+      } else {
+        // Saved locally but Firestore sync failed
+        setLogoPreview(dataUrl);
+        setStatusMsg('⚠ Logo saved on this device but cloud sync failed: ' + (result.error || 'Unknown error') + '. Check your internet connection and try again.');
+      }
     } catch (err: any) {
       setStatusMsg('Failed to update logo: ' + (err?.message || 'Unknown error'));
     } finally {
       setLogoUploading(false);
-      // reset file input so the same file can be re-selected
       e.target.value = '';
     }
   };
