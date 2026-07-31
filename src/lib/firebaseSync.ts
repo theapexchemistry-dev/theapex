@@ -35,7 +35,7 @@ export function setupFirestoreListeners() {
     { key: 'students', col: 'students' },
     { key: 'batches', col: 'batches' },
     { key: 'tests', col: 'tests' },
-    { key: 'siteSettings', col: 'siteSettings' }  // ← ADD THIS LINE
+    { key: 'siteSettings', col: 'siteSettings' }
   ];
 
   collectionsToListen.forEach(({ key, col }) => {
@@ -72,6 +72,7 @@ export function setupFirestoreListeners() {
     }
   });
 }
+
 // Pure fetch (no listener re-attach). Used by the admin Refresh button.
 export async function fetchDataFromFirestore(): Promise<boolean> {
   const collectionsToLoad = [
@@ -83,27 +84,7 @@ export async function fetchDataFromFirestore(): Promise<boolean> {
     { key: 'tests',      col: 'tests' },
     { key: 'notifications', col: 'notifications' }
   ];
-// ---- NEW: load site settings (logo / name / tagline) on boot ----
-try {
-  const settingsSnap = await getDocs(collection(db, 'siteSettings'));
-  for (const docSnap of settingsSnap.docs) {
-    const data = docSnap.data();
-    if (docSnap.id === 'site_logo' && data?.value) {
-      localStorage.setItem(StorageService.KEYS.SITE_LOGO, data.value);
-    } else if (docSnap.id === 'site_name' && data?.value) {
-      localStorage.setItem(StorageService.KEYS.SITE_NAME, data.value);
-    } else if (docSnap.id === 'tagline' && data?.value) {
-      localStorage.setItem(StorageService.KEYS.TAGLINE, data.value);
-    } else if (docSnap.id === 'deleted_student_ids' && Array.isArray(data?.value)) {
-      localStorage.setItem(
-        StorageService.KEYS.DELETED_STUDENT_IDS,
-        JSON.stringify(data.value)
-      );
-    }
-  }
-} catch (e) {
-  console.warn('siteSettings load failed:', e);
-}
+
   let hasData = false;
   const timeoutPromise = new Promise((_, reject) =>
     setTimeout(() => reject(new Error('Firestore load timeout')), 5000)
@@ -129,14 +110,26 @@ try {
     console.debug('Firestore fetch notice:', err);
   }
 
-  // Also pull the custom website logo (cross-device branding sync)
+  // ---- Pull site settings (logo / name / tagline / deleted IDs) on boot ----
+  // Doc IDs and field names MUST match what StorageService writes:
+  //   siteSettings/logo              → { logoData: string }
+  //   siteSettings/branding          → { siteName: string, tagline: string }
+  //   siteSettings/deletedStudentIds → { ids: string[] }
   try {
-    const logoDoc = await getDoc(doc(db, 'siteSettings', 'logo'));
-    if (logoDoc.exists() && logoDoc.data()?.logoData) {
-      localStorage.setItem('apex_site_logo', logoDoc.data().logoData);
+    const settingsSnap = await getDocs(collection(db, 'siteSettings'));
+    for (const docSnap of settingsSnap.docs) {
+      const data = docSnap.data();
+      if (docSnap.id === 'logo' && data?.logoData) {
+        localStorage.setItem('apex_site_logo', data.logoData);
+      } else if (docSnap.id === 'branding') {
+        if (data?.siteName) localStorage.setItem('apex_site_name', data.siteName);
+        if (data?.tagline) localStorage.setItem('apex_tagline', data.tagline);
+      } else if (docSnap.id === 'deletedStudentIds' && Array.isArray(data?.ids)) {
+        localStorage.setItem('apex_deleted_student_ids', JSON.stringify(data.ids));
+      }
     }
   } catch (e) {
-    // ignore logo fetch fail
+    console.warn('siteSettings load failed:', e);
   }
 
   // Tell every component that localStorage changed so they re-render
