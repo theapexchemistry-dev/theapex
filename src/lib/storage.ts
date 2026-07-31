@@ -30,6 +30,9 @@ const KEYS = {
   NOTIFICATIONS: 'apex_notifications_v2',
   SUPABASE_CONFIG: 'apex_supabase_config_v2',
   SITE_LOGO: 'apex_site_logo'            // 👈 ADD THIS LINE
+  SITE_NAME: 'apex_site_name',        // ← ADD
+  TAGLINE: 'apex_tagline',            // ← ADD
+  DELETED_STUDENT_IDS: 'apex_deleted_student_ids'  // ← ADD (for Fix 4)
 };
 
 function getItem<T>(key: string, fallback: T): T {
@@ -71,6 +74,53 @@ export class StorageService {
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('apex_storage_updated'));
       }
+  // Website Name (admin-customizable)
+  static getSiteName(): string {
+    try {
+      return localStorage.getItem(KEYS.SITE_NAME) || 'THE APEX WORLD';
+    } catch {
+      return 'THE APEX WORLD';
+    }
+  }
+
+  static async saveSiteName(name: string): Promise<void> {
+    try {
+      localStorage.setItem(KEYS.SITE_NAME, name);
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('apex_storage_updated'));
+      await syncDocToFirestore('siteSettings', {
+        id: 'branding',
+        siteName: name,
+        tagline: this.getTagline(), // preserve existing tagline
+        updatedAt: new Date().toISOString()
+      });
+    } catch (e) {
+      console.error('Error saving site name', e);
+    }
+  }
+
+  // Tagline (admin-customizable)
+  static getTagline(): string {
+    try {
+      return localStorage.getItem(KEYS.TAGLINE) || 'Empowering Minds, Enriching Futures';
+    } catch {
+      return 'Empowering Minds, Enriching Futures';
+    }
+  }
+
+  static async saveTagline(tagline: string): Promise<void> {
+    try {
+      localStorage.setItem(KEYS.TAGLINE, tagline);
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('apex_storage_updated'));
+      await syncDocToFirestore('siteSettings', {
+        id: 'branding',
+        siteName: this.getSiteName(), // preserve existing name
+        tagline: tagline,
+        updatedAt: new Date().toISOString()
+      });
+    } catch (e) {
+      console.error('Error saving tagline', e);
+    }
+  }
       // Write to Firestore so it loads on every device
       const result = await syncDocToFirestore('siteSettings', {
         id: 'logo',
