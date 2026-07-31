@@ -1,7 +1,14 @@
 import { useState, useEffect } from 'react';
-import { StorageService } from '@/lib/storage';
+import { StorageService } from '../lib/storage';
+import apexLogoFallback from '../assets/images/apex_logo_1784882809915.jpg';
 
-export function Logo({ compact = false }: { compact?: boolean }) {
+interface LogoProps {
+  size?: 'sm' | 'md' | 'lg';
+  variant?: 'light' | 'dark';
+  compact?: boolean;
+}
+
+export function Logo({ size = 'md', variant = 'dark', compact = false }: LogoProps) {
   // 1. Read current values from storage into React state
   const [siteName, setSiteName] = useState(
     StorageService.getSiteName() || 'THE APEX WORLD'
@@ -19,31 +26,43 @@ export function Logo({ compact = false }: { compact?: boolean }) {
       setLogoSrc(StorageService.getSiteLogo());
     };
 
-    update(); // read once immediately
+    update();
     window.addEventListener('apex_storage_updated', update);
     return () => window.removeEventListener('apex_storage_updated', update);
   }, []);
 
   // 3. Split the name into two parts for the two-tone color effect
-  //    e.g. "THE APEX WORLD" → head="THE APEX", tail="WORLD"
   const words = siteName.trim().split(' ');
-  const head = words.slice(0, -1).join(' ');   // everything except last word
-  const tail = words[words.length - 1];         // last word
+  const head = words.slice(0, -1).join(' ');
+  const tail = words[words.length - 1];
 
-  // 4. Render
+  // Size mapping
+  const sizeMap = {
+    sm: { img: 'h-8 w-8', title: 'text-sm', sub: 'text-[10px]' },
+    md: { img: 'h-10 w-10', title: 'text-lg', sub: 'text-xs' },
+    lg: { img: 'h-14 w-14', title: 'text-2xl', sub: 'text-sm' }
+  };
+  const s = sizeMap[size];
+
+  // Variant colors
+  const isDark = variant === 'dark';
+  const titleColor = isDark ? 'text-white' : 'text-slate-900';
+  const accentColor = isDark ? 'text-amber-400' : 'text-indigo-600';
+  const subColor = isDark ? 'text-slate-300' : 'text-slate-500';
+
   return (
     <div className="flex items-center gap-3">
       <img
-        src={logoSrc || '/default-logo.png'}
+        src={logoSrc || apexLogoFallback}
         alt="Site logo"
-        className="h-10 w-10 object-contain"
+        className={`${s.img} object-contain rounded-full`}
       />
       {!compact && (
         <div>
-          <div className="text-lg font-bold tracking-wide">
-            {head} <span className="text-primary">{tail}</span>
+          <div className={`${s.title} font-black tracking-tight ${titleColor}`}>
+            {head} <span className={accentColor}>{tail}</span>
           </div>
-          <div className="text-xs text-muted-foreground">{tagline}</div>
+          <div className={`${s.sub} ${subColor} font-medium`}>{tagline}</div>
         </div>
       )}
     </div>
