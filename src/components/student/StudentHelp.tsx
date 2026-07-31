@@ -24,7 +24,7 @@ export const StudentHelp: React.FC<StudentHelpProps> = ({ student }) => {
     const text = `Hello Mr. Subhamoy Mondal Sir,
 I am ${student.name} (ID: ${student.id}, ${student.className}).
 I need assistance regarding my portal account / class schedule.`;
-    window.open(`https://wa.me/919876543210?text=${encodeURIComponent(text)}`, '_blank');
+    window.open(`https://wa.me/919051818629?text=${encodeURIComponent(text)}`, '_blank');
   };
 
   return (
@@ -65,7 +65,7 @@ I need assistance regarding my portal account / class schedule.`;
           <h3 className="text-lg font-extrabold">Institute Helpline</h3>
           <p className="text-xs text-slate-300">Call during working hours: 10:00 AM – 08:00 PM</p>
           <a
-            href="tel:+919876543210"
+            href="tel:+919051818629"
             className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs rounded-xl shadow-md transition-all block text-center"
           >
             Call Institute Helpline
