@@ -54,7 +54,7 @@ export default function App() {
 
   // Scheduled Task: Automatically run 5th-day monthly fee reminder on app initialization
   useEffect(() => {
-    runMonthlyFeeReminderTask();
+    runMonthlyFeeReminderTask().catch((e) => console.warn('Monthly fee reminder task failed:', e));
   }, []);
 
   // Handle Login
