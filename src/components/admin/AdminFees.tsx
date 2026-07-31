@@ -1,7 +1,8 @@
 import { googleSignIn } from '../../lib/auth';
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { StorageService } from '../../lib/storage';
 import { runMonthlyFeeReminderTask } from '../../lib/scheduledTasks';
+import { syncDocToFirestore } from '../../lib/firebaseSync';
 import { Student, Batch, FeeRecord } from '../../types';
 import { ChunkedImage } from '../ChunkedImage';
 import {
@@ -14,7 +15,8 @@ import {
   Send,
   IndianRupee,
   Eye,
-  XCircle
+  XCircle,
+  Wallet
 } from 'lucide-react';
 
 export const AdminFees: React.FC = () => {
@@ -29,10 +31,30 @@ export const AdminFees: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [reminderLoading, setReminderLoading] = useState(false);
   const [reminderSentMessage, setReminderSentMessage] = useState('');
-  
+
   const [screenshotModalOpen, setScreenshotModalOpen] = useState(false);
   const [selectedModalRecord, setSelectedModalRecord] = useState<FeeRecord | null>(null);
   const [selectedModalStudent, setSelectedModalStudent] = useState<Student | null>(null);
+
+  // ===== NEW: Custom Fee Payment state =====
+  const [customPayStudent, setCustomPayStudent] = useState<Student | null>(null);
+  const [selectedMonths, setSelectedMonths] = useState<string[]>([]);
+  const [customAmount, setCustomAmount] = useState<number>(0);
+  const [customMethod, setCustomMethod] = useState<'cash' | 'online'>('cash');
+  const [customBusy, setCustomBusy] = useState(false);
+
+  // Build a list of 12 months (current + 11 future) in the SAME format as fee records
+  // Fee records use: new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' })
+  // which produces strings like "January 2025"
+  const availableMonths = useMemo(() => {
+    const months: string[] = [];
+    const now = new Date();
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+      months.push(d.toLocaleString('en-US', { month: 'long', year: 'numeric' }));
+    }
+    return months;
+  }, []);
 
   const openScreenshotModal = (record: FeeRecord, student: Student) => {
     setSelectedModalRecord(record);
@@ -56,7 +78,7 @@ export const AdminFees: React.FC = () => {
     return true;
   });
 
-  // Handle personal Fee Reminder
+  // Handle personal Fee Reminder (WhatsApp + in-app)
   const handleSendReminder = (student: Student, dueAmount: number) => {
     const formattedPhone = student.phone.replace(/[^0-9]/g, '');
     const currentMonth = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
@@ -73,7 +95,6 @@ The Apex Chemistry`;
     const url = `https://wa.me/91${formattedPhone}?text=${encodeURIComponent(msg)}`;
     window.open(url, '_blank');
 
-    // Notify student on portal
     StorageService.addNotification({
       title: 'Fee Payment Reminder',
       message: `Gentle reminder: Please visit your Fees panel at ${window.location.origin} to clear your pending fee of ₹${dueAmount}.`,
@@ -88,17 +109,15 @@ The Apex Chemistry`;
     setTimeout(() => setReminderSentMessage(''), 3000);
   };
 
-  // Mark a student's current-month fee as paid manually (cash payment)
+  // Mark a student's current-month fee as paid manually (cash)
   const handleMarkPaidManually = (student: Student) => {
     const currentMonth = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
 
-    // Find the current month's fee record (or create one if none exists)
     let record = feeRecords.find(
       f => f.studentId === student.id && f.month === currentMonth
     );
 
     if (!record) {
-      // No fee record exists yet — create one and mark it paid
       record = StorageService.addFeeRecord({
         studentId: student.id,
         studentName: student.name,
@@ -109,10 +128,8 @@ The Apex Chemistry`;
       });
     }
 
-    // Mark as paid with a cash transaction reference
     StorageService.updateFeeStatus(record.id, 'paid', 'CASH_MANUAL', undefined);
 
-    // Notify the student
     StorageService.addNotification({
       title: `Fee Received - ${currentMonth}`,
       message: `Your fee of ₹${student.fees} for ${currentMonth} has been marked as paid by cash. Thank you!`,
@@ -127,15 +144,113 @@ The Apex Chemistry`;
     setReminderSentMessage(`✓ ${student.name}'s fee for ${currentMonth} marked as PAID (Cash).`);
     setTimeout(() => setReminderSentMessage(''), 4000);
   };
-  
-    // Trigger 5th of Month Automated Batch Fee Reminders
-  // → sends in-app notifications AND emails to registered students
+
+  // ===== NEW: Open the Custom Payment modal for a student =====
+  const openCustomPayment = (student: Student) => {
+    setCustomPayStudent(student);
+    setSelectedMonths([]);
+    setCustomAmount(student.fees ?? 0);
+    setCustomMethod('cash');
+  };
+
+  // ===== NEW: Toggle a month on/off in the selection =====
+  const toggleMonth = (month: string) => {
+    setSelectedMonths(prev =>
+      prev.includes(month) ? prev.filter(m => m !== month) : [...prev, month]
+    );
+  };
+
+  // ===== NEW: Submit — mark all selected months as paid =====
+  const handleCustomPayment = async () => {
+    if (!customPayStudent) return;
+    if (selectedMonths.length === 0) {
+      setReminderSentMessage('Please select at least one month.');
+      setTimeout(() => setReminderSentMessage(''), 4000);
+      return;
+    }
+    if (customAmount <= 0) {
+      setReminderSentMessage('Please enter a valid amount.');
+      setTimeout(() => setReminderSentMessage(''), 4000);
+      return;
+    }
+
+    setCustomBusy(true);
+    try {
+      const ref = customMethod === 'cash' ? 'CASH_MANUAL' : 'ONLINE_MANUAL';
+      let workingRecords = StorageService.getFeeRecords();
+
+      for (const month of selectedMonths) {
+        // Try to find an existing record for this student + month
+        const existingIdx = workingRecords.findIndex(
+          r => r.studentId === customPayStudent.id && r.month === month
+        );
+
+        if (existingIdx >= 0) {
+          // Update existing record to paid
+          workingRecords[existingIdx] = {
+            ...workingRecords[existingIdx],
+            status: 'paid',
+            transactionRef: ref,
+            amount: customAmount
+          };
+          try {
+            await syncDocToFirestore('feeRecords', workingRecords[existingIdx].id, workingRecords[existingIdx]);
+          } catch (e) {
+            console.warn('Firestore sync failed for', workingRecords[existingIdx].id, e);
+          }
+        } else {
+          // Create a new record and mark it paid
+          const newRecord = StorageService.addFeeRecord({
+            studentId: customPayStudent.id,
+            studentName: customPayStudent.name,
+            batchId: customPayStudent.batchId,
+            month: month,
+            amount: customAmount,
+            status: 'unpaid'
+          });
+          StorageService.updateFeeStatus(newRecord.id, 'paid', ref, undefined);
+          // Re-read to get the updated record
+          workingRecords = StorageService.getFeeRecords();
+          const updated = workingRecords.find(r => r.id === newRecord.id);
+          if (updated) {
+            try {
+              await syncDocToFirestore('feeRecords', updated.id, updated);
+            } catch (e) {
+              console.warn('Firestore sync failed for new record', e);
+            }
+          }
+        }
+      }
+
+      // Notify the student
+      StorageService.addNotification({
+        title: 'Fees Marked Paid',
+        message: `Your fee for ${selectedMonths.length} month(s) (${selectedMonths.join(', ')}) was marked as paid (${customMethod}) by admin.`,
+        type: 'payment_received',
+        timestamp: 'Just now',
+        targetRole: 'student',
+        targetStudentId: customPayStudent.id,
+        read: false
+      });
+
+      refreshData();
+      const studentName = customPayStudent.name;
+      setCustomPayStudent(null);
+      setReminderSentMessage(`✓ Marked ${selectedMonths.length} month(s) as paid for ${studentName}.`);
+      setTimeout(() => setReminderSentMessage(''), 5000);
+    } catch (e: any) {
+      setReminderSentMessage('Failed: ' + (e?.message || 'Unknown error'));
+      setTimeout(() => setReminderSentMessage(''), 5000);
+    } finally {
+      setCustomBusy(false);
+    }
+  };
+
+  // Trigger 5th of Month Automated Batch Fee Reminders
   const handleTriggerMonthlyAutoReminders = async () => {
     setReminderLoading(true);
     setReminderSentMessage('');
     try {
-      // Ensure the admin is signed into Google so we can send emails via Gmail.
-      // If the popup is cancelled, we still send in-app notifications.
       try {
         await googleSignIn();
       } catch (e: any) {
@@ -158,7 +273,6 @@ The Apex Chemistry`;
   const handleVerifyPayment = (recordId: string, status: 'paid' | 'unpaid') => {
     StorageService.updateFeeStatus(recordId, status);
     if (status === 'unpaid') {
-      // Add notification for the student that their payment was declined
       const record = feeRecords.find(r => r.id === recordId);
       if (record) {
         StorageService.addNotification({
@@ -184,7 +298,6 @@ The Apex Chemistry`;
           <p className="text-sm text-slate-500">Track student payment history, verify UPI receipts, and dispatch fee alerts.</p>
         </div>
 
-        {/* 5th of Month Auto Reminder Banner Button */}
         <button
           onClick={handleTriggerMonthlyAutoReminders}
           disabled={reminderLoading}
@@ -205,12 +318,11 @@ The Apex Chemistry`;
         </div>
       )}
 
-      {/* SEARCH PANEL WITH DROPDOWNS FOR BATCH OR STUDENT */}
+      {/* SEARCH PANEL */}
       <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
         <h3 className="text-sm font-bold text-slate-800">Search & Filter Fee Ledger</h3>
 
         <div className="grid md:grid-cols-12 gap-3">
-          {/* Dropdown 1: Filter Mode */}
           <div className="md:col-span-3">
             <label className="block text-xs font-semibold text-slate-500 mb-1">Search Mode</label>
             <select
@@ -224,7 +336,6 @@ The Apex Chemistry`;
             </select>
           </div>
 
-          {/* Conditional Dropdown 2: Batch Select */}
           {filterType === 'BATCH' && (
             <div className="md:col-span-4">
               <label className="block text-xs font-semibold text-slate-500 mb-1">Select Batch</label>
@@ -243,7 +354,6 @@ The Apex Chemistry`;
             </div>
           )}
 
-          {/* Conditional Dropdown 3: Student Select */}
           {filterType === 'STUDENT' && (
             <div className="md:col-span-4">
               <label className="block text-xs font-semibold text-slate-500 mb-1">Select Student</label>
@@ -262,7 +372,6 @@ The Apex Chemistry`;
             </div>
           )}
 
-          {/* Search Query Input */}
           <div className="md:col-span-5 relative">
             <label className="block text-xs font-semibold text-slate-500 mb-1">Search Keywords</label>
             <div className="relative">
@@ -290,7 +399,7 @@ The Apex Chemistry`;
                 <th className="p-3.5">Monthly Fee</th>
                 <th className="p-3.5">Payment History</th>
                 <th className="p-3.5">Verification</th>
-                <th className="p-3.5 text-right">Personal Fee Reminder</th>
+                <th className="p-3.5 text-right">Personal Reminder</th>
                 <th className="p-3.5 text-right">Fee Actions</th>
               </tr>
             </thead>
@@ -394,7 +503,6 @@ The Apex Chemistry`;
                             <span className="text-red-600 font-bold">₹{totalDue.toLocaleString()} Due</span>
                           )}
 
-                          {/* Quick links for any uploaded screenshots in history */}
                           {sRecords.some(r => r.screenshotUrl) && (
                             <div className="mt-1.5">
                               <span className="text-[10px] text-slate-400 font-medium block mb-0.5">Uploaded Receipts:</span>
@@ -416,11 +524,12 @@ The Apex Chemistry`;
                       )}
                     </td>
 
+                    {/* Personal Reminder column */}
                     <td className="p-3.5 text-right">
                       {totalDue > 0 ? (
                         <button
                           onClick={() => handleSendReminder(student, totalDue)}
-                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all flex items-center gap-1.5 ml-auto"
+                          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 ml-auto"
                         >
                           <MessageCircle className="w-3.5 h-3.5" /> Send Reminder
                         </button>
@@ -428,16 +537,11 @@ The Apex Chemistry`;
                         <span className="text-xs text-slate-400 font-medium">No Due</span>
                       )}
                     </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+
+                    {/* ===== FIXED + NEW: Fee Actions column (inside the table row) ===== */}
                     <td className="p-3.5 text-right">
                       <div className="flex flex-col gap-1.5 items-end">
-                        {/* Always-visible: Mark Paid Manually (Cash) */}
+                        {/* Always visible: Mark Paid (Cash) — current month only */}
                         <button
                           onClick={() => handleMarkPaidManually(student)}
                           title="Mark this month's fee as paid via cash"
@@ -446,17 +550,24 @@ The Apex Chemistry`;
                           <CheckCircle2 className="w-3.5 h-3.5" /> Mark Paid (Cash)
                         </button>
 
-                        {/* Conditional: Send WhatsApp reminder (only when due) */}
-                        {totalDue > 0 && (
-                          <button
-                            onClick={() => handleSendReminder(student, totalDue)}
-                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5"
-                          >
-                            <MessageCircle className="w-3.5 h-3.5" /> Send Reminder
-                          </button>
-                        )}
+                        {/* NEW: Custom Payment — pick any months */}
+                        <button
+                          onClick={() => openCustomPayment(student)}
+                          title="Mark multiple months as paid (cash or online)"
+                          className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all flex items-center gap-1.5"
+                        >
+                          <Wallet className="w-3.5 h-3.5" /> Custom Payment
+                        </button>
                       </div>
                     </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       {/* Screenshot Viewer Modal */}
       {screenshotModalOpen && selectedModalRecord && selectedModalStudent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
@@ -530,6 +641,154 @@ The Apex Chemistry`;
                   </button>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== NEW: Custom Fee Payment Modal ===== */}
+      {customPayStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-5 border border-slate-200 relative max-h-[92vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Wallet className="w-5 h-5 text-indigo-600" />
+                <div>
+                  <h3 className="text-lg font-black text-slate-900">Custom Fee Payment</h3>
+                  <p className="text-xs text-slate-500">
+                    Mark multiple months as paid for <strong className="text-slate-800">{customPayStudent.name}</strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => !customBusy && setCustomPayStudent(null)}
+                disabled={customBusy}
+                className="w-8 h-8 bg-slate-100 text-slate-500 hover:text-slate-900 rounded-full flex items-center justify-center hover:bg-slate-200 transition-colors disabled:opacity-50"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="space-y-4 mt-4 flex-1 overflow-y-auto">
+              {/* Month selection */}
+              <div>
+                <label className="text-sm font-bold text-slate-800 mb-2 block">Select Months</label>
+                <div className="max-h-48 overflow-y-auto space-y-1.5 border border-slate-200 rounded-xl p-3 bg-slate-50">
+                  {availableMonths.map(m => {
+                    const checked = selectedMonths.includes(m);
+                    const existingRec = feeRecords.find(
+                      r => r.studentId === customPayStudent.id && r.month === m
+                    );
+                    return (
+                      <label
+                        key={m}
+                        className={`flex items-center gap-2 text-xs cursor-pointer p-2 rounded-lg transition-colors ${
+                          checked ? 'bg-indigo-100' : 'hover:bg-slate-100'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleMonth(m)}
+                          className="h-4 w-4 accent-indigo-600"
+                        />
+                        <span className="font-semibold text-slate-800 flex-1">{m}</span>
+                        {existingRec && (
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            existingRec.status === 'paid'
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : existingRec.status === 'pending_verification'
+                              ? 'bg-amber-100 text-amber-700'
+                              : 'bg-red-100 text-red-700'
+                          }`}>
+                            {existingRec.status === 'paid' ? 'Already Paid' : existingRec.status === 'pending_verification' ? 'Pending' : 'Unpaid'}
+                          </span>
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  {selectedMonths.length} month(s) selected
+                </p>
+              </div>
+
+              {/* Amount per month */}
+              <div>
+                <label className="text-sm font-bold text-slate-800 mb-2 block">Amount per month (₹)</label>
+                <input
+                  type="number"
+                  value={customAmount}
+                  onChange={e => setCustomAmount(Number(e.target.value))}
+                  min={0}
+                  className="w-full text-sm px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-600 outline-none"
+                />
+              </div>
+
+              {/* Payment method */}
+              <div>
+                <label className="text-sm font-bold text-slate-800 mb-2 block">Payment Method</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCustomMethod('cash')}
+                    className={`flex-1 px-3 py-2 text-xs font-bold rounded-xl transition-all ${
+                      customMethod === 'cash'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    Cash
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCustomMethod('online')}
+                    className={`flex-1 px-3 py-2 text-xs font-bold rounded-xl transition-all ${
+                      customMethod === 'online'
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    Online
+                  </button>
+                </div>
+              </div>
+
+              {/* Total preview */}
+              <div className="text-sm bg-indigo-50 border border-indigo-200 p-3 rounded-xl flex justify-between items-center">
+                <span className="text-slate-700 font-semibold">Total Amount:</span>
+                <strong className="text-indigo-900 text-lg">₹{(customAmount * selectedMonths.length).toLocaleString()}</strong>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="pt-3 border-t border-slate-100 flex gap-2 justify-end">
+              <button
+                onClick={() => setCustomPayStudent(null)}
+                disabled={customBusy}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCustomPayment}
+                disabled={customBusy || selectedMonths.length === 0}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition-colors flex items-center gap-1.5"
+              >
+                {customBusy ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Mark {selectedMonths.length} Month(s) Paid
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>
