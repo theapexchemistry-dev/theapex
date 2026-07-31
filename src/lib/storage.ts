@@ -29,10 +29,10 @@ const KEYS = {
   TESTS: 'apex_tests_v2',
   NOTIFICATIONS: 'apex_notifications_v2',
   SUPABASE_CONFIG: 'apex_supabase_config_v2',
-  SITE_LOGO: 'apex_site_logo',            // 👈 ADD THIS LINE
-  SITE_NAME: 'apex_site_name',        // ← ADD
-  TAGLINE: 'apex_tagline',            // ← ADD
-  DELETED_STUDENT_IDS: 'apex_deleted_student_ids'  // ← ADD (for Fix 4)
+  SITE_LOGO: 'apex_site_logo',
+  SITE_NAME: 'apex_site_name',
+  TAGLINE: 'apex_tagline',
+  DELETED_STUDENT_IDS: 'apex_deleted_student_ids'
 };
 
 function getItem<T>(key: string, fallback: T): T {
@@ -52,26 +52,9 @@ function setItem<T>(key: string, value: T): void {
     console.error('Error writing to localStorage', e);
   }
 }
-static KEYS = {
-  // ...existing keys...
-  SITE_LOGO: 'apex_site_logo_v2',
-  SITE_NAME: 'apex_site_name_v2',
-  TAGLINE: 'apex_tagline_v2',
-};
 
-static getSiteLogo(): string {
-  return localStorage.getItem(this.KEYS.SITE_LOGO) || '';
-}
-
-static getSiteName(): string {
-  return localStorage.getItem(this.KEYS.SITE_NAME) || '';
-}
-
-static getTagline(): string {
-  return localStorage.getItem(this.KEYS.TAGLINE) || '';
-}
 export class StorageService {
-  // Config
+  // -------- Config --------
   static getSupabaseConfig(): SupabaseConfig {
     const metaEnv = (import.meta as any).env || {};
     return getItem<SupabaseConfig>(KEYS.SUPABASE_CONFIG, {
@@ -84,62 +67,23 @@ export class StorageService {
   static saveSupabaseConfig(config: SupabaseConfig): void {
     setItem(KEYS.SUPABASE_CONFIG, config);
   }
-  // Website Logo (admin-customizable branding) — syncs to Firestore
+
+  // -------- Website Branding (logo / name / tagline) — syncs to Firestore --------
+  static getSiteLogo(): string {
+    try {
+      return localStorage.getItem(KEYS.SITE_LOGO) || '';
+    } catch {
+      return '';
+    }
+  }
+
   static async saveSiteLogo(base64DataUrl: string): Promise<{ success: boolean; error?: string }> {
     try {
       localStorage.setItem(KEYS.SITE_LOGO, base64DataUrl);
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('apex_storage_updated'));
       }
-  // Website Name (admin-customizable)
-  static getSiteName(): string {
-    try {
-      return localStorage.getItem(KEYS.SITE_NAME) || 'THE APEX WORLD';
-    } catch {
-      return 'THE APEX WORLD';
-    }
-  }
-
-  static async saveSiteName(name: string): Promise<void> {
-    try {
-      localStorage.setItem(KEYS.SITE_NAME, name);
-      if (typeof window !== 'undefined') window.dispatchEvent(new Event('apex_storage_updated'));
-      await syncDocToFirestore('siteSettings', {
-        id: 'branding',
-        siteName: name,
-        tagline: this.getTagline(), // preserve existing tagline
-        updatedAt: new Date().toISOString()
-      });
-    } catch (e) {
-      console.error('Error saving site name', e);
-    }
-  }
-
-  // Tagline (admin-customizable)
-  static getTagline(): string {
-    try {
-      return localStorage.getItem(KEYS.TAGLINE) || 'Empowering Minds, Enriching Futures';
-    } catch {
-      return 'Empowering Minds, Enriching Futures';
-    }
-  }
-
-  static async saveTagline(tagline: string): Promise<void> {
-    try {
-      localStorage.setItem(KEYS.TAGLINE, tagline);
-      if (typeof window !== 'undefined') window.dispatchEvent(new Event('apex_storage_updated'));
-      await syncDocToFirestore('siteSettings', {
-        id: 'branding',
-        siteName: this.getSiteName(), // preserve existing name
-        tagline: tagline,
-        updatedAt: new Date().toISOString()
-      });
-    } catch (e) {
-      console.error('Error saving tagline', e);
-    }
-  }
-      // Write to Firestore so it loads on every device
-      const result = await syncDocToFirestore('siteSettings', {
+      await syncDocToFirestore('siteSettings', 'logo', {
         id: 'logo',
         logoData: base64DataUrl,
         updatedAt: new Date().toISOString()
@@ -162,7 +106,80 @@ export class StorageService {
       console.error('Error clearing site logo', e);
     }
   }
-  // Batches
+
+  static getSiteName(): string {
+    try {
+      return localStorage.getItem(KEYS.SITE_NAME) || 'THE APEX WORLD';
+    } catch {
+      return 'THE APEX WORLD';
+    }
+  }
+
+  static async saveSiteName(name: string): Promise<void> {
+    try {
+      localStorage.setItem(KEYS.SITE_NAME, name);
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('apex_storage_updated'));
+      await syncDocToFirestore('siteSettings', 'branding', {
+        id: 'branding',
+        siteName: name,
+        tagline: this.getTagline(),
+        updatedAt: new Date().toISOString()
+      });
+    } catch (e) {
+      console.error('Error saving site name', e);
+    }
+  }
+
+  static getTagline(): string {
+    try {
+      return localStorage.getItem(KEYS.TAGLINE) || 'Empowering Minds, Enriching Futures';
+    } catch {
+      return 'Empowering Minds, Enriching Futures';
+    }
+  }
+
+  static async saveTagline(tagline: string): Promise<void> {
+    try {
+      localStorage.setItem(KEYS.TAGLINE, tagline);
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('apex_storage_updated'));
+      await syncDocToFirestore('siteSettings', 'branding', {
+        id: 'branding',
+        siteName: this.getSiteName(),
+        tagline: tagline,
+        updatedAt: new Date().toISOString()
+      });
+    } catch (e) {
+      console.error('Error saving tagline', e);
+    }
+  }
+
+  // -------- Deleted student IDs blacklist (prevents ID reuse after deletion) --------
+  static getDeletedStudentIds(): string[] {
+    try {
+      return JSON.parse(localStorage.getItem(KEYS.DELETED_STUDENT_IDS) || '[]');
+    } catch {
+      return [];
+    }
+  }
+
+  static async addDeletedStudentId(id: string): Promise<void> {
+    const deleted = this.getDeletedStudentIds();
+    if (!deleted.includes(id)) {
+      deleted.push(id);
+      localStorage.setItem(KEYS.DELETED_STUDENT_IDS, JSON.stringify(deleted));
+      try {
+        await syncDocToFirestore('siteSettings', 'deletedStudentIds', {
+          id: 'deletedStudentIds',
+          ids: deleted,
+          updatedAt: new Date().toISOString()
+        });
+      } catch (e) {
+        console.error('Error syncing deleted student IDs:', e);
+      }
+    }
+  }
+
+  // -------- Batches --------
   static getBatches(): Batch[] {
     return getItem<Batch[]>(KEYS.BATCHES, INITIAL_BATCHES);
   }
@@ -194,12 +211,9 @@ export class StorageService {
       }
       return b;
     });
-    
+
     if (updatedBatch) {
       this.saveBatches(updated);
-      
-      // Update batchTitle in students, notes, etc. if needed
-      // To keep it simple, we'll just update the batch.
     }
     return updatedBatch;
   }
@@ -210,7 +224,7 @@ export class StorageService {
     this.saveBatches(batches);
   }
 
-  // Students
+  // -------- Students --------
   static getStudents(): Student[] {
     return getItem<Student[]>(KEYS.STUDENTS, INITIAL_STUDENTS);
   }
@@ -262,33 +276,7 @@ export class StorageService {
     const updated = [newStudent, ...students];
     this.saveStudents(updated);
 
-  // Deleted student IDs blacklist — prevents ID reuse after deletion
-  static getDeletedStudentIds(): string[] {
-    try {
-      return JSON.parse(localStorage.getItem(KEYS.DELETED_STUDENT_IDS) || '[]');
-    } catch {
-      return [];
-    }
-  }
-
-  static async addDeletedStudentId(id: string): Promise<void> {
-    const deleted = this.getDeletedStudentIds();
-    if (!deleted.includes(id)) {
-      deleted.push(id);
-      localStorage.setItem(KEYS.DELETED_STUDENT_IDS, JSON.stringify(deleted));
-      // Sync to Firestore so the blacklist applies on all devices
-      try {
-        await syncDocToFirestore('siteSettings', {
-          id: 'deletedStudentIds',
-          ids: deleted,
-          updatedAt: new Date().toISOString()
-        });
-      } catch (e) {
-        console.error('Error syncing deleted student IDs:', e);
-      }
-    }
-  }
-    // Initialize fee records for current month
+    // Initialize fee record for current month
     const currentMonth = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
     this.addFeeRecord({
       studentId: newStudent.id,
@@ -306,7 +294,7 @@ export class StorageService {
     const students = this.getStudents();
     const batches = this.getBatches();
     let updatedBatchTitle = studentData.batchTitle;
-    
+
     if (studentData.batchId) {
       const batch = batches.find(b => b.id === studentData.batchId);
       if (batch) updatedBatchTitle = batch.title;
@@ -322,7 +310,7 @@ export class StorageService {
   }
 
   static deleteStudent(id: string): void {
-    // Blacklist the ID so it can NEVER be reused
+    // Blacklist the ID so it can NEVER be reused (fire-and-forget)
     this.addDeletedStudentId(id);
 
     // Also delete the student's fee records
@@ -335,7 +323,7 @@ export class StorageService {
     this.saveStudents(students);
   }
 
-  // Fees
+  // -------- Fees --------
   static getFeeRecords(): FeeRecord[] {
     return getItem<FeeRecord[]>(KEYS.FEES, INITIAL_FEES);
   }
@@ -384,7 +372,7 @@ export class StorageService {
     this.saveFeeRecords(fees);
   }
 
-  // Notes
+  // -------- Notes --------
   static getNotes(): Note[] {
     return getItem<Note[]>(KEYS.NOTES, INITIAL_NOTES);
   }
@@ -427,7 +415,7 @@ export class StorageService {
     this.saveNotes(notes);
   }
 
-  // Doubts
+  // -------- Doubts --------
   static getDoubts(): Doubt[] {
     return getItem<Doubt[]>(KEYS.DOUBTS, INITIAL_DOUBTS);
   }
@@ -455,9 +443,9 @@ export class StorageService {
 
     const updated = [newDoubt, ...doubts];
     this.saveDoubts(updated);
-    syncDocToFirestore('doubts', newDoubt);
+    syncDocToFirestore('doubts', newDoubt.id, newDoubt);
 
-    // CRITICAL REQUIREMENT: Trigger Admin notification when student posts a doubt
+    // Trigger Admin notification when student posts a doubt
     this.addNotification({
       title: 'New Student Doubt Received',
       message: `${newDoubt.studentName} (${newDoubt.studentClass}) asked a question in ${newDoubt.subject}.`,
@@ -501,7 +489,7 @@ export class StorageService {
     this.saveDoubts(updated);
 
     if (answeredDoubtDoc) {
-      syncDocToFirestore('doubts', answeredDoubtDoc);
+      syncDocToFirestore('doubts', answeredDoubtDoc.id, answeredDoubtDoc);
     }
 
     // Send targeted notification to student
@@ -529,7 +517,7 @@ export class StorageService {
     this.saveDoubts(doubts);
   }
 
-  // Tests & Automatic Rank Handler
+  // -------- Tests & Automatic Rank Handler --------
   static getTests(): Test[] {
     return getItem<Test[]>(KEYS.TESTS, INITIAL_TESTS);
   }
@@ -541,10 +529,8 @@ export class StorageService {
 
   // Automatic Rank Calculation Helper
   static calculateRanks(results: TestResult[]): TestResult[] {
-    // Sort descending by marks
     const sorted = [...results].sort((a, b) => b.marksObtained - a.marksObtained);
-    
-    // Assign ranks cleanly handling ties
+
     let currentRank = 1;
     return sorted.map((res, index) => {
       if (index > 0 && res.marksObtained < sorted[index - 1].marksObtained) {
@@ -588,7 +574,7 @@ export class StorageService {
     return newTest;
   }
 
-  // Notifications
+  // -------- Notifications --------
   static getNotifications(): NotificationItem[] {
     return getItem<NotificationItem[]>(KEYS.NOTIFICATIONS, INITIAL_NOTIFICATIONS);
   }
@@ -600,11 +586,10 @@ export class StorageService {
 
   static addNotification(notif: Omit<NotificationItem, 'id' | 'timestamp'> & { timestamp?: string }): NotificationItem {
     const notifs = this.getNotifications();
-    
-    // Format timestamp nicely, e.g. "Jul 24, 10:30 AM"
+
     const now = new Date();
     const formattedTime = now.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
-    
+
     const newNotif: NotificationItem = {
       ...notif,
       id: 'n-' + Date.now().toString(36),
@@ -612,7 +597,7 @@ export class StorageService {
     };
     const updated = [newNotif, ...notifs];
     this.saveNotifications(updated);
-    syncDocToFirestore('notifications', newNotif);
+    syncDocToFirestore('notifications', newNotif.id, newNotif);
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new Event('apex_storage_updated'));
