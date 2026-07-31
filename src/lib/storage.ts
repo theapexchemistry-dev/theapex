@@ -64,40 +64,33 @@ export class StorageService {
   static saveSupabaseConfig(config: SupabaseConfig): void {
     setItem(KEYS.SUPABASE_CONFIG, config);
   }
-  // Website Logo (admin-customizable branding)
-  static getSiteLogo(): string | null {
-    try {
-      return localStorage.getItem(KEYS.SITE_LOGO);
-    } catch {
-      return null;
-    }
-  }
-
-  static saveSiteLogo(base64DataUrl: string): void {
+  // Website Logo (admin-customizable branding) — syncs to Firestore
+  static async saveSiteLogo(base64DataUrl: string): Promise<{ success: boolean; error?: string }> {
     try {
       localStorage.setItem(KEYS.SITE_LOGO, base64DataUrl);
-      // Sync to Firestore so it loads on other devices too
-      // (logo is resized to ~400px in AdminSettings, so it stays well under Firestore's 1MB doc limit)
-      syncDocToFirestore('siteSettings', {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('apex_storage_updated'));
+      }
+      // Write to Firestore so it loads on every device
+      const result = await syncDocToFirestore('siteSettings', {
         id: 'logo',
         logoData: base64DataUrl,
         updatedAt: new Date().toISOString()
       });
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new Event('apex_storage_updated'));
-      }
-    } catch (e) {
-      console.error('Error saving site logo', e);
+      return { success: true };
+    } catch (e: any) {
+      console.error('Error saving site logo to Firestore:', e);
+      return { success: false, error: e?.message || 'Unknown error' };
     }
   }
 
-  static clearSiteLogo(): void {
+  static async clearSiteLogo(): Promise<void> {
     try {
       localStorage.removeItem(KEYS.SITE_LOGO);
-      deleteFromFirestore('siteSettings', 'logo');
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('apex_storage_updated'));
       }
+      await deleteFromFirestore('siteSettings', 'logo');
     } catch (e) {
       console.error('Error clearing site logo', e);
     }
