@@ -13,13 +13,15 @@ import {
   AlertTriangle,
   Link2,
   Unlink,
-  ShieldCheck
+  ShieldCheck,
+  RefreshCw
 } from 'lucide-react';
 import {
   sendEmailViaGmail,
   googleSignIn,
   getAccessToken,
   isAuthenticated,
+  getConnectedEmail,
   signOutGoogle
 } from '../../lib/auth';
 
@@ -60,28 +62,51 @@ export const AdminNotes: React.FC = () => {
   const [isSending, setIsSending] = useState(false);
   const [emailStatusMsg, setEmailStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // ---------- Gmail connection state ----------
+  // On mount, check localStorage for a persisted token (survives page reloads)
   const [gmailConnected, setGmailConnected] = useState<boolean>(() => isAuthenticated());
+  const [connectedEmail, setConnectedEmail] = useState<string | null>(() => getConnectedEmail());
   const [authInProgress, setAuthInProgress] = useState<boolean>(false);
 
+  // Listen for auth events
   useEffect(() => {
     const handleAuthComplete = () => {
-      setGmailConnected(isAuthenticated());
+      const connected = isAuthenticated();
+      const email = getConnectedEmail();
+      setGmailConnected(connected);
+      setConnectedEmail(email);
       setAuthInProgress(false);
+      if (connected) {
+        setEmailStatusMsg({
+          type: 'success',
+          text: email
+            ? `Gmail connected as ${email}. You can now send notes.`
+            : 'Gmail connected successfully! You can now send notes.'
+        });
+      }
       restorePendingFormState();
     };
     const handleAuthError = (e: Event) => {
       setAuthInProgress(false);
+      setGmailConnected(false);
       const detail = (e as CustomEvent).detail || 'Authentication failed';
       setEmailStatusMsg({ type: 'error', text: `Gmail connection failed: ${detail}` });
     };
+    const handleAuthChanged = () => {
+      setGmailConnected(isAuthenticated());
+      setConnectedEmail(getConnectedEmail());
+    };
     window.addEventListener('apex_auth_complete', handleAuthComplete);
     window.addEventListener('apex_auth_error', handleAuthError);
+    window.addEventListener('apex_auth_changed', handleAuthChanged);
     return () => {
       window.removeEventListener('apex_auth_complete', handleAuthComplete);
       window.removeEventListener('apex_auth_error', handleAuthError);
+      window.removeEventListener('apex_auth_changed', handleAuthChanged);
     };
   }, []);
 
+  // Restore form state after redirect-based auth
   const restorePendingFormState = () => {
     try {
       const pending = sessionStorage.getItem('apex_pending_note');
@@ -97,24 +122,15 @@ export const AdminNotes: React.FC = () => {
             type: 'success',
             text: `Gmail connected! Form data restored. Please re-select the file "${data.fileName}" and click Send again.`
           });
-        } else {
-          setEmailStatusMsg({
-            type: 'success',
-            text: 'Gmail connected successfully! You can now send notes.'
-          });
         }
         sessionStorage.removeItem('apex_pending_note');
-      } else {
-        setEmailStatusMsg({
-          type: 'success',
-          text: 'Gmail connected successfully! You can now send notes to students.'
-        });
       }
     } catch (e) {
       // ignore
     }
   };
 
+  // ---------- Connect Gmail ----------
   const handleConnectGmail = async () => {
     setAuthInProgress(true);
     setEmailStatusMsg(null);
@@ -122,16 +138,28 @@ export const AdminNotes: React.FC = () => {
       const result = await googleSignIn();
       if (result?.accessToken) {
         setGmailConnected(true);
+        setConnectedEmail(result.user?.email || getConnectedEmail());
         setEmailStatusMsg({
           type: 'success',
-          text: `Gmail connected as ${result.user.email}. You can now send notes.`
+          text: `Gmail connected as ${result.user?.email || 'your account'}. You can now send notes.`
         });
       }
+      // If redirect was triggered, page will reload — handled by useEffect
     } catch (err: any) {
       setGmailConnected(false);
+      const errMsg = err?.message || 'Unknown error';
+      let friendlyMsg = errMsg;
+      if (errMsg.includes('access token') || errMsg.includes('could not be retrieved')) {
+        friendlyMsg =
+          'Gmail permission was not fully granted. Make sure you check all permission boxes in the Google popup, then try again.';
+      } else if (errMsg.includes('popup-closed')) {
+        friendlyMsg = 'You closed the Google sign-in popup before completing. Please try again.';
+      } else if (errMsg.includes('popup-blocked')) {
+        friendlyMsg = 'Popup was blocked by your browser. Please allow popups for this site and try again.';
+      }
       setEmailStatusMsg({
         type: 'error',
-        text: `Failed to connect Gmail: ${err?.message || 'Unknown error'}`
+        text: `Failed to connect Gmail: ${friendlyMsg}`
       });
     } finally {
       setAuthInProgress(false);
@@ -141,6 +169,7 @@ export const AdminNotes: React.FC = () => {
   const handleDisconnectGmail = async () => {
     await signOutGoogle();
     setGmailConnected(false);
+    setConnectedEmail(null);
     setEmailStatusMsg({ type: 'success', text: 'Gmail disconnected.' });
   };
 
@@ -158,6 +187,7 @@ export const AdminNotes: React.FC = () => {
     }
   };
 
+  // ---------- Submit handler ----------
   const handleSendNoteSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !selectedBatchId) return;
@@ -175,7 +205,7 @@ export const AdminNotes: React.FC = () => {
 
       setEmailStatusMsg({
         type: 'error',
-        text: 'Gmail not connected. Click "Connect Gmail Account" below to authorize, then send your note.'
+        text: 'Gmail not connected. Please click "Connect Gmail Account" above first.'
       });
 
       setAuthInProgress(true);
@@ -183,6 +213,7 @@ export const AdminNotes: React.FC = () => {
         const result = await googleSignIn();
         if (result?.accessToken) {
           setGmailConnected(true);
+          setConnectedEmail(result.user?.email || getConnectedEmail());
           await actuallySendNote(result.accessToken);
         }
       } catch (err: any) {
@@ -278,6 +309,16 @@ export const AdminNotes: React.FC = () => {
         } else {
           failCount++;
           console.warn(`Failed to send email to ${student.email}:`, res.error);
+          // If token expired mid-send, stop and prompt reconnect
+          if (res.error?.includes('401') || res.error?.includes('unauthorized')) {
+            setGmailConnected(false);
+            setEmailStatusMsg({
+              type: 'error',
+              text: 'Gmail session expired. Please reconnect your Gmail account and try again.'
+            });
+            setIsSending(false);
+            return;
+          }
         }
       }
 
@@ -355,32 +396,47 @@ export const AdminNotes: React.FC = () => {
           </div>
           <div className="min-w-0">
             <p className={`text-sm font-bold ${gmailConnected ? 'text-emerald-900' : 'text-amber-900'}`}>
-              {gmailConnected ? 'Gmail Account Connected' : 'Gmail Not Connected'}
+              {gmailConnected
+                ? `Gmail Connected${connectedEmail ? `: ${connectedEmail}` : ''}`
+                : 'Gmail Not Connected'}
             </p>
             <p className={`text-xs ${gmailConnected ? 'text-emerald-700' : 'text-amber-700'}`}>
               {gmailConnected
-                ? 'Ready to dispatch notes to student emails.'
-                : 'Connect your Gmail account first — popups may be blocked if you try to send without connecting.'}
+                ? 'Ready to dispatch notes to student emails. Token auto-expires in ~55 min.'
+                : 'Click "Connect Gmail Account" to authorize Gmail access. A Google popup will appear — allow all permissions.'}
             </p>
           </div>
         </div>
-        {gmailConnected ? (
-          <button
-            onClick={handleDisconnectGmail}
-            className="px-4 py-2 bg-white border border-emerald-200 text-emerald-700 hover:bg-emerald-100 rounded-xl text-xs font-bold flex items-center gap-1.5 shrink-0 transition-colors"
-          >
-            <Unlink className="w-3.5 h-3.5" /> Disconnect
-          </button>
-        ) : (
-          <button
-            onClick={handleConnectGmail}
-            disabled={authInProgress}
-            className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shrink-0 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            <Link2 className="w-3.5 h-3.5" />
-            {authInProgress ? 'Connecting...' : 'Connect Gmail Account'}
-          </button>
-        )}
+        <div className="flex items-center gap-2 shrink-0">
+          {gmailConnected && (
+            <button
+              onClick={handleConnectGmail}
+              disabled={authInProgress}
+              className="px-3 py-2 bg-white border border-emerald-200 text-emerald-700 hover:bg-emerald-100 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-60"
+              title="Reconnect (refresh token)"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${authInProgress ? 'animate-spin' : ''}`} />
+              {authInProgress ? '...' : 'Refresh'}
+            </button>
+          )}
+          {gmailConnected ? (
+            <button
+              onClick={handleDisconnectGmail}
+              className="px-4 py-2 bg-white border border-emerald-200 text-emerald-700 hover:bg-emerald-100 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+            >
+              <Unlink className="w-3.5 h-3.5" /> Disconnect
+            </button>
+          ) : (
+            <button
+              onClick={handleConnectGmail}
+              disabled={authInProgress}
+              className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              <Link2 className="w-3.5 h-3.5" />
+              {authInProgress ? 'Connecting...' : 'Connect Gmail Account'}
+            </button>
+          )}
+        </div>
       </div>
 
       {emailStatusMsg && (
