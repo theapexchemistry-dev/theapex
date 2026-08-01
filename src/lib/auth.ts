@@ -1,44 +1,151 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, signInWithPopup, GoogleAuthProvider, User } from 'firebase/auth';
+import {
+  getAuth,
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  GoogleAuthProvider,
+  User
+} from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 
 const provider = new GoogleAuthProvider();
-// Request Workspace scopes
 provider.addScope('https://www.googleapis.com/auth/calendar.events');
 provider.addScope('https://www.googleapis.com/auth/gmail.send');
 
-let isSigningIn = false;
 let cachedAccessToken: string | null = null;
+let cachedUser: User | null = null;
+let authInProgress: 'popup' | 'redirect' | null = null;
 
-export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
+// ---------- Redirect result handling (called once on app boot) ----------
+export const handleRedirectResult = async (): Promise<{
+  user: User;
+  accessToken: string;
+} | null> => {
   try {
-    isSigningIn = true;
+    const result = await getRedirectResult(auth);
+    if (result) {
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        cachedAccessToken = credential.accessToken;
+        cachedUser = result.user;
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('apex_auth_complete'));
+        }
+        return { user: result.user, accessToken: cachedAccessToken };
+      }
+    }
+    return null;
+  } catch (error: any) {
+    console.error('Redirect result error:', error);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('apex_auth_error', { detail: error?.message || 'Auth failed' }));
+    }
+    throw error;
+  }
+};
+
+// ---------- Pop-up based sign-in (desktop-friendly) ----------
+export const googleSignInWithPopup = async (): Promise<{
+  user: User;
+  accessToken: string;
+} | null> => {
+  try {
+    authInProgress = 'popup';
     const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {
       throw new Error('Failed to get access token from Firebase Auth');
     }
-
     cachedAccessToken = credential.accessToken;
+    cachedUser = result.user;
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('apex_auth_complete'));
+    }
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
-    console.error('Sign in error:', error);
+    console.error('Popup sign-in error:', error);
     throw error;
   } finally {
-    isSigningIn = false;
+    authInProgress = null;
   }
 };
 
-export const getAccessToken = async (): Promise<string | null> => {
+// ---------- Redirect-based sign-in (mobile / popup-blocked fallback) ----------
+export const googleSignInWithRedirect = async (): Promise<void> => {
+  try {
+    authInProgress = 'redirect';
+    await signInWithRedirect(auth, provider);
+  } catch (error: any) {
+    console.error('Redirect sign-in error:', error);
+    authInProgress = null;
+    throw error;
+  }
+};
+
+// ---------- Smart sign-in: tries popup, falls back to redirect ----------
+export const googleSignIn = async (): Promise<{
+  user: User;
+  accessToken: string;
+} | null> => {
+  if (cachedAccessToken && cachedUser) {
+    return { user: cachedUser, accessToken: cachedAccessToken };
+  }
+
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+    navigator.userAgent
+  );
+
+  if (isMobile) {
+    await googleSignInWithRedirect();
+    return null;
+  }
+
+  try {
+    return await googleSignInWithPopup();
+  } catch (err: any) {
+    if (
+      err?.code === 'auth/popup-blocked' ||
+      err?.code === 'auth/popup-closed-by-user' ||
+      err?.code === 'auth/cancelled-popup-request'
+    ) {
+      console.warn('Popup blocked, falling back to redirect...');
+      await googleSignInWithRedirect();
+      return null;
+    }
+    throw err;
+  }
+};
+
+// ---------- Synchronous token check (preserves user gesture) ----------
+export const getAccessToken = (): string | null => {
   return cachedAccessToken;
 };
 
-/**
- * Safely converts a UTF-8 string to base64url format for Gmail API
- */
+export const isAuthenticated = (): boolean => {
+  return cachedAccessToken !== null;
+};
+
+export const getCurrentUser = (): User | null => {
+  return cachedUser;
+};
+
+export const signOutGoogle = async (): Promise<void> => {
+  try {
+    await auth.signOut();
+  } catch (e) {
+    // ignore
+  }
+  cachedAccessToken = null;
+  cachedUser = null;
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('apex_auth_changed'));
+  }
+};
+
 function stringToBase64Url(str: string): string {
   const bytes = new TextEncoder().encode(str);
   let binary = '';
@@ -53,16 +160,17 @@ function stringToBase64Url(str: string): string {
     .replace(/=+$/, '');
 }
 
-/**
- * Creates a base64url encoded MIME email string
- */
-function createMimeMessage(to: string, subject: string, bodyHtml: string, attachment?: { filename: string, content: string, mimeType: string }): string {
+function createMimeMessage(
+  to: string,
+  subject: string,
+  bodyHtml: string,
+  attachment?: { filename: string; content: string; mimeType: string }
+): string {
   const boundary = `boundary_${Date.now().toString(16)}`;
   let messageParts: string[] = [];
 
   if (attachment) {
     const pureBase64 = attachment.content.replace(/^data:.*?;base64,/, '');
-
     messageParts = [
       `To: ${to}`,
       `Subject: =?UTF-8?B?${btoa(unescape(encodeURIComponent(subject)))}?=`,
@@ -98,25 +206,20 @@ function createMimeMessage(to: string, subject: string, bodyHtml: string, attach
   return stringToBase64Url(message);
 }
 
-/**
- * Sends an email via Gmail API using the current user's Google OAuth token
- */
 export const sendEmailViaGmail = async (
   to: string,
   subject: string,
   bodyHtml: string,
-  attachment?: { filename: string, content: string, mimeType: string },
+  attachment?: { filename: string; content: string; mimeType: string },
   existingToken?: string
 ): Promise<{ success: boolean; error?: string }> => {
   try {
-    let token = existingToken || cachedAccessToken;
+    const token = existingToken || cachedAccessToken;
     if (!token) {
-      // Prompt user to sign in with Google
-      const authResult = await googleSignIn();
-      if (!authResult || !authResult.accessToken) {
-        return { success: false, error: 'Google authentication required to send email.' };
-      }
-      token = authResult.accessToken;
+      return {
+        success: false,
+        error: 'Google authentication required. Please click "Connect Gmail Account" first.'
+      };
     }
 
     const rawMessage = createMimeMessage(to, subject, bodyHtml, attachment);
@@ -124,17 +227,18 @@ export const sendEmailViaGmail = async (
     const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${token}`,
+        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        raw: rawMessage
-      })
+      body: JSON.stringify({ raw: rawMessage })
     });
 
     if (!response.ok) {
       const errJson = await response.json().catch(() => ({}));
       const msg = errJson.error?.message || `Gmail API returned HTTP ${response.status}`;
+      if (response.status === 401) {
+        cachedAccessToken = null;
+      }
       return { success: false, error: msg };
     }
 
@@ -144,4 +248,3 @@ export const sendEmailViaGmail = async (
     return { success: false, error: err.message || 'Failed to send email' };
   }
 };
-
