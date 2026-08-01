@@ -1,18 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StorageService } from '../../lib/storage';
 import { Batch, Meeting } from '../../types';
-import { createJitsiMeeting } from '../../lib/jitsi';
-import { Video, Phone, Users, Loader2, AlertCircle, Clock } from 'lucide-react';
+import { openJitsiMeeting } from '../../lib/jitsi';
+import { Video, Phone, Users, AlertCircle, Clock, ExternalLink, CheckCircle2 } from 'lucide-react';
 
 export const AdminVideoCall: React.FC = () => {
   const [batches, setBatches] = useState<Batch[]>(() => StorageService.getBatches());
   const [selectedBatchId, setSelectedBatchId] = useState<string>('');
   const [activeMeetings, setActiveMeetings] = useState<Meeting[]>(() => StorageService.getActiveMeetings());
   const [currentMeeting, setCurrentMeeting] = useState<Meeting | null>(null);
-  const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState<string>('');
-  const jitsiContainerRef = useRef<HTMLDivElement>(null);
-  const jitsiApiRef = useRef<any>(null);
 
   useEffect(() => {
     const refresh = () => {
@@ -27,16 +24,7 @@ export const AdminVideoCall: React.FC = () => {
     };
   }, []);
 
-  useEffect(() => {
-    return () => {
-      if (jitsiApiRef.current) {
-        jitsiApiRef.current.dispose();
-        jitsiApiRef.current = null;
-      }
-    };
-  }, []);
-
-  const handleStartMeeting = async () => {
+  const handleStartMeeting = () => {
     if (!selectedBatchId) {
       setError('Please select a batch first');
       return;
@@ -47,74 +35,43 @@ export const AdminVideoCall: React.FC = () => {
       return;
     }
 
-    setIsStarting(true);
     setError('');
-    try {
-      const existing = StorageService.getActiveMeetingForBatch(selectedBatchId);
-      if (existing) {
-        StorageService.endMeeting(existing.id);
-      }
-
-      if (jitsiApiRef.current) {
-        jitsiApiRef.current.dispose();
-        jitsiApiRef.current = null;
-      }
-
-      const meeting = StorageService.startMeeting(selectedBatchId, batch.title);
-      setCurrentMeeting(meeting);
-      setActiveMeetings(StorageService.getActiveMeetings());
-
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      if (jitsiContainerRef.current) {
-        jitsiApiRef.current = await createJitsiMeeting({
-          roomName: meeting.roomName,
-          parentNode: jitsiContainerRef.current,
-          displayName: 'Mr. Subhamoy Mondal (Teacher)',
-        });
-      }
-    } catch (err) {
-      console.error('Failed to start meeting:', err);
-      setError('Failed to start meeting. Please try again.');
-    } finally {
-      setIsStarting(false);
+    const existing = StorageService.getActiveMeetingForBatch(selectedBatchId);
+    if (existing) {
+      StorageService.endMeeting(existing.id);
     }
+
+    const meeting = StorageService.startMeeting(selectedBatchId, batch.title);
+    setCurrentMeeting(meeting);
+    setActiveMeetings(StorageService.getActiveMeetings());
+
+    openJitsiMeeting({
+      roomName: meeting.roomName,
+      displayName: 'Mr. Subhamoy Mondal (Teacher)',
+    });
   };
 
   const handleEndMeeting = () => {
     if (!currentMeeting) return;
-    if (jitsiApiRef.current) {
-      jitsiApiRef.current.dispose();
-      jitsiApiRef.current = null;
-    }
     StorageService.endMeeting(currentMeeting.id);
     setCurrentMeeting(null);
     setActiveMeetings(StorageService.getActiveMeetings());
   };
 
-  const handleJoinExisting = async (meeting: Meeting) => {
-    setIsStarting(true);
-    setError('');
-    try {
-      if (jitsiApiRef.current) {
-        jitsiApiRef.current.dispose();
-        jitsiApiRef.current = null;
-      }
-      setCurrentMeeting(meeting);
-      await new Promise(resolve => setTimeout(resolve, 100));
-      if (jitsiContainerRef.current) {
-        jitsiApiRef.current = await createJitsiMeeting({
-          roomName: meeting.roomName,
-          parentNode: jitsiContainerRef.current,
-          displayName: 'Mr. Subhamoy Mondal (Teacher)',
-        });
-      }
-    } catch (err) {
-      console.error('Failed to join meeting:', err);
-      setError('Failed to join meeting.');
-    } finally {
-      setIsStarting(false);
-    }
+  const handleRejoin = () => {
+    if (!currentMeeting) return;
+    openJitsiMeeting({
+      roomName: currentMeeting.roomName,
+      displayName: 'Mr. Subhamoy Mondal (Teacher)',
+    });
+  };
+
+  const handleJoinExisting = (meeting: Meeting) => {
+    setCurrentMeeting(meeting);
+    openJitsiMeeting({
+      roomName: meeting.roomName,
+      displayName: 'Mr. Subhamoy Mondal (Teacher)',
+    });
   };
 
   return (
@@ -142,11 +99,10 @@ export const AdminVideoCall: React.FC = () => {
             </div>
             <button
               onClick={handleStartMeeting}
-              disabled={isStarting || !selectedBatchId}
+              disabled={!selectedBatchId}
               className="px-6 py-3 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-sm font-bold flex items-center gap-2 transition-colors whitespace-nowrap"
             >
-              {isStarting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Video className="w-4 h-4" />}
-              {isStarting ? 'Starting...' : 'Start Meeting'}
+              <Video className="w-4 h-4" /> Start Meeting
             </button>
           </div>
 
@@ -202,8 +158,32 @@ export const AdminVideoCall: React.FC = () => {
             </button>
           </div>
 
-          <div className="bg-white p-2 rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div ref={jitsiContainerRef} className="w-full h-[500px] md:h-[600px] rounded-xl overflow-hidden bg-slate-900" />
+          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-8 text-center">
+            <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
+              <CheckCircle2 className="w-8 h-8 text-emerald-600" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-900 mb-1">Meeting is Live!</h3>
+            <p className="text-sm text-slate-600 mb-5">
+              The video call opened in a new browser tab. Students of <strong>{currentMeeting.batchName}</strong> can now join from their Live Class tab.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-2 justify-center">
+              <button
+                onClick={handleRejoin}
+                className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-bold flex items-center gap-2 transition-colors justify-center"
+              >
+                <ExternalLink className="w-4 h-4" /> Reopen Call Tab
+              </button>
+              <button
+                onClick={handleEndMeeting}
+                className="px-5 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-bold flex items-center gap-2 transition-colors justify-center"
+              >
+                <Phone className="w-4 h-4 rotate-[135deg]" /> End Meeting
+              </button>
+            </div>
+            <div className="mt-4 text-xs text-slate-500 flex items-center justify-center gap-1.5">
+              <AlertCircle className="w-3.5 h-3.5" />
+              If the new tab didn't open, check your popup blocker.
+            </div>
           </div>
 
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-start gap-2">
