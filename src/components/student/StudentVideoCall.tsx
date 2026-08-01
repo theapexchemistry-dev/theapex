@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { StorageService } from '../../lib/storage';
 import { Student, Meeting } from '../../types';
 import { createJitsiMeeting } from '../../lib/jitsi';
-import { Video, Phone, Loader2, AlertCircle, VideoOff, Clock } from 'lucide-react';
+import { Video, Phone, Loader2, AlertCircle, VideoOff, Clock, Bug } from 'lucide-react';
 
 interface StudentVideoCallProps {
   student: Student;
@@ -12,9 +12,11 @@ export const StudentVideoCall: React.FC<StudentVideoCallProps> = ({ student }) =
   const [activeMeeting, setActiveMeeting] = useState<Meeting | null>(() =>
     StorageService.getActiveMeetingForBatch(student.batchId)
   );
+  const [allMeetings, setAllMeetings] = useState<Meeting[]>(() => StorageService.getMeetings());
   const [joined, setJoined] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
   const [error, setError] = useState<string>('');
+  const [showDebug, setShowDebug] = useState(false);
   const jitsiContainerRef = useRef<HTMLDivElement>(null);
   const jitsiApiRef = useRef<any>(null);
 
@@ -22,6 +24,7 @@ export const StudentVideoCall: React.FC<StudentVideoCallProps> = ({ student }) =
     const checkMeeting = () => {
       const meeting = StorageService.getActiveMeetingForBatch(student.batchId);
       setActiveMeeting(meeting);
+      setAllMeetings(StorageService.getMeetings());
       if (!meeting && joined) {
         if (jitsiApiRef.current) {
           jitsiApiRef.current.dispose();
@@ -33,7 +36,7 @@ export const StudentVideoCall: React.FC<StudentVideoCallProps> = ({ student }) =
     checkMeeting();
     window.addEventListener('apex_storage_updated', checkMeeting);
     window.addEventListener('storage', checkMeeting);
-    const interval = setInterval(checkMeeting, 5000);
+    const interval = setInterval(checkMeeting, 3000);
     return () => {
       window.removeEventListener('apex_storage_updated', checkMeeting);
       window.removeEventListener('storage', checkMeeting);
@@ -150,6 +153,41 @@ export const StudentVideoCall: React.FC<StudentVideoCallProps> = ({ student }) =
           </p>
           <div className="mt-6 inline-flex items-center gap-2 text-xs font-semibold text-slate-400 bg-slate-50 px-4 py-2 rounded-xl">
             <Clock className="w-4 h-4" /> Checking for live classes...
+          </div>
+
+          {/* DEBUG PANEL — shows why no meeting is visible */}
+          <div className="mt-6 text-left">
+            <button
+              onClick={() => setShowDebug(!showDebug)}
+              className="text-xs font-bold text-slate-400 hover:text-slate-600 flex items-center gap-1.5 mx-auto"
+            >
+              <Bug className="w-3.5 h-3.5" /> {showDebug ? 'Hide' : 'Show'} Debug Info
+            </button>
+
+            {showDebug && (
+              <div className="mt-3 p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs font-mono space-y-1.5">
+                <p><strong className="text-slate-700">Student Name:</strong> {student.name}</p>
+                <p><strong className="text-slate-700">Student batchId:</strong> <span className="text-purple-600">{student.batchId}</span></p>
+                <p><strong className="text-slate-700">Student batchTitle:</strong> {student.batchTitle || '(none)'}</p>
+                <p><strong className="text-slate-700">Student className:</strong> {student.className}</p>
+                <hr className="my-2 border-slate-200" />
+                <p><strong className="text-slate-700">Total meetings in storage:</strong> {allMeetings.length}</p>
+                <p><strong className="text-slate-700">Active meetings:</strong> {allMeetings.filter(m => m.status === 'active').length}</p>
+                {allMeetings.filter(m => m.status === 'active').map((m, i) => (
+                  <div key={m.id} className="mt-2 p-2 bg-white rounded-lg border border-slate-200">
+                    <p><strong>Meeting {i + 1}:</strong></p>
+                    <p>  batchId: <span className={m.batchId === student.batchId ? 'text-emerald-600 font-bold' : 'text-red-600 font-bold'}>{m.batchId}</span></p>
+                    <p>  batchName: {m.batchName}</p>
+                    <p>  status: {m.status}</p>
+                    <p>  startedAt: {new Date(m.startedAt).toLocaleString()}</p>
+                    <p>  match: <span className={m.batchId === student.batchId ? 'text-emerald-600 font-bold' : 'text-red-600 font-bold'}>{m.batchId === student.batchId ? 'YES ✓' : 'NO ✗'}</span></p>
+                  </div>
+                ))}
+                {allMeetings.length === 0 && (
+                  <p className="text-red-600 font-bold mt-2">No meetings found in storage. Sync may not be working.</p>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
