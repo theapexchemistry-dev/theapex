@@ -104,12 +104,18 @@ export const Navbar: React.FC<NavbarProps> = ({
   return (
     <header className="sticky top-0 z-40 bg-[#0B132B] text-white border-b border-slate-800/80 shadow-lg">
       <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
-        {/* Logo Branding matching uploaded image */}
+        {/* Logo Branding — compact on mobile to save space */}
         <div
           onClick={() => onTabChange(role === 'guest' ? 'home' : 'dashboard')}
-          className="cursor-pointer group shrink-0"
+          className="cursor-pointer group shrink-0 min-w-0"
         >
-          <Logo size="md" variant="dark" />
+          {/* Mobile: compact logo (no tagline) | Desktop: full logo */}
+          <div className="lg:hidden">
+            <Logo size="md" variant="dark" compact />
+          </div>
+          <div className="hidden lg:block">
+            <Logo size="md" variant="dark" />
+          </div>
         </div>
 
         {/* Desktop Navigation Links — only on large screens (≥1024px) */}
@@ -132,12 +138,13 @@ export const Navbar: React.FC<NavbarProps> = ({
         )}
 
         {/* Right Side Actions & User Status */}
-        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           {role !== 'guest' && (
             <div className="relative">
               <button
                 onClick={() => setShowNotifications(!showNotifications)}
                 className="p-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 transition-colors relative"
+                aria-label="Notifications"
               >
                 <Bell className="w-5 h-5" />
                 {unreadCount > 0 && (
@@ -212,23 +219,23 @@ export const Navbar: React.FC<NavbarProps> = ({
               <User className="w-4 h-4" /> Portal Login
             </button>
           ) : (
-            <div className="flex items-center gap-2 bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-800">
+            <div className="flex items-center gap-2 bg-slate-900 px-2 sm:px-3 py-1.5 rounded-xl border border-slate-800">
               {role === 'admin' ? (
                 <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-amber-400/20 text-amber-400 flex items-center justify-center font-bold text-xs">
+                  <div className="w-7 h-7 rounded-lg bg-amber-400/20 text-amber-400 flex items-center justify-center font-bold text-xs shrink-0">
                     <ShieldCheck className="w-4 h-4" />
                   </div>
-                  <div className="hidden sm:block text-left">
+                  <div className="hidden xl:block text-left">
                     <p className="text-xs font-bold text-white leading-tight">Admin</p>
                     <p className="text-[10px] text-amber-400 font-medium">Mr. Subhamoy Mondal</p>
                   </div>
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-amber-400/20 text-amber-400 flex items-center justify-center font-bold text-xs">
+                  <div className="w-7 h-7 rounded-lg bg-amber-400/20 text-amber-400 flex items-center justify-center font-bold text-xs shrink-0">
                     {currentStudent?.name?.charAt(0) || 'S'}
                   </div>
-                  <div className="hidden sm:block text-left">
+                  <div className="hidden xl:block text-left">
                     <p className="text-xs font-bold text-white leading-tight">{currentStudent?.name}</p>
                     <p className="text-[10px] text-slate-400 font-medium">{currentStudent?.id}</p>
                   </div>
@@ -238,19 +245,21 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 onClick={onLogout}
                 title="Logout"
-                className="ml-1 p-1.5 text-slate-400 hover:text-red-400 transition-colors"
+                className="ml-0.5 p-1.5 text-slate-400 hover:text-red-400 transition-colors shrink-0"
+                aria-label="Logout"
               >
                 <LogOut className="w-4 h-4" />
               </button>
             </div>
           )}
 
-          {/* Mobile/Tablet Menu Toggle — shows on screens below 1024px */}
+          {/* Mobile/Tablet Menu Toggle — visible on ALL screens below 1024px */}
           {role !== 'guest' && (
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="lg:hidden p-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+              className="lg:hidden p-2.5 rounded-xl text-amber-400 hover:text-white hover:bg-slate-800 transition-colors flex items-center justify-center min-w-[44px] min-h-[44px] border border-slate-700/50"
               aria-label="Toggle navigation menu"
+              aria-expanded={mobileMenuOpen}
             >
               {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </button>
@@ -258,7 +267,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </div>
 
-      {/* Mobile/Tablet Drawer Menu — shows on screens below 1024px */}
+      {/* Mobile/Tablet Drawer Menu — visible on ALL screens below 1024px */}
       {role !== 'guest' && mobileMenuOpen && (
         <div className="lg:hidden bg-slate-900 border-b border-slate-800 px-4 py-4 pb-28 space-y-2 shadow-2xl absolute w-full left-0 z-50 overflow-y-auto max-h-[85vh]">
           {navItems.map(item => (
