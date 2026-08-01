@@ -87,6 +87,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           { id: 'notes', label: 'Notes' },
           { id: 'doubts', label: 'Doubts' },
           { id: 'tests', label: 'Tests' },
+          { id: 'videocall', label: 'Live Class' },
           { id: 'settings', label: 'Settings' }
         ]
       : role === 'student'
@@ -96,6 +97,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           { id: 'notes', label: 'Notes' },
           { id: 'doubts', label: 'Ask Doubts' },
           { id: 'tests', label: 'Tests & Rank' },
+          { id: 'videocall', label: 'Live Class' },
           { id: 'profile', label: 'Profile' },
           { id: 'help', label: 'Help' }
         ]
