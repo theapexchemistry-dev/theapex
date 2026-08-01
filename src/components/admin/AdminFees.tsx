@@ -43,18 +43,38 @@ export const AdminFees: React.FC = () => {
   const [customMethod, setCustomMethod] = useState<'cash' | 'online'>('cash');
   const [customBusy, setCustomBusy] = useState(false);
 
-  // Build a list of 12 months (current + 11 future) in the SAME format as fee records
-  // Fee records use: new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' })
-  // which produces strings like "January 2025"
+  // Build a list of months in the SAME format as fee records:
+  //   new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' })  →  "January 2025"
+  // Range: 12 months BEFORE current + current month + 3 months AHEAD
+  // (so admin can clear backlog fees AND record advance payments)
+  // Also pulls in any older months that already have fee records for this student.
   const availableMonths = useMemo(() => {
     const months: string[] = [];
     const now = new Date();
-    for (let i = 0; i < 12; i++) {
+    for (let i = -12; i <= 3; i++) {
       const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
       months.push(d.toLocaleString('en-US', { month: 'long', year: 'numeric' }));
     }
+    // Include any months that already have fee records for this student
+    // (in case they're older than 12 months back — e.g., a very old unpaid record)
+    if (customPayStudent) {
+      feeRecords
+        .filter(r => r.studentId === customPayStudent.id)
+        .forEach(r => {
+          if (!months.includes(r.month)) months.push(r.month);
+        });
+    }
+    // Sort chronologically (oldest first) using a safe month-name parser
+    const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    months.sort((a, b) => {
+      const [mA, yA] = a.split(' ');
+      const [mB, yB] = b.split(' ');
+      const ia = monthNames.indexOf(mA) + parseInt(yA) * 12;
+      const ib = monthNames.indexOf(mB) + parseInt(yB) * 12;
+      return ia - ib;
+    });
     return months;
-  }, []);
+  }, [customPayStudent, feeRecords]);
 
   const openScreenshotModal = (record: FeeRecord, student: Student) => {
     setSelectedModalRecord(record);
@@ -674,18 +694,35 @@ The Apex Chemistry`;
             <div className="space-y-4 mt-4 flex-1 overflow-y-auto">
               {/* Month selection */}
               <div>
-                <label className="text-sm font-bold text-slate-800 mb-2 block">Select Months</label>
-                <div className="max-h-48 overflow-y-auto space-y-1.5 border border-slate-200 rounded-xl p-3 bg-slate-50">
+                <label className="text-sm font-bold text-slate-800 mb-2 block">
+                  Select Months
+                  <span className="ml-2 text-[11px] font-medium text-slate-500">
+                    (oldest → newest — past months included for backlog payments)
+                  </span>
+                </label>
+                <div className="max-h-56 overflow-y-auto space-y-1.5 border border-slate-200 rounded-xl p-3 bg-slate-50">
                   {availableMonths.map(m => {
                     const checked = selectedMonths.includes(m);
                     const existingRec = feeRecords.find(
                       r => r.studentId === customPayStudent.id && r.month === m
                     );
+                    const currentMonth = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
+                    const isCurrent = m === currentMonth;
+                    const monthNamesArr = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+                    const parts = m.split(' ');
+                    const monthDate = new Date(parseInt(parts[1]), monthNamesArr.indexOf(parts[0]), 1);
+                    const nowDate = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+                    const isPast = monthDate < nowDate;
+                    const isUnpaid = existingRec && existingRec.status === 'unpaid';
                     return (
                       <label
                         key={m}
-                        className={`flex items-center gap-2 text-xs cursor-pointer p-2 rounded-lg transition-colors ${
-                          checked ? 'bg-indigo-100' : 'hover:bg-slate-100'
+                        className={`flex items-center gap-2 text-xs cursor-pointer p-2 rounded-lg transition-colors border ${
+                          checked
+                            ? 'bg-indigo-100 border-indigo-300'
+                            : isUnpaid && isPast
+                            ? 'bg-red-50 border-red-200 hover:bg-red-100'
+                            : 'border-transparent hover:bg-slate-100'
                         }`}
                       >
                         <input
@@ -695,6 +732,11 @@ The Apex Chemistry`;
                           className="h-4 w-4 accent-indigo-600"
                         />
                         <span className="font-semibold text-slate-800 flex-1">{m}</span>
+                        {isCurrent && (
+                          <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-sky-100 text-sky-700 uppercase tracking-wider">
+                            Current
+                          </span>
+                        )}
                         {existingRec && (
                           <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
                             existingRec.status === 'paid'
@@ -711,7 +753,9 @@ The Apex Chemistry`;
                   })}
                 </div>
                 <p className="text-[11px] text-slate-500 mt-1">
-                  {selectedMonths.length} month(s) selected
+                  {selectedMonths.length} month(s) selected •
+                  <span className="text-red-600 font-medium"> red = unpaid backlog</span> •
+                  <span className="text-sky-600 font-medium"> blue = current month</span>
                 </p>
               </div>
 
