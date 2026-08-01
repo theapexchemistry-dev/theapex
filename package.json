@@ -20,6 +20,7 @@
     "@vitejs/plugin-react": "^5.0.4",
     "browser-image-compression": "^2.0.2",
     "canvas-confetti": "^1.9.4",
+    "nodemailer": "^6.9.14",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "firebase": "^12.16.0",
