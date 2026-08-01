@@ -123,7 +123,14 @@ export default function App() {
             
             {role === 'admin' && (
               <>
-                {activeTab === 'dashboard' && <AdminDashboard onNavigate={setActiveTab} />}
+                {activeTab === 'dashboard' && (
+                  <AdminDashboard
+                    onTabChange={setActiveTab}
+                    onAddStudent={() => setActiveTab('students')}
+                    onAddBatch={() => setActiveTab('batches')}
+                    onUploadNotes={() => setActiveTab('notes')}
+                  />
+                )}
                 {activeTab === 'students' && <AdminStudents />}
                 {activeTab === 'batches' && <AdminBatches />}
                 {activeTab === 'fees' && <AdminFees />}
