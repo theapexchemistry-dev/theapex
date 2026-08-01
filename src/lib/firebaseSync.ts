@@ -35,6 +35,7 @@ export function setupFirestoreListeners() {
     { key: 'students', col: 'students' },
     { key: 'batches', col: 'batches' },
     { key: 'tests', col: 'tests' },
+    { key: 'meetings', col: 'meetings' },
     { key: 'siteSettings', col: 'siteSettings' }
   ];
 
@@ -82,7 +83,8 @@ export async function fetchDataFromFirestore(): Promise<boolean> {
     { key: 'notes',      col: 'notes' },
     { key: 'doubts',     col: 'doubts' },
     { key: 'tests',      col: 'tests' },
-    { key: 'notifications', col: 'notifications' }
+    { key: 'notifications', col: 'notifications' },
+    { key: 'meetings',   col: 'meetings' }
   ];
 
   let hasData = false;
