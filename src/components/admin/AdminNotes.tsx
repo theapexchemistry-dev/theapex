@@ -1,10 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StorageService } from '../../lib/storage';
 import { Batch } from '../../types';
-import { Mail, Send, CheckCircle2, FileText, SendHorizontal, History, Clock, Trash2 } from 'lucide-react';
-import { sendEmailViaGmail, googleSignIn, getAccessToken } from '../../lib/auth';
-import { uploadFileChunks, downloadFileChunks } from '../../lib/fileChunks';
-// import { storage, ref, uploadBytes, getDownloadURL } from '../../lib/firebase';
+import {
+  Mail,
+  Send,
+  CheckCircle2,
+  FileText,
+  SendHorizontal,
+  History,
+  Clock,
+  Trash2,
+  AlertTriangle,
+  Link2,
+  Unlink,
+  ShieldCheck
+} from 'lucide-react';
+import {
+  sendEmailViaGmail,
+  googleSignIn,
+  getAccessToken,
+  isAuthenticated,
+  signOutGoogle
+} from '../../lib/auth';
 
 interface NoteEmailLog {
   id: string;
@@ -43,6 +60,90 @@ export const AdminNotes: React.FC = () => {
   const [isSending, setIsSending] = useState(false);
   const [emailStatusMsg, setEmailStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  const [gmailConnected, setGmailConnected] = useState<boolean>(() => isAuthenticated());
+  const [authInProgress, setAuthInProgress] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleAuthComplete = () => {
+      setGmailConnected(isAuthenticated());
+      setAuthInProgress(false);
+      restorePendingFormState();
+    };
+    const handleAuthError = (e: Event) => {
+      setAuthInProgress(false);
+      const detail = (e as CustomEvent).detail || 'Authentication failed';
+      setEmailStatusMsg({ type: 'error', text: `Gmail connection failed: ${detail}` });
+    };
+    window.addEventListener('apex_auth_complete', handleAuthComplete);
+    window.addEventListener('apex_auth_error', handleAuthError);
+    return () => {
+      window.removeEventListener('apex_auth_complete', handleAuthComplete);
+      window.removeEventListener('apex_auth_error', handleAuthError);
+    };
+  }, []);
+
+  const restorePendingFormState = () => {
+    try {
+      const pending = sessionStorage.getItem('apex_pending_note');
+      if (pending) {
+        const data = JSON.parse(pending);
+        if (data.title) setTitle(data.title);
+        if (data.subject) setSubject(data.subject);
+        if (data.description) setDescription(data.description);
+        if (data.selectedBatchId) setSelectedBatchId(data.selectedBatchId);
+        if (data.fileName) setFileName(data.fileName);
+        if (data.fileName) {
+          setEmailStatusMsg({
+            type: 'success',
+            text: `Gmail connected! Form data restored. Please re-select the file "${data.fileName}" and click Send again.`
+          });
+        } else {
+          setEmailStatusMsg({
+            type: 'success',
+            text: 'Gmail connected successfully! You can now send notes.'
+          });
+        }
+        sessionStorage.removeItem('apex_pending_note');
+      } else {
+        setEmailStatusMsg({
+          type: 'success',
+          text: 'Gmail connected successfully! You can now send notes to students.'
+        });
+      }
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  const handleConnectGmail = async () => {
+    setAuthInProgress(true);
+    setEmailStatusMsg(null);
+    try {
+      const result = await googleSignIn();
+      if (result?.accessToken) {
+        setGmailConnected(true);
+        setEmailStatusMsg({
+          type: 'success',
+          text: `Gmail connected as ${result.user.email}. You can now send notes.`
+        });
+      }
+    } catch (err: any) {
+      setGmailConnected(false);
+      setEmailStatusMsg({
+        type: 'error',
+        text: `Failed to connect Gmail: ${err?.message || 'Unknown error'}`
+      });
+    } finally {
+      setAuthInProgress(false);
+    }
+  };
+
+  const handleDisconnectGmail = async () => {
+    await signOutGoogle();
+    setGmailConnected(false);
+    setEmailStatusMsg({ type: 'success', text: 'Gmail disconnected.' });
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
@@ -61,29 +162,50 @@ export const AdminNotes: React.FC = () => {
     e.preventDefault();
     if (!title.trim() || !selectedBatchId) return;
 
-    // Trigger OAuth popup before any other async operation to avoid browser popup blockers
-    let token = await getAccessToken();
+    const token = getAccessToken();
     if (!token) {
       try {
-        const authResult = await googleSignIn();
-        if (authResult?.accessToken) {
-          token = authResult.accessToken;
-        } else {
-          throw new Error("Authentication failed");
+        sessionStorage.setItem(
+          'apex_pending_note',
+          JSON.stringify({ title, subject, description, selectedBatchId, fileName })
+        );
+      } catch (e) {
+        // ignore
+      }
+
+      setEmailStatusMsg({
+        type: 'error',
+        text: 'Gmail not connected. Click "Connect Gmail Account" below to authorize, then send your note.'
+      });
+
+      setAuthInProgress(true);
+      try {
+        const result = await googleSignIn();
+        if (result?.accessToken) {
+          setGmailConnected(true);
+          await actuallySendNote(result.accessToken);
         }
       } catch (err: any) {
         setEmailStatusMsg({
           type: 'error',
-          text: `Authentication failed: ${err.message}`
+          text: `Authentication failed: ${err?.message || 'Unknown error'}`
         });
-        return;
+      } finally {
+        setAuthInProgress(false);
       }
+      return;
     }
 
+    await actuallySendNote(token);
+  };
+
+  const actuallySendNote = async (token: string) => {
     setIsSending(true);
     setEmailStatusMsg(null);
 
-    const students = StorageService.getStudents().filter(s => s.batchId === selectedBatchId && s.email && s.email.trim() !== '');
+    const students = StorageService.getStudents().filter(
+      s => s.batchId === selectedBatchId && s.email && s.email.trim() !== ''
+    );
     const targetBatch = batches.find(b => b.id === selectedBatchId);
     const batchName = targetBatch ? targetBatch.title : 'Selected Batch';
 
@@ -96,21 +218,22 @@ export const AdminNotes: React.FC = () => {
       return;
     }
 
-    const effectiveFileName = fileName || selectedFile?.name || `${title.replace(/\s+/g, '_')}_Notes.pdf`;
+    const effectiveFileName =
+      fileName || selectedFile?.name || `${title.replace(/\s+/g, '_')}_Notes.pdf`;
 
     try {
-      let attachment: { filename: string; content: string; mimeType: string } | undefined = undefined;
+      let attachment:
+        | { filename: string; content: string; mimeType: string }
+        | undefined = undefined;
 
       if (selectedFile) {
         setEmailStatusMsg({ type: 'success', text: 'Preparing file attachment for email...' });
-
         const base64Data = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.readAsDataURL(selectedFile);
           reader.onload = () => resolve(reader.result as string);
           reader.onerror = error => reject(error);
         });
-
         attachment = {
           filename: effectiveFileName,
           content: base64Data,
@@ -127,22 +250,18 @@ export const AdminNotes: React.FC = () => {
             <h2 style="margin: 0; color: #facc15; font-size: 22px;">The Apex Chemistry</h2>
             <p style="margin: 4px 0 0 0; font-size: 14px; color: #cbd5e1;">Mr. Subhamoy Mondal • Chemistry Tuition</p>
           </div>
-          
           <div style="padding: 20px 0;">
             <h3 style="color: #1e293b; font-size: 18px; margin-top: 0;">New Study Material Released</h3>
             <p style="color: #475569; font-size: 14px;">Dear Student,</p>
             <p style="color: #475569; font-size: 14px;">Mr. Subhamoy Mondal has sent a new study material for your batch <strong>(${batchName})</strong>:</p>
-            
             <div style="background-color: #f8fafc; border-left: 4px solid #4f46e5; padding: 15px; margin: 15px 0; border-radius: 4px;">
               <p style="margin: 0; font-weight: bold; font-size: 16px; color: #1e293b;">${title}</p>
               <p style="margin: 5px 0 0 0; font-size: 13px; color: #64748b;">Subject / Topic: <strong>${subject}</strong></p>
               ${description ? `<p style="margin: 8px 0 0 0; font-size: 13px; color: #334155;"><strong>Details:</strong> ${description}</p>` : ''}
               <p style="margin: 8px 0 0 0; font-size: 12px; color: #4338ca; font-weight: bold;">📎 Attached Document: ${effectiveFileName}</p>
             </div>
-
             <p style="color: #475569; font-size: 14px;">Please check the file attachment directly in this email to download and view your study notes.</p>
           </div>
-
           <div style="border-top: 1px solid #e2e8f0; padding-top: 15px; font-size: 12px; color: #94a3b8; text-align: center;">
             <p style="margin: 0;">The Apex Chemistry • Quality Chemistry Coaching for JEE / NEET / CBSE</p>
           </div>
@@ -163,7 +282,6 @@ export const AdminNotes: React.FC = () => {
       }
 
       if (successCount > 0) {
-        // Save note metadata to storage as email log record
         StorageService.addNote({
           title,
           subject,
@@ -179,7 +297,9 @@ export const AdminNotes: React.FC = () => {
 
         setEmailStatusMsg({
           type: 'success',
-          text: `Successfully sent note "${title}" directly to ${successCount} student(s) in ${batchName} via Gmail!${failCount > 0 ? ` (${failCount} failed)` : ''}`
+          text: `Successfully sent note "${title}" directly to ${successCount} student(s) in ${batchName} via Gmail!${
+            failCount > 0 ? ` (${failCount} failed)` : ''
+          }`
         });
 
         setTitle('');
@@ -207,36 +327,90 @@ export const AdminNotes: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-black text-slate-900 tracking-tight">Email Study Notes directly to Students</h2>
-          <p className="text-sm text-slate-500">Dispatch handwritten notes, chapter guides, and formula sheets directly to students' registered email inboxes via Gmail.</p>
+          <p className="text-sm text-slate-500">
+            Dispatch handwritten notes, chapter guides, and formula sheets directly to students' registered email inboxes via Gmail.
+          </p>
         </div>
         <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-100 text-indigo-800 px-3 py-2 rounded-xl text-xs font-semibold shrink-0">
           <Mail className="w-4 h-4 text-indigo-600" /> Direct Gmail Dispatch Active
         </div>
       </div>
 
+      {/* Gmail Connection Status */}
+      <div
+        className={`p-4 rounded-2xl border flex items-center justify-between gap-4 ${
+          gmailConnected ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'
+        }`}
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <div
+            className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+              gmailConnected ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+            }`}
+          >
+            {gmailConnected ? <ShieldCheck className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
+          </div>
+          <div className="min-w-0">
+            <p className={`text-sm font-bold ${gmailConnected ? 'text-emerald-900' : 'text-amber-900'}`}>
+              {gmailConnected ? 'Gmail Account Connected' : 'Gmail Not Connected'}
+            </p>
+            <p className={`text-xs ${gmailConnected ? 'text-emerald-700' : 'text-amber-700'}`}>
+              {gmailConnected
+                ? 'Ready to dispatch notes to student emails.'
+                : 'Connect your Gmail account first — popups may be blocked if you try to send without connecting.'}
+            </p>
+          </div>
+        </div>
+        {gmailConnected ? (
+          <button
+            onClick={handleDisconnectGmail}
+            className="px-4 py-2 bg-white border border-emerald-200 text-emerald-700 hover:bg-emerald-100 rounded-xl text-xs font-bold flex items-center gap-1.5 shrink-0 transition-colors"
+          >
+            <Unlink className="w-3.5 h-3.5" /> Disconnect
+          </button>
+        ) : (
+          <button
+            onClick={handleConnectGmail}
+            disabled={authInProgress}
+            className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shrink-0 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <Link2 className="w-3.5 h-3.5" />
+            {authInProgress ? 'Connecting...' : 'Connect Gmail Account'}
+          </button>
+        )}
+      </div>
+
       {emailStatusMsg && (
-        <div className={`p-4 rounded-xl border flex items-center justify-between text-xs font-medium ${emailStatusMsg.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-red-50 text-red-800 border-red-200'}`}>
+        <div
+          className={`p-4 rounded-xl border flex items-center justify-between text-xs font-medium ${
+            emailStatusMsg.type === 'success'
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+              : 'bg-red-50 text-red-800 border-red-200'
+          }`}
+        >
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 shrink-0" />
             <span>{emailStatusMsg.text}</span>
           </div>
-          <button onClick={() => setEmailStatusMsg(null)} className="text-slate-400 hover:text-slate-600 font-bold ml-2">×</button>
+          <button
+            onClick={() => setEmailStatusMsg(null)}
+            className="text-slate-400 hover:text-slate-600 font-bold ml-2"
+          >
+            ×
+          </button>
         </div>
       )}
 
       <div className="grid lg:grid-cols-12 gap-6">
-        {/* Send Notes Form */}
         <div className="lg:col-span-5 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
           <h3 className="text-base font-bold text-slate-900 flex items-center gap-2 pb-2 border-b border-slate-100">
             <SendHorizontal className="w-5 h-5 text-indigo-600" /> Email Note to Batch Students
           </h3>
 
           <form onSubmit={handleSendNoteSubmit} className="space-y-4">
-            {/* Batch Selection Dropdown */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Target Batch *</label>
               <select
@@ -290,9 +464,10 @@ export const AdminNotes: React.FC = () => {
               />
             </div>
 
-            {/* Note Reference Attachment Name */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Select / Reference Note File (Optional)</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Select / Reference Note File (Optional)
+              </label>
               <div className="relative border-2 border-dashed border-indigo-200 bg-indigo-50/30 hover:bg-indigo-50/60 rounded-2xl p-5 text-center transition-colors">
                 <input
                   type="file"
@@ -312,23 +487,32 @@ export const AdminNotes: React.FC = () => {
 
             <button
               type="submit"
-              disabled={isSending}
-              className={`w-full py-3.5 text-white font-bold text-sm rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 ${isSending ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/20'}`}
+              disabled={isSending || authInProgress}
+              className={`w-full py-3.5 text-white font-bold text-sm rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 ${
+                isSending || authInProgress
+                  ? 'bg-indigo-400 cursor-not-allowed'
+                  : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/20'
+              }`}
             >
               <Send className="w-4 h-4" />
-              <span>{isSending ? 'Dispatching Emails...' : 'Send Notes directly to Students via Email'}</span>
+              <span>
+                {isSending
+                  ? 'Dispatching Emails...'
+                  : authInProgress
+                  ? 'Connecting to Gmail...'
+                  : gmailConnected
+                  ? 'Send Notes directly to Students via Email'
+                  : 'Connect Gmail & Send Notes'}
+              </span>
             </button>
           </form>
         </div>
 
-        {/* Email Dispatches Log */}
         <div className="lg:col-span-7 space-y-4">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white p-4 rounded-2xl border border-slate-200">
             <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
               <History className="w-4 h-4 text-slate-500" /> Dispatched Email Notes Log
             </h3>
-
-            {/* Batch Filter */}
             <select
               value={filterBatchId}
               onChange={e => setFilterBatchId(e.target.value)}
@@ -352,7 +536,10 @@ export const AdminNotes: React.FC = () => {
               </div>
             ) : (
               filteredNotes.map(note => (
-                <div key={note.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-start justify-between gap-4 group">
+                <div
+                  key={note.id}
+                  className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-start justify-between gap-4 group"
+                >
                   <div className="flex items-start gap-3 flex-1 min-w-0">
                     <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold shrink-0">
                       <Mail className="w-5 h-5" />
@@ -372,12 +559,12 @@ export const AdminNotes: React.FC = () => {
                           {note.createdAt}
                         </span>
                       </div>
-                      
+
                       <h4 className="text-sm font-black text-slate-900 mt-1.5 flex items-center gap-1.5">
                         <FileText className="w-4 h-4 text-indigo-600 shrink-0" />
                         {note.title}
                       </h4>
-                      
+
                       {note.description && (
                         <p className="text-xs text-slate-600 mt-1 leading-relaxed bg-slate-50 p-2.5 rounded-xl border border-slate-100">
                           {note.description}
@@ -385,10 +572,15 @@ export const AdminNotes: React.FC = () => {
                       )}
 
                       <div className="mt-2.5 flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
-                        <span className="font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md truncate max-w-[200px]" title={note.fileName}>
+                        <span
+                          className="font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md truncate max-w-[200px]"
+                          title={note.fileName}
+                        >
                           Document: <strong className="text-slate-900 font-mono">{note.fileName}</strong>
                         </span>
-                        <span>Batch: <strong className="text-slate-800">{note.batchTitle}</strong></span>
+                        <span>
+                          Batch: <strong className="text-slate-800">{note.batchTitle}</strong>
+                        </span>
                         <span className="text-emerald-600 font-bold flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">
                           ✉️ Sent directly to student email inboxes
                         </span>
@@ -412,5 +604,3 @@ export const AdminNotes: React.FC = () => {
     </div>
   );
 };
-
-
