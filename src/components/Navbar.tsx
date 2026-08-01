@@ -112,9 +112,9 @@ export const Navbar: React.FC<NavbarProps> = ({
           <Logo size="md" variant="dark" />
         </div>
 
-        {/* Desktop Navigation Links */}
+        {/* Desktop Navigation Links — only on large screens (≥1024px) */}
         {navItems.length > 0 && (
-          <nav className="hidden md:flex items-center gap-1 bg-slate-900/90 p-1 rounded-xl border border-slate-800">
+          <nav className="hidden lg:flex items-center gap-1 bg-slate-900/90 p-1 rounded-xl border border-slate-800">
             {navItems.map(item => (
               <button
                 key={item.id}
@@ -245,11 +245,12 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           )}
 
-          {/* Mobile Menu Toggle */}
+          {/* Mobile/Tablet Menu Toggle — shows on screens below 1024px */}
           {role !== 'guest' && (
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="md:hidden p-2 text-slate-300 hover:text-white"
+              className="lg:hidden p-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+              aria-label="Toggle navigation menu"
             >
               {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </button>
@@ -257,9 +258,9 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </div>
 
-      {/* Mobile Drawer Menu */}
+      {/* Mobile/Tablet Drawer Menu — shows on screens below 1024px */}
       {role !== 'guest' && mobileMenuOpen && (
-        <div className="md:hidden bg-slate-900 border-b border-slate-800 px-4 py-4 pb-28 space-y-2 shadow-2xl absolute w-full left-0 z-50 overflow-y-auto max-h-[85vh]">
+        <div className="lg:hidden bg-slate-900 border-b border-slate-800 px-4 py-4 pb-28 space-y-2 shadow-2xl absolute w-full left-0 z-50 overflow-y-auto max-h-[85vh]">
           {navItems.map(item => (
             <button
               key={item.id}
