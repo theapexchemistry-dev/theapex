@@ -1,7 +1,8 @@
-import {StrictMode} from 'react';
-import {createRoot} from 'react-dom/client';
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import { loadInitialDataFromFirestore } from './lib/firebaseSync';
+import { handleRedirectResult } from './lib/auth';
 import './index.css';
 
 const root = createRoot(document.getElementById('root')!);
@@ -15,6 +16,11 @@ root.render(
   </div>
 );
 
+// Process any pending Google OAuth redirect result (from AdminNotes "Connect Gmail")
+handleRedirectResult().catch(err => {
+  console.debug('No redirect result to process:', err?.message || err);
+});
+
 // Load data from Firestore, then render the actual app
 loadInitialDataFromFirestore()
   .then(() => {
@@ -25,12 +31,10 @@ loadInitialDataFromFirestore()
     );
   })
   .catch(err => {
-    console.error("Failed to load initial data from Firestore:", err);
-    // Render the app anyway in case of failure, falling back to local storage
+    console.error('Failed to load initial data from Firestore:', err);
     root.render(
       <StrictMode>
         <App />
       </StrictMode>
     );
   });
-
