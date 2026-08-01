@@ -21,6 +21,8 @@ import { StudentProfile } from './components/student/StudentProfile';
 import { StudentHelp } from './components/student/StudentHelp';
 import { StorageService } from './lib/storage';
 import { runMonthlyFeeReminderTask } from './lib/scheduledTasks';
+import { AdminVideoCall } from './components/admin/AdminVideoCall';
+import { StudentVideoCall } from './components/student/StudentVideoCall';
 
 export default function App() {
   const [role, setRole] = useState<Role>(() => {
@@ -137,6 +139,7 @@ export default function App() {
                 {activeTab === 'notes' && <AdminNotes />}
                 {activeTab === 'doubts' && <AdminDoubts />}
                 {activeTab === 'tests' && <AdminTests />}
+                {activeTab === 'videocall' && <AdminVideoCall />}
                 {activeTab === 'settings' && <AdminSettings />}
               </>
             )}
@@ -153,6 +156,7 @@ export default function App() {
                 {activeTab === 'notes' && <StudentNotes student={currentStudent} />}
                 {activeTab === 'tests' && <StudentTests student={currentStudent} />}
                 {activeTab === 'doubts' && <StudentDoubts student={currentStudent} />}
+                {activeTab === 'videocall' && <StudentVideoCall student={currentStudent} />}
                 {activeTab === 'profile' && <StudentProfile student={currentStudent} />}
                 {activeTab === 'help' && <StudentHelp student={currentStudent} />}
               </>
