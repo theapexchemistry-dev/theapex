@@ -8,7 +8,8 @@ import {
   Test,
   TestResult,
   NotificationItem,
-  SupabaseConfig
+  SupabaseConfig,
+  Meeting
 } from '../types';
 import {
   INITIAL_BATCHES,
@@ -28,6 +29,7 @@ const KEYS = {
   DOUBTS: 'apex_doubts_v2',
   TESTS: 'apex_tests_v2',
   NOTIFICATIONS: 'apex_notifications_v2',
+  MEETINGS: 'apex_meetings_v2',
   SUPABASE_CONFIG: 'apex_supabase_config_v2',
   SITE_LOGO: 'apex_site_logo',
   SITE_NAME: 'apex_site_name',
@@ -63,7 +65,58 @@ export class StorageService {
       isConnected: false
     });
   }
+  // -------- Meetings (Video Call) --------
+  static getMeetings(): Meeting[] {
+    return getItem<Meeting[]>(KEYS.MEETINGS, []);
+  }
 
+  static saveMeetings(meetings: Meeting[]): void {
+    setItem(KEYS.MEETINGS, meetings);
+    syncArrayToFirestore('meetings', meetings);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('apex_storage_updated'));
+    }
+  }
+
+  static startMeeting(batchId: string, batchName: string): Meeting {
+    const meetings = this.getMeetings();
+    meetings.forEach(m => {
+      if (m.batchId === batchId && m.status === 'active') {
+        m.status = 'ended';
+        m.endedAt = new Date().toISOString();
+      }
+    });
+    const meeting: Meeting = {
+      id: `meeting_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      roomName: `apex-${batchId.replace(/[^a-zA-Z0-9]/g, '')}-${Date.now()}`,
+      batchId,
+      batchName,
+      status: 'active',
+      startedAt: new Date().toISOString(),
+      startedBy: 'Mr. Subhamoy Mondal'
+    };
+    meetings.unshift(meeting);
+    this.saveMeetings(meetings);
+    return meeting;
+  }
+
+  static endMeeting(meetingId: string): void {
+    const meetings = this.getMeetings();
+    const meeting = meetings.find(m => m.id === meetingId);
+    if (meeting) {
+      meeting.status = 'ended';
+      meeting.endedAt = new Date().toISOString();
+      this.saveMeetings(meetings);
+    }
+  }
+
+  static getActiveMeetingForBatch(batchId: string): Meeting | null {
+    return this.getMeetings().find(m => m.batchId === batchId && m.status === 'active') || null;
+  }
+
+  static getActiveMeetings(): Meeting[] {
+    return this.getMeetings().filter(m => m.status === 'active');
+  }
   static saveSupabaseConfig(config: SupabaseConfig): void {
     setItem(KEYS.SUPABASE_CONFIG, config);
   }
