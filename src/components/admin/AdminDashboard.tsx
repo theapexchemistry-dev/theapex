@@ -1,355 +1,427 @@
-import React, { useState } from 'react';
-import { googleSignIn } from '../../lib/auth';
-import { syncFeeRemindersToCalendar } from '../../lib/calendar';
-import { fetchDataFromFirestore } from '../../lib/firebaseSync';
+import React, { useState, useEffect } from 'react';
 import { StorageService } from '../../lib/storage';
+import { Student, Batch, NotificationItem, FeeRecord, Doubt, Note } from '../../types';
 import {
   Users,
   Layers,
   IndianRupee,
   HelpCircle,
-  TrendingUp,
-  ArrowUpRight,
+  FileText,
+  Calendar,
+  RefreshCw,
+  UserPlus,
+  Plus,
+  Upload,
+  Wallet,
+  Bell,
+  X,
   Clock,
   CheckCircle2,
-  Bell,
-  FileText,
-  RefreshCw,
-  CalendarSync
+  AlertCircle,
+  TrendingUp,
+  ChevronRight
 } from 'lucide-react';
 
 interface AdminDashboardProps {
-  onNavigate: (tab: string) => void;
+  onTabChange: (tab: string) => void;
+  onAddStudent: () => void;
+  onAddBatch: () => void;
+  onUploadNotes: () => void;
 }
 
-export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) => {
+export const AdminDashboard: React.FC<AdminDashboardProps> = ({
+  onTabChange,
+  onAddStudent,
+  onAddBatch,
+  onUploadNotes
+}) => {
+  const [students, setStudents] = useState<Student[]>(() => StorageService.getStudents());
+  const [batches, setBatches] = useState<Batch[]>(() => StorageService.getBatches());
+  const [fees, setFees] = useState<FeeRecord[]>(() => StorageService.getFeeRecords());
+  const [doubts, setDoubts] = useState<Doubt[]>(() => StorageService.getDoubts());
+  const [notes, setNotes] = useState<Note[]>(() => StorageService.getNotes());
+  const [allNotifications, setAllNotifications] = useState<NotificationItem[]>(() =>
+    StorageService.getNotifications()
+  );
+  const [showAllNotificationsModal, setShowAllNotificationsModal] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const [isSyncingCalendar, setIsSyncingCalendar] = useState(false);
+  // Listen for storage updates
+  useEffect(() => {
+    const refresh = () => {
+      setStudents(StorageService.getStudents());
+      setBatches(StorageService.getBatches());
+      setFees(StorageService.getFeeRecords());
+      setDoubts(StorageService.getDoubts());
+      setNotes(StorageService.getNotes());
+      setAllNotifications(StorageService.getNotifications());
+    };
+    window.addEventListener('apex_storage_updated', refresh);
+    window.addEventListener('storage', refresh);
+    return () => {
+      window.removeEventListener('apex_storage_updated', refresh);
+      window.removeEventListener('storage', refresh);
+    };
+  }, []);
 
-  const handleSyncCalendar = async () => {
+  // ✅ FIX 1: Sort notifications NEWEST FIRST
+  // Notifications are stored newest-first, but we sort explicitly to be safe
+  const sortedNotifications = [...allNotifications].sort((a, b) => {
+    // Try to parse timestamps — handle both "Just now" and formatted dates
+    const parseTimestamp = (ts: string): number => {
+      if (!ts || ts === 'Just now') return Date.now();
+      const parsed = Date.parse(ts);
+      return isNaN(parsed) ? 0 : parsed;
+    };
+    return parseTimestamp(b.timestamp) - parseTimestamp(a.timestamp);
+  });
+
+  // Show only top 3 in the dashboard panel (already newest-first)
+  const recentNotifications = sortedNotifications.slice(0, 3);
+
+  const handleRefreshDatabase = async () => {
+    setIsRefreshing(true);
     try {
-      setIsSyncingCalendar(true);
-      await googleSignIn();
-      if (!window.confirm('Schedule recurring monthly fee reminders in Google Calendar for all students with emails?')) return;
-      await syncFeeRemindersToCalendar(students);
-      alert('Successfully scheduled automated monthly fee reminders in Google Calendar for all students with emails!');
-    } catch (err: any) {
-      console.error(err);
-      alert('Failed to sync calendar: ' + (err.message || 'Unknown error'));
+      const { fetchDataFromFirestore } = await import('../../lib/firebaseSync');
+      await fetchDataFromFirestore();
+      setStudents(StorageService.getStudents());
+      setBatches(StorageService.getBatches());
+      setFees(StorageService.getFeeRecords());
+      setDoubts(StorageService.getDoubts());
+      setNotes(StorageService.getNotes());
+      setAllNotifications(StorageService.getNotifications());
+    } catch (err) {
+      console.error('Refresh failed:', err);
     } finally {
-      setIsSyncingCalendar(false);
+      setIsRefreshing(false);
     }
   };
 
-const [isRefreshing, setIsRefreshing] = useState(false);
-const [refreshTick, setRefreshTick] = useState(0); // bumps to force stats re-read
+  // Stats calculations
+  const totalStudents = students.length;
+  const totalBatches = batches.length;
+  const pendingFees = fees.filter(f => f.status === 'unpaid' || f.status === 'pending_verification');
+  const pendingFeesAmount = pendingFees.reduce((sum, f) => sum + f.amount, 0);
+  const pendingDoubts = doubts.filter(d => d.status === 'pending');
+  const totalNotes = notes.length;
 
-const handleRefreshDatabase = async () => {
-  try {
-    setIsRefreshing(true);
-    await fetchDataFromFirestore(); // re-pull all 7 collections + logo from Firestore
-    setRefreshTick(t => t + 1);     // force this component to re-read stats
-    // eslint-disable-next-line no-console
-    console.log('Database refreshed from Firestore. tick =', refreshTick + 1);
-  } catch (err: any) {
-    console.error('Refresh failed:', err);
-    alert('Failed to refresh database: ' + (err?.message || 'Unknown error'));
-  } finally {
-    setIsRefreshing(false);
-  }
-};
-  
-  const students = StorageService.getStudents();
-  const batches = StorageService.getBatches();
-  const doubts = StorageService.getDoubts();
-  const notes = StorageService.getNotes();
-  const fees = StorageService.getFeeRecords();
-  const notifications = StorageService.getNotifications().filter(n => n.targetRole === 'admin');
+  // Monthly fee collection chart data (last 6 months)
+  const chartData = (() => {
+    const months: { label: string; amount: number }[] = [];
+    const now = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthLabel = d.toLocaleString('en-US', { month: 'short' });
+      const monthFullName = d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+      const amount = fees
+        .filter(f => f.month === monthFullName && f.status === 'paid')
+        .reduce((sum, f) => sum + f.amount, 0);
+      months.push({ label: monthLabel, amount });
+    }
+    return months;
+  })();
 
-  // Calculate earnings dynamically
-  const paidFees = fees.filter(f => f.status === 'paid');
-  const totalEarnings = paidFees.reduce((acc, f) => acc + (Number(f.amount) || 0), 0);
-  const pendingFeesAmount = fees.filter(f => f.status === 'unpaid').reduce((acc, f) => acc + (Number(f.amount) || 0), 0);
+  const maxChartAmount = Math.max(...chartData.map(m => m.amount), 1000);
+  const totalCollection = chartData.reduce((sum, m) => sum + m.amount, 0);
 
-  const pendingDoubtsCount = doubts.filter(d => d.status === 'pending').length;
+  // ✅ FIX 2: "View All" opens a modal showing ALL notifications
+  // (was previously redirecting to 'doubts' tab)
 
-  // Calculate students joined this month
-  const currentMonthNum = new Date().getMonth();
-  const currentYearNum = new Date().getFullYear();
-  const studentsThisMonth = students.filter(s => {
-    if (!s.joiningDate) return false;
-    const date = new Date(s.joiningDate);
-    return date.getMonth() === currentMonthNum && date.getFullYear() === currentYearNum;
-  }).length;
+  const getNotificationIcon = (type: string) => {
+    switch (type) {
+      case 'doubt':
+        return <HelpCircle className="w-4 h-4 text-purple-600" />;
+      case 'fee_reminder':
+      case 'payment_received':
+        return <Wallet className="w-4 h-4 text-emerald-600" />;
+      case 'note':
+        return <FileText className="w-4 h-4 text-indigo-600" />;
+      case 'test':
+        return <CheckCircle2 className="w-4 h-4 text-amber-600" />;
+      default:
+        return <Bell className="w-4 h-4 text-slate-600" />;
+    }
+  };
 
-  // Monthly fee collection data (Last 6 months dynamically)
-  const chartData = Array.from({ length: 6 }).map((_, i) => {
-    const d = new Date();
-    d.setDate(1); // ← CRITICAL FIX: prevents month overflow (e.g. "Feb 31" → "Mar 3")
-    d.setMonth(d.getMonth() - (5 - i));
-    const fullMonth = d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
-    const label = d.toLocaleString('en-US', { month: 'short' });
+  const getNotificationBg = (type: string, read: boolean) => {
+    if (read) return 'bg-slate-50 border-slate-200';
+    switch (type) {
+      case 'doubt':
+        return 'bg-purple-50 border-purple-200';
+      case 'fee_reminder':
+      case 'payment_received':
+        return 'bg-emerald-50 border-emerald-200';
+      case 'note':
+        return 'bg-indigo-50 border-indigo-200';
+      case 'test':
+        return 'bg-amber-50 border-amber-200';
+      default:
+        return 'bg-slate-50 border-slate-200';
+    }
+  };
 
-    // Deduplicate fee records: keep only one record per student per month
-    // (prevents double-counting if duplicate records exist in the DB)
-    const seenStudents = new Set<string>();
-    const monthPaid = paidFees
-      .filter(f => {
-        if (f.month !== fullMonth) return false;
-        const key = `${f.studentId}_${f.month}`;
-        if (seenStudents.has(key)) return false; // skip duplicate
-        seenStudents.add(key);
-        return true;
-      })
-      .reduce((acc, f) => acc + (Number(f.amount) || 0), 0);
+  // Mark a single notification as read
+  const handleMarkAsRead = (id: string) => {
+    StorageService.markSingleNotificationRead(id);
+    setAllNotifications(StorageService.getNotifications());
+  };
 
-    return { month: label, earnings: monthPaid };
-  });
+  // Mark all admin notifications as read
+  const handleMarkAllRead = () => {
+    StorageService.markNotificationsRead('admin');
+    setAllNotifications(StorageService.getNotifications());
+  };
 
-  const maxEarning = Math.max(...chartData.map(d => d.earnings), 1);
+  const stats = [
+    { label: 'TOTAL STUDENTS', value: totalStudents, sub: `+ 0 this month`, icon: Users, color: 'text-indigo-600', bg: 'bg-indigo-50' },
+    { label: 'TOTAL BATCHES', value: totalBatches, sub: 'Active schedule', icon: Layers, color: 'text-purple-600', bg: 'bg-purple-50' },
+    { label: 'PENDING FEES', value: `₹${pendingFeesAmount.toLocaleString('en-IN')}`, sub: `${pendingFees.length} pending payments`, icon: IndianRupee, color: 'text-red-600', bg: 'bg-red-50' },
+    { label: 'TOTAL DOUBTS', value: doubts.length, sub: `${pendingDoubts.length} pending answers`, icon: HelpCircle, color: 'text-amber-600', bg: 'bg-amber-50' },
+    { label: 'TOTAL NOTES', value: totalNotes, sub: 'Uploaded notes', icon: FileText, color: 'text-emerald-600', bg: 'bg-emerald-50' }
+  ];
 
   return (
     <div className="space-y-6">
-      {/* Top Welcome Title */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-black text-slate-900 tracking-tight">Admin Dashboard</h2>
           <p className="text-sm text-slate-500">Welcome back, Mr. Subhamoy Mondal! Here is your institute overview.</p>
         </div>
-
-        <div className="grid grid-cols-2 sm:flex sm:flex-nowrap items-center gap-2 w-full sm:w-auto">
-          
+        <div className="flex flex-wrap items-center gap-2">
           <button
-            onClick={handleSyncCalendar}
-            disabled={isSyncingCalendar}
-            className="col-span-2 sm:col-span-1 w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5"
+            onClick={() => onTabChange('calendar')}
+            className="px-3 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
           >
-            <CalendarSync className="w-4 h-4" /> {isSyncingCalendar ? 'Syncing...' : 'Sync Calendar'}
+            <Calendar className="w-3.5 h-3.5" /> Sync Calendar
           </button>
           <button
-          onClick={handleRefreshDatabase}
-          disabled={isRefreshing}
-          title="Pull the latest data from the cloud database"
-          className="col-span-2 sm:col-span-1 w-full sm:w-auto px-4 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5"
-        >
-          <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-          {isRefreshing ? 'Refreshing...' : 'Refresh Database'}
+            onClick={handleRefreshDatabase}
+            disabled={isRefreshing}
+            className="px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-60"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+            {isRefreshing ? 'Refreshing...' : 'Refresh Database'}
           </button>
           <button
-            onClick={() => onNavigate('students')}
-            className="w-full sm:w-auto flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 whitespace-nowrap"
+            onClick={onAddStudent}
+            className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
           >
-            + Add Student
+            <UserPlus className="w-3.5 h-3.5" /> Add Student
           </button>
           <button
-            onClick={() => onNavigate('batches')}
-            className="w-full sm:w-auto flex-1 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 whitespace-nowrap"
+            onClick={onAddBatch}
+            className="px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
           >
-            + New Batch
+            <Plus className="w-3.5 h-3.5" /> New Batch
           </button>
           <button
-            onClick={() => onNavigate('notes')}
-            className="w-full sm:w-auto flex-1 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 whitespace-nowrap"
+            onClick={onUploadNotes}
+            className="px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
           >
-            + Upload Notes
+            <Upload className="w-3.5 h-3.5" /> Upload Notes
           </button>
           <button
-            onClick={() => onNavigate('fees')}
-            className="w-full sm:w-auto flex-1 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 whitespace-nowrap"
+            onClick={() => onTabChange('fees')}
+            className="px-3 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
           >
-            Manage Fees
+            <Wallet className="w-3.5 h-3.5" /> Manage Fees
           </button>
         </div>
       </div>
 
-      {/* 5 Stat Cards Matching Image 1 Dashboard */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Students</p>
-            <h3 className="text-3xl font-extrabold text-slate-900 mt-1">{students.length}</h3>
-            <p className="text-[11px] font-semibold text-emerald-600 mt-1 flex items-center gap-1">
-              <TrendingUp className="w-3.5 h-3.5" /> +{studentsThisMonth} this month
-            </p>
-          </div>
-          <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center font-bold">
-            <Users className="w-6 h-6" />
-          </div>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Batches</p>
-            <h3 className="text-3xl font-extrabold text-slate-900 mt-1">{batches.length}</h3>
-            <p className="text-[11px] font-semibold text-emerald-600 mt-1 flex items-center gap-1">
-              <CheckCircle2 className="w-3.5 h-3.5" /> Active schedule
-            </p>
-          </div>
-          <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center font-bold">
-            <Layers className="w-6 h-6" />
-          </div>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Pending Fees</p>
-            <h3 className="text-3xl font-extrabold text-slate-900 mt-1">₹{pendingFeesAmount.toLocaleString()}</h3>
-            <p className="text-[11px] font-semibold text-indigo-600 mt-1">
-              {fees.filter(f => f.status === 'unpaid').length} pending payments
-            </p>
-          </div>
-          <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center font-bold">
-            <IndianRupee className="w-6 h-6" />
-          </div>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Doubts</p>
-            <h3 className="text-3xl font-extrabold text-slate-900 mt-1">{doubts.length}</h3>
-            <p className="text-[11px] font-semibold text-indigo-600 mt-1 flex items-center gap-1">
-              <Clock className="w-3.5 h-3.5" /> {pendingDoubtsCount} pending answers
-            </p>
-          </div>
-          <div className="w-12 h-12 bg-purple-50 text-purple-600 rounded-2xl flex items-center justify-center font-bold">
-            <HelpCircle className="w-6 h-6" />
-          </div>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Notes</p>
-            <h3 className="text-3xl font-extrabold text-slate-900 mt-1">{notes.length}</h3>
-            <p className="text-[11px] font-semibold text-indigo-600 mt-1 flex items-center gap-1">
-              <CheckCircle2 className="w-3.5 h-3.5" /> Uploaded notes
-            </p>
-          </div>
-          <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center font-bold">
-            <FileText className="w-6 h-6" />
-          </div>
-        </div>
+      {/* Stats Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+        {stats.map((stat, idx) => {
+          const Icon = stat.icon;
+          return (
+            <div key={idx} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+              <div className="flex items-center justify-between mb-2">
+                <div className={`w-9 h-9 rounded-xl ${stat.bg} ${stat.color} flex items-center justify-center`}>
+                  <Icon className="w-5 h-5" />
+                </div>
+              </div>
+              <p className="text-2xl font-black text-slate-900">{stat.value}</p>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mt-0.5">{stat.label}</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">{stat.sub}</p>
+            </div>
+          );
+        })}
       </div>
 
-      {/* Main Graph & Notifications Section */}
-      <div className="grid lg:grid-cols-12 gap-6">
-        {/* Earnings Graph matching Image 1 Dashboard */}
-        <div className="lg:col-span-8 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+      {/* Lower Section: Chart + Recent Activity */}
+      <div className="grid lg:grid-cols-2 gap-6">
+        {/* Monthly Fee Collection Chart */}
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-base font-bold text-slate-900">Monthly Fee Collection</h3>
               <p className="text-xs text-slate-500">Revenue collection trend across recent months</p>
             </div>
-            <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
-              Total Collection: ₹{totalEarnings.toLocaleString()}
-            </span>
+            <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-lg text-xs font-bold border border-emerald-200">
+              <TrendingUp className="w-3.5 h-3.5" />
+              Total: ₹{totalCollection.toLocaleString('en-IN')}
+            </div>
           </div>
 
-          {/* SVG Custom Bar/Line Chart Visual */}
-          <div className="h-64 pt-6 flex items-end justify-between gap-3 px-2">
-            {chartData.map((d, i) => {
-              const heightPercent = d.earnings > 0 ? Math.max(15, Math.round((d.earnings / maxEarning) * 100)) : 8;
-              return (
-                <div key={i} className="h-full flex-1 flex flex-col items-center justify-end gap-2 group relative">
-                  <div className="absolute opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-[10px] font-mono px-2 py-1 rounded shadow-md pointer-events-none z-10 whitespace-nowrap mb-2" style={{ bottom: `${heightPercent}%` }}>
-                    ₹{d.earnings.toLocaleString()}
-                  </div>
-                  <div
-                    style={{ height: `${heightPercent}%` }}
-                    className={`w-full max-w-[42px] rounded-t-xl group-hover:brightness-110 transition-all shadow-sm ${
-                      d.earnings > 0
-                        ? 'bg-gradient-to-t from-slate-900 to-indigo-600'
-                        : 'bg-slate-200 border-t border-slate-300'
-                    }`}
-                  />
-                  <span className="text-xs font-bold text-slate-600 shrink-0">{d.month}</span>
+          <div className="flex items-end justify-between gap-3 h-48 mt-6">
+            {chartData.map((month, idx) => (
+              <div key={idx} className="flex-1 flex flex-col items-center gap-2">
+                <div className="text-[10px] font-bold text-slate-700">
+                  ₹{month.amount > 0 ? (month.amount / 1000).toFixed(0) + 'k' : '0'}
                 </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Notifications & Quick Alerts */}
-        <div className="lg:col-span-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <Bell className="w-4 h-4 text-indigo-600" /> Recent Activity
-            </h3>
-            <button
-              onClick={() => onNavigate('doubts')}
-              className="text-xs font-bold text-indigo-600 hover:underline"
-            >
-              View All
-            </button>
-          </div>
-
-          <div className="space-y-3 max-h-72 overflow-y-auto">
-            {notifications.slice(0, 5).map(n => (
-              <div key={n.id} className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs space-y-1">
-                <p className="font-bold text-slate-800">{n.title}</p>
-                <p className="text-slate-600 leading-snug">{n.message}</p>
-                <span className="text-[10px] text-slate-400 font-mono block">{n.timestamp}</span>
+                <div className="w-full bg-slate-100 rounded-t-lg relative group" style={{ height: '100%' }}>
+                  <div
+                    className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-indigo-600 to-indigo-400 rounded-t-lg transition-all duration-500 group-hover:from-indigo-700 group-hover:to-indigo-500"
+                    style={{ height: `${(month.amount / maxChartAmount) * 100}%` }}
+                  />
+                </div>
+                <div className="text-[10px] font-bold text-slate-500">{month.label}</div>
               </div>
             ))}
           </div>
         </div>
+
+        {/* Recent Activity (Notifications) */}
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
+          <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <Bell className="w-4 h-4 text-amber-500" /> Recent Activity
+            </h3>
+            {/* ✅ FIX 2: View All opens modal instead of going to doubts */}
+            <button
+              onClick={() => setShowAllNotificationsModal(true)}
+              className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-0.5 transition-colors"
+            >
+              View All <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="space-y-3 flex-1 overflow-y-auto max-h-80 pr-1">
+            {recentNotifications.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-10 text-center">
+                <Bell className="w-10 h-10 text-slate-300 mb-2" />
+                <p className="text-xs font-semibold text-slate-500">No recent activity</p>
+                <p className="text-[11px] text-slate-400">Notifications will appear here</p>
+              </div>
+            ) : (
+              recentNotifications.map(n => (
+                <div
+                  key={n.id}
+                  className={`p-3 rounded-xl border ${getNotificationBg(n.type, n.read)} cursor-pointer transition-all hover:shadow-sm`}
+                  onClick={() => handleMarkAsRead(n.id)}
+                >
+                  <div className="flex items-start gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center shrink-0 border border-slate-200">
+                      {getNotificationIcon(n.type)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-xs font-bold text-slate-900 leading-tight">{n.title}</p>
+                        {!n.read && <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0 mt-1" />}
+                      </div>
+                      <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed line-clamp-2">{n.message}</p>
+                      <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
+                        <Clock className="w-3 h-3" /> {n.timestamp}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* Recent Doubts Table matching Image 1 Dashboard */}
-      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-          <h3 className="text-base font-bold text-slate-900">Recent Student Doubts</h3>
-          <button
-            onClick={() => onNavigate('doubts')}
-            className="text-xs font-bold text-amber-600 hover:underline flex items-center gap-1"
+      {/* ✅ FIX 2: All Notifications Modal */}
+      {showAllNotificationsModal && (
+        <div
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+          onClick={() => setShowAllNotificationsModal(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col"
+            onClick={e => e.stopPropagation()}
           >
-            Go to Doubts Panel <ArrowUpRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-5 border-b border-slate-200">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center">
+                  <Bell className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">All Notifications</h3>
+                  <p className="text-[11px] text-slate-500">
+                    {sortedNotifications.length} notification(s) total
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleMarkAllRead}
+                  className="px-3 py-1.5 text-xs font-bold text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors border border-indigo-200"
+                >
+                  Mark all as read
+                </button>
+                <button
+                  onClick={() => setShowAllNotificationsModal(false)}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs whitespace-nowrap">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 text-slate-500 font-semibold uppercase tracking-wider">
-                <th className="p-3">Student</th>
-                <th className="p-3">Batch</th>
-                <th className="p-3">Subject</th>
-                <th className="p-3">Question</th>
-                <th className="p-3">Status</th>
-                <th className="p-3 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-700">
-              {doubts.slice(0, 4).map(d => (
-                <tr key={d.id} className="hover:bg-slate-50/80 transition-colors">
-                  <td className="p-3 font-bold text-slate-900">{d.studentName}</td>
-                  <td className="p-3 text-slate-500">{d.batchTitle}</td>
-                  <td className="p-3 font-medium text-amber-600">{d.subject}</td>
-                  <td className="p-3 max-w-xs truncate">{d.question}</td>
-                  <td className="p-3">
-                    {d.status === 'pending' ? (
-                      <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full font-bold text-[10px]">
-                        ● Pending
-                      </span>
-                    ) : (
-                      <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full font-bold text-[10px]">
-                        ✓ Answered
-                      </span>
-                    )}
-                  </td>
-                  <td className="p-3 text-right">
-                    <button
-                      onClick={() => onNavigate('doubts')}
-                      className="px-2.5 py-1 bg-slate-900 text-white font-bold rounded-lg hover:bg-slate-800 transition-colors"
-                    >
-                      View
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            {/* Modal Body — Scrollable list of ALL notifications */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
+              {sortedNotifications.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <Bell className="w-12 h-12 text-slate-300 mb-3" />
+                  <p className="text-sm font-semibold text-slate-500">No notifications yet</p>
+                  <p className="text-xs text-slate-400">Activity from students and fees will appear here</p>
+                </div>
+              ) : (
+                sortedNotifications.map(n => (
+                  <div
+                    key={n.id}
+                    className={`p-3.5 rounded-xl border ${getNotificationBg(n.type, n.read)} cursor-pointer transition-all hover:shadow-md`}
+                    onClick={() => handleMarkAsRead(n.id)}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shrink-0 border border-slate-200">
+                        {getNotificationIcon(n.type)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-sm font-bold text-slate-900 leading-tight">{n.title}</p>
+                          {!n.read && <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0 mt-1.5" />}
+                        </div>
+                        <p className="text-xs text-slate-600 mt-1 leading-relaxed">{n.message}</p>
+                        <p className="text-[10px] text-slate-400 mt-1.5 flex items-center gap-1">
+                          <Clock className="w-3 h-3" /> {n.timestamp}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-200 flex justify-between items-center">
+              <span className="text-[11px] text-slate-400">
+                Click any notification to mark it as read
+              </span>
+              <button
+                onClick={() => setShowAllNotificationsModal(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
