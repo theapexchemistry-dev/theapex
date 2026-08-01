@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StorageService } from '../../lib/storage';
 import { Student, Meeting } from '../../types';
-import { createJitsiMeeting } from '../../lib/jitsi';
-import { Video, Phone, Loader2, AlertCircle, VideoOff, Clock, Bug } from 'lucide-react';
+import { openJitsiMeeting } from '../../lib/jitsi';
+import { Video, AlertCircle, VideoOff, Clock, ExternalLink } from 'lucide-react';
 
 interface StudentVideoCallProps {
   student: Student;
@@ -12,26 +12,12 @@ export const StudentVideoCall: React.FC<StudentVideoCallProps> = ({ student }) =
   const [activeMeeting, setActiveMeeting] = useState<Meeting | null>(() =>
     StorageService.getActiveMeetingForBatch(student.batchId)
   );
-  const [allMeetings, setAllMeetings] = useState<Meeting[]>(() => StorageService.getMeetings());
-  const [joined, setJoined] = useState(false);
-  const [isJoining, setIsJoining] = useState(false);
   const [error, setError] = useState<string>('');
-  const [showDebug, setShowDebug] = useState(false);
-  const jitsiContainerRef = useRef<HTMLDivElement>(null);
-  const jitsiApiRef = useRef<any>(null);
 
   useEffect(() => {
     const checkMeeting = () => {
       const meeting = StorageService.getActiveMeetingForBatch(student.batchId);
       setActiveMeeting(meeting);
-      setAllMeetings(StorageService.getMeetings());
-      if (!meeting && joined) {
-        if (jitsiApiRef.current) {
-          jitsiApiRef.current.dispose();
-          jitsiApiRef.current = null;
-        }
-        setJoined(false);
-      }
     };
     checkMeeting();
     window.addEventListener('apex_storage_updated', checkMeeting);
@@ -42,73 +28,16 @@ export const StudentVideoCall: React.FC<StudentVideoCallProps> = ({ student }) =
       window.removeEventListener('storage', checkMeeting);
       clearInterval(interval);
     };
-  }, [student.batchId, joined]);
+  }, [student.batchId]);
 
-  useEffect(() => {
-    return () => {
-      if (jitsiApiRef.current) {
-        jitsiApiRef.current.dispose();
-        jitsiApiRef.current = null;
-      }
-    };
-  }, []);
-
-  const handleJoin = async () => {
+  const handleJoin = () => {
     if (!activeMeeting) return;
-    setIsJoining(true);
     setError('');
-    try {
-      setJoined(true);
-      await new Promise(resolve => setTimeout(resolve, 100));
-      if (jitsiContainerRef.current) {
-        jitsiApiRef.current = await createJitsiMeeting({
-          roomName: activeMeeting.roomName,
-          parentNode: jitsiContainerRef.current,
-          displayName: student.name,
-        });
-      }
-    } catch (err) {
-      console.error('Failed to join meeting:', err);
-      setError('Failed to join the meeting. Please try again.');
-      setJoined(false);
-    } finally {
-      setIsJoining(false);
-    }
+    openJitsiMeeting({
+      roomName: activeMeeting.roomName,
+      displayName: student.name,
+    });
   };
-
-  const handleLeave = () => {
-    if (jitsiApiRef.current) {
-      jitsiApiRef.current.dispose();
-      jitsiApiRef.current = null;
-    }
-    setJoined(false);
-  };
-
-  if (joined && activeMeeting) {
-    return (
-      <div className="space-y-4">
-        <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-          <div>
-            <p className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <span className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse" />
-              LIVE CLASS: {activeMeeting.batchName}
-            </p>
-            <p className="text-[11px] text-slate-500">You are joined as: {student.name}</p>
-          </div>
-          <button
-            onClick={handleLeave}
-            className="px-5 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-bold flex items-center gap-2 transition-colors"
-          >
-            <Phone className="w-4 h-4 rotate-[135deg]" /> Leave
-          </button>
-        </div>
-
-        <div className="bg-white p-2 rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div ref={jitsiContainerRef} className="w-full h-[500px] md:h-[600px] rounded-xl overflow-hidden bg-slate-900" />
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -130,17 +59,22 @@ export const StudentVideoCall: React.FC<StudentVideoCallProps> = ({ student }) =
           </p>
           <button
             onClick={handleJoin}
-            disabled={isJoining}
-            className="px-8 py-3 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-xl text-sm font-bold flex items-center gap-2 transition-colors mx-auto"
+            className="px-8 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-bold flex items-center gap-2 transition-colors mx-auto"
           >
-            {isJoining ? <Loader2 className="w-5 h-5 animate-spin" /> : <Video className="w-5 h-5" />}
-            {isJoining ? 'Joining...' : 'Join Live Class'}
+            <ExternalLink className="w-5 h-5" /> Join Live Class
           </button>
+          <p className="text-[11px] text-slate-500 mt-3">
+            You will join as: <strong>{student.name}</strong>
+          </p>
           {error && (
             <div className="mt-4 flex items-center gap-2 text-xs font-semibold text-red-600 bg-red-50 p-3 rounded-xl border border-red-200 justify-center">
               <AlertCircle className="w-4 h-4 shrink-0" /> {error}
             </div>
           )}
+          <div className="mt-4 text-xs text-slate-500 flex items-center justify-center gap-1.5">
+            <AlertCircle className="w-3.5 h-3.5" />
+            If the meeting doesn't open, check your popup blocker.
+          </div>
         </div>
       ) : (
         <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm text-center">
@@ -153,41 +87,6 @@ export const StudentVideoCall: React.FC<StudentVideoCallProps> = ({ student }) =
           </p>
           <div className="mt-6 inline-flex items-center gap-2 text-xs font-semibold text-slate-400 bg-slate-50 px-4 py-2 rounded-xl">
             <Clock className="w-4 h-4" /> Checking for live classes...
-          </div>
-
-          {/* DEBUG PANEL — shows why no meeting is visible */}
-          <div className="mt-6 text-left">
-            <button
-              onClick={() => setShowDebug(!showDebug)}
-              className="text-xs font-bold text-slate-400 hover:text-slate-600 flex items-center gap-1.5 mx-auto"
-            >
-              <Bug className="w-3.5 h-3.5" /> {showDebug ? 'Hide' : 'Show'} Debug Info
-            </button>
-
-            {showDebug && (
-              <div className="mt-3 p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs font-mono space-y-1.5">
-                <p><strong className="text-slate-700">Student Name:</strong> {student.name}</p>
-                <p><strong className="text-slate-700">Student batchId:</strong> <span className="text-purple-600">{student.batchId}</span></p>
-                <p><strong className="text-slate-700">Student batchTitle:</strong> {student.batchTitle || '(none)'}</p>
-                <p><strong className="text-slate-700">Student className:</strong> {student.className}</p>
-                <hr className="my-2 border-slate-200" />
-                <p><strong className="text-slate-700">Total meetings in storage:</strong> {allMeetings.length}</p>
-                <p><strong className="text-slate-700">Active meetings:</strong> {allMeetings.filter(m => m.status === 'active').length}</p>
-                {allMeetings.filter(m => m.status === 'active').map((m, i) => (
-                  <div key={m.id} className="mt-2 p-2 bg-white rounded-lg border border-slate-200">
-                    <p><strong>Meeting {i + 1}:</strong></p>
-                    <p>  batchId: <span className={m.batchId === student.batchId ? 'text-emerald-600 font-bold' : 'text-red-600 font-bold'}>{m.batchId}</span></p>
-                    <p>  batchName: {m.batchName}</p>
-                    <p>  status: {m.status}</p>
-                    <p>  startedAt: {new Date(m.startedAt).toLocaleString()}</p>
-                    <p>  match: <span className={m.batchId === student.batchId ? 'text-emerald-600 font-bold' : 'text-red-600 font-bold'}>{m.batchId === student.batchId ? 'YES ✓' : 'NO ✗'}</span></p>
-                  </div>
-                ))}
-                {allMeetings.length === 0 && (
-                  <p className="text-red-600 font-bold mt-2">No meetings found in storage. Sync may not be working.</p>
-                )}
-              </div>
-            )}
           </div>
         </div>
       )}
