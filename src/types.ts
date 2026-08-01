@@ -114,3 +114,13 @@ export interface SupabaseConfig {
   anonKey: string;
   isConnected: boolean;
 }
+export interface Meeting {
+  id: string;
+  roomName: string;
+  batchId: string;
+  batchName: string;
+  status: 'active' | 'ended';
+  startedAt: string;
+  startedBy: string;
+  endedAt?: string;
+}
