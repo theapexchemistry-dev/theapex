@@ -19,7 +19,7 @@ import firebaseConfig from '../../firebase-applet-config.json';
 
 // 🔧 Change this to your deployed domain (e.g. https://theapex.vercel.app).
 // Must match exactly the domain registered in Firebase Console > Project settings > Cloud Messaging > Web Push certificates.
-const VAPID_KEY = 'REPLACE_WITH_YOUR_VAPID_PUBLIC_KEY_FROM_FIREBASE_CONSOLE';
+const VAPID_KEY = 'BDsGHhpY0na5QxcwPowFeodUe0UgYEVRATJn_JseJTlCrGWphy8dUdPJ4KhNiSMGeqvJtY3lJAz5t-q0eCTPUTA';
 
 let messagingInstance: ReturnType<typeof getMessaging> | null = null;
 
