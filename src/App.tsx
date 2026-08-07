@@ -136,7 +136,19 @@ export default function App() {
             
             {role === 'admin' && (
               <>
-                {activeTab === 'dashboard' && <AdminDashboard onNavigate={setActiveTab} />}
+                {/* ✅ FIX: Pass all 4 props AdminDashboard expects.
+                     Previously only `onNavigate` was passed (which AdminDashboard
+                     doesn't even accept), so the Sync Calendar / Add Student /
+                     New Batch / Upload Notes / Manage Fees buttons all called
+                     `undefined(...)` and did nothing when clicked. */}
+                {activeTab === 'dashboard' && (
+                  <AdminDashboard
+                    onTabChange={setActiveTab}
+                    onAddStudent={() => setActiveTab('students')}
+                    onAddBatch={() => setActiveTab('batches')}
+                    onUploadNotes={() => setActiveTab('notes')}
+                  />
+                )}
                 {activeTab === 'students' && <AdminStudents />}
                 {activeTab === 'batches' && <AdminBatches />}
                 {activeTab === 'fees' && <AdminFees />}
