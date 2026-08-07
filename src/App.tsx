@@ -1,4 +1,3 @@
-import { LiveClasses } from './components/LiveClasses';
 import React, { useState, useEffect } from 'react';
 import { Role, Student } from './types';
 import { Navbar } from './components/Navbar';
@@ -20,9 +19,9 @@ import { StudentTests } from './components/student/StudentTests';
 import { StudentDoubts } from './components/student/StudentDoubts';
 import { StudentProfile } from './components/student/StudentProfile';
 import { StudentHelp } from './components/student/StudentHelp';
+import { LiveClasses } from './components/LiveClasses';
 import { StorageService } from './lib/storage';
 import { runMonthlyFeeReminderTask } from './lib/scheduledTasks';
-import { loadInitialDataFromFirestore } from './lib/firebaseSync';
 
 export default function App() {
   const [role, setRole] = useState<Role>(() => {
@@ -47,31 +46,16 @@ export default function App() {
     return 'home';
   });
 
-  // Sync tab changes to storage
   useEffect(() => {
     if (role !== 'guest') {
       localStorage.setItem('apex_session_tab', activeTab);
     }
   }, [activeTab, role]);
 
-  // Scheduled Task: Automatically run 5th-day monthly fee reminder on app initialization
   useEffect(() => {
     runMonthlyFeeReminderTask().catch((e) => console.warn('Monthly fee reminder task failed:', e));
   }, []);
 
-  // ✅ FIX: Load Firestore data in the background AFTER the app renders.
-  // This replaces the old "Connecting to Database..." loading screen that
-  // blocked the whole app from mounting. The app now opens instantly and
-  // data syncs silently — components already listen for the
-  // 'apex_storage_updated' event, so they re-render automatically when
-  // Firestore data lands in localStorage.
-  useEffect(() => {
-    loadInitialDataFromFirestore().catch((e) =>
-      console.warn('Background Firestore load failed:', e)
-    );
-  }, []);
-
-  // Handle Login
   const handleLoginSuccess = (userRole: Role, studentObj?: Student) => {
     setRole(userRole);
     localStorage.setItem('apex_session_role', userRole);
@@ -88,7 +72,6 @@ export default function App() {
     }
   };
 
-  // Handle Logout
   const handleLogout = () => {
     setRole('guest');
     setCurrentStudent(null);
@@ -100,7 +83,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-amber-400 selection:text-slate-950">
-      {/* Top Navbar */}
       <Navbar
         role={role}
         currentStudent={currentStudent}
@@ -110,7 +92,6 @@ export default function App() {
         onLogout={handleLogout}
       />
 
-      {/* Main Content Area */}
       <main className="flex-1">
         {role === 'guest' ? (
           activeTab === 'login' ? (
@@ -137,26 +118,14 @@ export default function App() {
             
             {role === 'admin' && (
               <>
-                {/* ✅ FIX: Pass all 4 props AdminDashboard expects.
-                     Previously only `onNavigate` was passed (which AdminDashboard
-                     doesn't even accept), so the Sync Calendar / Add Student /
-                     New Batch / Upload Notes / Manage Fees buttons all called
-                     `undefined(...)` and did nothing when clicked. */}
-                {activeTab === 'dashboard' && (
-                  <AdminDashboard
-                    onTabChange={setActiveTab}
-                    onAddStudent={() => setActiveTab('students')}
-                    onAddBatch={() => setActiveTab('batches')}
-                    onUploadNotes={() => setActiveTab('notes')}
-                  />
-                )}
+                {activeTab === 'dashboard' && <AdminDashboard onNavigate={setActiveTab} />}
                 {activeTab === 'students' && <AdminStudents />}
                 {activeTab === 'batches' && <AdminBatches />}
                 {activeTab === 'fees' && <AdminFees />}
                 {activeTab === 'notes' && <AdminNotes />}
                 {activeTab === 'doubts' && <AdminDoubts />}
-                {activeTab === 'live' && <LiveClasses role="admin" />}
                 {activeTab === 'tests' && <AdminTests />}
+                {activeTab === 'live' && <LiveClasses role="admin" />}
                 {activeTab === 'settings' && <AdminSettings />}
               </>
             )}
