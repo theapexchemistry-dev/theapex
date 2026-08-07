@@ -6,7 +6,7 @@ import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import {
   Video, Trash2, Users, Copy, X, Radio, Play,
-  Zap, ShieldCheck, AlertCircle, Calendar, ExternalLink, Clock
+  Zap, ShieldCheck, AlertCircle, Calendar, ExternalLink, Clock, KeyRound
 } from 'lucide-react';
 
 /* ============================================================================
@@ -16,14 +16,19 @@ import {
  *  Only students in that target group see the "LIVE NOW" banner and can join.
  *  Students join with their real name as the display name.
  *
- *  IMPORTANT: Meetings open in a NEW BROWSER TAB (not an embedded iframe).
- *  Why? Jitsi's free meet.jit.si shows a 5-minute limit warning when embedded
- *  in an iframe, but is 100% free & unlimited when opened in a full tab.
- *  Opening in a new tab also avoids cross-origin / permission / stuck-loading
- *  issues that the embedded iframe had.
+ *  Meetings open in a NEW BROWSER TAB (not an embedded iframe) — this avoids
+ *  Jitsi's 5-minute embedded limit and gives full meet.jit.si functionality
+ *  (free, unlimited, no signup).
  *
- *  Meetings sync through Firestore so students on other devices see them
- *  in real time (same sync mechanism as notes, doubts, fees, etc.).
+ *  DATA SYNC STRATEGY (important):
+ *  - Meetings are saved to localStorage AND synced to Firestore.
+ *  - The Firestore listener MERGES remote data with local data — it NEVER
+ *    overwrites local-only meetings with an empty Firestore snapshot.
+ *    (This was the bug that made students not see meetings: an empty
+ *    Firestore snapshot was wiping out locally-saved meetings.)
+ *  - For same-browser testing (admin + student in different tabs), localStorage
+ *    syncing via the 'storage' event is enough.
+ *  - For cross-device, Firestore must be configured correctly.
  * ========================================================================== */
 
 // ---------- Types ----------
@@ -81,7 +86,6 @@ function saveMeetingsLocal(meetings: LiveMeeting[]): void {
   }
 }
 
-/** Write a single meeting doc to Firestore (fire-and-forget). */
 function syncMeetingToFirestore(meeting: LiveMeeting): void {
   try {
     syncDocToFirestore(FIRESTORE_COLLECTION, meeting.id, {
@@ -90,15 +94,14 @@ function syncMeetingToFirestore(meeting: LiveMeeting): void {
       batchTitle: meeting.batchTitle || null,
       className: meeting.className || null,
       endedAt: meeting.endedAt || null,
-    }).catch(() => {
-      /* ignore — local data still works */
+    }).catch((e) => {
+      console.debug('Firestore sync failed (OK if not configured):', e);
     });
   } catch {
     /* ignore */
   }
 }
 
-/** Delete a meeting doc from Firestore (fire-and-forget). */
 function deleteMeetingFromFirestore(id: string): void {
   try {
     deleteFromFirestore(FIRESTORE_COLLECTION, id).catch(() => {});
@@ -141,11 +144,17 @@ function formatDuration(ms: number): string {
 }
 
 /**
- * Build the Jitsi URL for a given room + display name.
- * Uses URL-hash config (officially supported method).
- * The URL is opened in a NEW TAB — this avoids the 5-minute embedded limit
- * and gives full meet.jit.si functionality (free, unlimited).
+ * Normalize a class name to just the grade number.
+ * "Class 12" → "12", "class 12" → "12", "12th" → "12", "Grade 12" → "12",
+ * "Class 12 CBSE" → "12". Robust to formatting differences.
  */
+function normalizeClassName(c: string): string {
+  if (!c) return '';
+  const lower = c.toLowerCase().trim();
+  const match = lower.match(/\d+/);
+  return match ? match[0] : lower;
+}
+
 function buildJitsiUrl(roomName: string, displayName: string): string {
   const safeRoom = sanitizeRoomName(roomName);
   const encodedName = encodeURIComponent(displayName);
@@ -159,7 +168,6 @@ function buildJitsiUrl(roomName: string, displayName: string): string {
   return `https://${JITSI_DOMAIN}/${safeRoom}#${hash}`;
 }
 
-/** Plain (no hash) link for copying / sharing. */
 function buildPlainLink(roomName: string): string {
   return `https://${JITSI_DOMAIN}/${sanitizeRoomName(roomName)}`;
 }
@@ -168,22 +176,19 @@ function canStudentSee(meeting: LiveMeeting, student: Student): boolean {
   if (!meeting.active) return false;
   if (meeting.scope === 'all') return true;
   if (meeting.scope === 'batch') {
-    // Match by batchId (primary) — this is the most reliable.
     if (student.batchId && meeting.batchId && student.batchId === meeting.batchId) {
       return true;
     }
-    // Fallback: if the meeting has a className, also match by class.
     if (meeting.className && student.className) {
-      const mc = meeting.className.toLowerCase().trim();
-      const sc = student.className.toLowerCase().trim();
-      if (mc !== '' && mc === sc) return true;
+      if (normalizeClassName(meeting.className) === normalizeClassName(student.className)) {
+        return true;
+      }
     }
     return false;
   }
   if (meeting.scope === 'class') {
-    const mc = (meeting.className || '').toLowerCase().trim();
-    const sc = (student.className || '').toLowerCase().trim();
-    return mc !== '' && mc === sc;
+    if (!meeting.className || !student.className) return false;
+    return normalizeClassName(meeting.className) === normalizeClassName(student.className);
   }
   return false;
 }
@@ -196,9 +201,33 @@ function meetingAudienceLabel(meeting: LiveMeeting): string {
 }
 
 /**
- * Try to open a URL in a new tab.
- * Returns true if it succeeded, false if the popup blocker stopped it.
+ * MERGE local + Firestore meeting lists.
+ * - Union by ID.
+ * - For the same ID: prefer the "ended" version (terminal state), then prefer
+ *   the Firestore version (cross-device source of truth).
+ * - This ensures an empty Firestore snapshot NEVER wipes out locally-saved
+ *   meetings (which was the bug causing students to not see meetings).
  */
+function mergeMeetings(local: LiveMeeting[], firestore: LiveMeeting[]): LiveMeeting[] {
+  const map = new Map<string, LiveMeeting>();
+  for (const m of local) map.set(m.id, m);
+  for (const m of firestore) {
+    const existing = map.get(m.id);
+    if (!existing) {
+      map.set(m.id, m);
+      continue;
+    }
+    if (m.endedAt && !existing.endedAt) {
+      map.set(m.id, m);
+    } else if (existing.endedAt && !m.endedAt) {
+      // keep existing (ended)
+    } else {
+      map.set(m.id, m);
+    }
+  }
+  return Array.from(map.values());
+}
+
 function openInNewTab(url: string): boolean {
   try {
     const win = window.open(url, '_blank', 'noopener,noreferrer');
@@ -227,6 +256,8 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
   const [showStart, setShowStart] = useState(false);
   const [popupBlockedUrl, setPopupBlockedUrl] = useState<string | null>(null);
   const [now, setNow] = useState<number>(() => Date.now());
+  const [showManualJoin, setShowManualJoin] = useState(false);
+  const [manualRoom, setManualRoom] = useState('');
 
   const [form, setForm] = useState<{
     scope: 'batch' | 'class' | 'all';
@@ -240,7 +271,6 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
     title: '',
   });
 
-  // Tick every second so the "live for Xm" timer updates.
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
@@ -252,7 +282,6 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
     setStudentCount(getStudentsSafe().length);
   }, []);
 
-  // Listen for local storage updates (same-browser, other tabs)
   useEffect(() => {
     const handler = () => refresh();
     window.addEventListener('apex_storage_updated', handler);
@@ -263,10 +292,7 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
     };
   }, [refresh]);
 
-  // ── Firestore real-time listener ───────────────────────────────────────
-  // This is what makes meetings show up on the STUDENT'S device. When the
-  // admin starts a meeting, it's written to Firestore; this listener fires
-  // in every browser (admin + student) and updates the local state.
+  // ── Firestore real-time listener — MERGES instead of overwriting ───────
   useEffect(() => {
     let unsubscribe: (() => void) | null = null;
     try {
@@ -275,23 +301,21 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
         q,
         (snapshot) => {
           const firestoreMeetings = snapshot.docs.map((d) => d.data() as LiveMeeting);
-          saveMeetingsLocal(firestoreMeetings);
-          setMeetings(firestoreMeetings);
+          const local = getMeetings();
+          const merged = mergeMeetings(local, firestoreMeetings);
+          saveMeetingsLocal(merged);
+          setMeetings(merged);
         },
         (err) => {
-          console.debug('Live meetings listener error:', err);
+          console.debug('Live meetings listener error (OK if not configured):', err);
         }
       );
     } catch (e) {
-      console.debug('Firebase listener setup failed:', e);
+      console.debug('Firebase listener setup failed (OK if not configured):', e);
     }
     return () => {
       if (unsubscribe) {
-        try {
-          unsubscribe();
-        } catch {
-          /* ignore */
-        }
+        try { unsubscribe(); } catch { /* ignore */ }
       }
     };
   }, []);
@@ -313,28 +337,35 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
       if (scope === 'batch') {
         return students.filter((s) => s.batchId === batchId).length;
       }
-      const target = (className || '').toLowerCase().trim();
+      const target = normalizeClassName(className || '');
       return students.filter(
-        (s) => (s.className || '').toLowerCase().trim() === target
+        (s) => normalizeClassName(s.className || '') === target
       ).length;
     },
     []
   );
 
-  // ---- Join helper (opens Jitsi in a new tab) ----
   const handleJoin = useCallback(
     (meeting: LiveMeeting) => {
       const url = buildJitsiUrl(meeting.roomName, displayName);
       const ok = openInNewTab(url);
-      if (!ok) {
-        // Popup was blocked — show the link so the user can click it manually.
-        setPopupBlockedUrl(url);
-      }
+      if (!ok) setPopupBlockedUrl(url);
     },
     [displayName]
   );
 
-  // ---- Actions ----
+  const handleManualJoin = () => {
+    const room = sanitizeRoomName(manualRoom);
+    if (!room) return;
+    const url = buildJitsiUrl(room, displayName);
+    const ok = openInNewTab(url);
+    if (!ok) {
+      setPopupBlockedUrl(url);
+    } else {
+      setShowManualJoin(false);
+      setManualRoom('');
+    }
+  };
 
   const handleStartMeeting = () => {
     const scope = form.scope;
@@ -374,25 +405,18 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
       createdAt: Date.now(),
     };
 
-    // 1. Save locally for instant UI feedback
     const updated = [meeting, ...getMeetings()];
     saveMeetingsLocal(updated);
     setMeetings(updated);
-
-    // 2. Sync to Firestore so students on OTHER devices see it
     syncMeetingToFirestore(meeting);
 
-    // 3. Close modal & reset form
     setShowStart(false);
     setForm({ scope: 'class', batchId: '', className: 'Class 12', title: '' });
 
-    // 4. Open the meeting in a new tab for the admin (teacher)
     setTimeout(() => {
       const url = buildJitsiUrl(meeting.roomName, displayName);
       const ok = openInNewTab(url);
-      if (!ok) {
-        setPopupBlockedUrl(url);
-      }
+      if (!ok) setPopupBlockedUrl(url);
     }, 100);
   };
 
@@ -442,8 +466,6 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
     }
   };
 
-  // ---- Derived lists ----
-
   const visibleMeetings = isAdmin
     ? meetings
     : meetings.filter((m) => (student ? canStudentSee(m, student) : false));
@@ -455,6 +477,9 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
   const sortedEnded = [...endedMeetings].sort((a, b) => (b.endedAt || 0) - (a.endedAt || 0));
 
   const canStart = form.scope !== 'batch' || form.batchId !== '';
+
+  const totalMeetingsInStorage = meetings.length;
+  const totalActiveInStorage = meetings.filter((m) => m.active).length;
 
   return (
     <div className="space-y-6">
@@ -470,14 +495,25 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
               : 'Join live classes hosted by your teacher.'}
           </p>
         </div>
-        {isAdmin && (
-          <button
-            onClick={() => setShowStart(true)}
-            className="px-4 py-2.5 bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold text-sm rounded-xl shadow-sm transition-colors flex items-center gap-2"
-          >
-            <Zap className="w-4 h-4" /> Start Instant Meeting
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {!isAdmin && (
+            <button
+              onClick={() => setShowManualJoin(true)}
+              className="px-4 py-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-sm rounded-xl transition-colors flex items-center gap-2"
+              title="Join using a room code from your teacher"
+            >
+              <KeyRound className="w-4 h-4" /> Join by Code
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              onClick={() => setShowStart(true)}
+              className="px-4 py-2.5 bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold text-sm rounded-xl shadow-sm transition-colors flex items-center gap-2"
+            >
+              <Zap className="w-4 h-4" /> Start Instant Meeting
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Info banner */}
@@ -491,7 +527,7 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
         </div>
       </div>
 
-      {/* Student: no active meetings */}
+      {/* Student: no active meetings + diagnostic info */}
       {!isAdmin && sortedActive.length === 0 && (
         <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center">
           <Video className="w-12 h-12 text-slate-300 mx-auto mb-3" />
@@ -500,12 +536,27 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
             When your teacher starts a class for your batch, it will appear here
             automatically.
           </p>
+
           {student && (
-            <p className="text-[11px] text-slate-400 mt-3">
-              Your class: <strong>{student.className || '—'}</strong>
-              {student.batchId ? <> · Batch ID: <strong>{student.batchId}</strong></> : null}
-            </p>
+            <div className="mt-5 inline-block text-left bg-slate-50 border border-slate-200 rounded-xl p-4 text-[11px] font-mono text-slate-500 space-y-1">
+              <p><span className="text-slate-400">Your name:</span> {student.name || '—'}</p>
+              <p><span className="text-slate-400">Your class:</span> {student.className || '—'} (normalized: {normalizeClassName(student.className || '')})</p>
+              <p><span className="text-slate-400">Your batch ID:</span> {student.batchId || '—'}</p>
+              <p><span className="text-slate-400">Meetings in storage:</span> {totalMeetingsInStorage} total, {totalActiveInStorage} active</p>
+            </div>
           )}
+
+          <p className="text-[11px] text-slate-400 mt-4">
+            Not seeing a class your teacher started? Ask them for the{' '}
+            <strong>room code</strong> and use{' '}
+            <button
+              onClick={() => setShowManualJoin(true)}
+              className="text-amber-600 hover:underline font-bold"
+            >
+              Join by Code
+            </button>{' '}
+            above.
+          </p>
         </div>
       )}
 
@@ -788,6 +839,57 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
                 className="flex-1 px-4 py-2.5 bg-amber-400 hover:bg-amber-500 disabled:bg-slate-200 disabled:text-slate-400 text-slate-950 font-bold text-sm rounded-xl transition-colors flex items-center justify-center gap-2"
               >
                 <Zap className="w-4 h-4" /> Start &amp; Join
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manual join modal (student fallback) */}
+      {showManualJoin && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setShowManualJoin(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                <KeyRound className="w-5 h-5 text-amber-500" /> Join by Room Code
+              </h3>
+              <button
+                onClick={() => setShowManualJoin(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-sm text-slate-600 mb-4">
+              Enter the room code your teacher gave you to join the live class directly.
+            </p>
+            <input
+              type="text"
+              value={manualRoom}
+              onChange={(e) => setManualRoom(e.target.value)}
+              placeholder="e.g. ApexWorld_abc123"
+              className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-400"
+              autoFocus
+            />
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setShowManualJoin(false)}
+                className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-700 font-bold text-sm rounded-xl hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleManualJoin}
+                disabled={!manualRoom.trim()}
+                className="flex-1 px-4 py-2.5 bg-amber-400 hover:bg-amber-500 disabled:bg-slate-200 disabled:text-slate-400 text-slate-950 font-bold text-sm rounded-xl transition-colors flex items-center justify-center gap-2"
+              >
+                <Play className="w-4 h-4" /> Join
               </button>
             </div>
           </div>
