@@ -64,15 +64,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     };
   }, []);
 
-  // ✅ FIX 1: Sort notifications NEWEST FIRST
-  const sortedNotifications = [...allNotifications].sort((a, b) => {
-    const parseTimestamp = (ts: string): number => {
-      if (!ts || ts === 'Just now') return Date.now();
-      const parsed = Date.parse(ts);
-      return isNaN(parsed) ? 0 : parsed;
-    };
-    return parseTimestamp(b.timestamp) - parseTimestamp(a.timestamp);
-  });
+    // ✅ FIX: Sort notifications NEWEST FIRST (reliable)
+  // The `timestamp` field is stored as a human string like "Oct 30, 2:45 PM"
+  // (no year). Date.parse() CANNOT read that — it returns NaN → 0 for every
+  // notification, so the old sort was a no-op and the list kept whatever
+  // order getNotifications() returned (often oldest-first).
+  //
+  // Instead we sort by the notification `id`, which is generated as
+  //   'n-' + Date.now().toString(36)
+  // in StorageService.addNotification(). That encodes the exact creation
+  // time (epoch ms) as a base-36 number, so parsing it back gives a 100%
+  // reliable sort key. Newest id = newest notification.
+  const notifTime = (n: NotificationItem): number => {
+    if (n.id && n.id.startsWith('n-')) {
+      const num = parseInt(n.id.slice(2), 36);
+      if (!isNaN(num) && num > 0) return num;
+    }
+    // Fallback: try the timestamp string, then treat "Just now" as now.
+    if (!n.timestamp || n.timestamp === 'Just now') return Date.now();
+    const parsed = Date.parse(n.timestamp);
+    return isNaN(parsed) ? 0 : parsed;
+  };
+  const sortedNotifications = [...allNotifications].sort(
+    (a, b) => notifTime(b) - notifTime(a)
+  );
 
   const recentNotifications = sortedNotifications.slice(0, 3);
 
