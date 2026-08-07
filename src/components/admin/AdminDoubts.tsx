@@ -9,7 +9,9 @@ export const AdminDoubts: React.FC = () => {
   const [doubts, setDoubts] = useState<Doubt[]>(() => StorageService.getDoubts());
 
   const [selectedBatchId, setSelectedBatchId] = useState<string>('ALL');
-    const [filterStatus, setFilterStatus] = useState<'ALL' | 'PENDING' | 'ANSWERED' | 'AI_ANSWERED' | 'ESCALATED'>('ALL');
+  // ─── PATCH A: filterStatus type extended with AI_ANSWERED + ESCALATED ───
+  const [filterStatus, setFilterStatus] = useState<'ALL' | 'PENDING' | 'ANSWERED' | 'AI_ANSWERED' | 'ESCALATED'>('ALL');
+  // ─── /PATCH A ──────────────────────────────────────────────────────────
 
   const [activeDoubt, setActiveDoubt] = useState<Doubt | null>(null);
   const [answerText, setAnswerText] = useState('');
@@ -50,14 +52,18 @@ export const AdminDoubts: React.FC = () => {
     setAnswerText('');
   };
 
+  // ─── PATCH B: filter matcher extended with AI_ANSWERED + ESCALATED ──────
   const filteredDoubts = doubts.filter(d => {
     const matchesBatch = selectedBatchId === 'ALL' || d.batchId === selectedBatchId;
     const matchesStatus =
       filterStatus === 'ALL' ||
       (filterStatus === 'PENDING' && d.status === 'pending') ||
-      (filterStatus === 'ANSWERED' && d.status === 'answered');
+      (filterStatus === 'ANSWERED' && d.status === 'answered') ||
+      (filterStatus === 'AI_ANSWERED' && d.status === 'ai_answered') ||
+      (filterStatus === 'ESCALATED' && d.status === 'escalated');
     return matchesBatch && matchesStatus;
   });
+  // ─── /PATCH B ──────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6">
@@ -88,9 +94,13 @@ export const AdminDoubts: React.FC = () => {
             onChange={e => setFilterStatus(e.target.value as any)}
             className="w-full sm:w-auto text-xs px-3 py-2 border border-slate-300 rounded-xl font-semibold outline-none focus:ring-2 focus:ring-indigo-600"
           >
+            {/* ─── PATCH C: extra filter options for AI + Escalated ─── */}
             <option value="ALL">All Statuses</option>
             <option value="PENDING">Pending Only</option>
-            <option value="ANSWERED">Answered</option>
+            <option value="AI_ANSWERED">AI Answered (needs review)</option>
+            <option value="ESCALATED">Escalated to Faculty</option>
+            <option value="ANSWERED">Answered by Faculty</option>
+            {/* ─── /PATCH C ─── */}
           </select>
         </div>
       </div>
@@ -125,15 +135,28 @@ export const AdminDoubts: React.FC = () => {
                     <span className="text-[11px] text-slate-400">({d.studentClass})</span>
                   </div>
 
-                  {d.status === 'pending' ? (
+                  {/* ─── PATCH D: status badge now handles 4 statuses ─── */}
+                  {d.status === 'pending' && (
                     <span className="px-2.5 py-0.5 bg-amber-100 text-amber-800 rounded-full font-bold text-[10px] flex items-center gap-1">
                       <Clock className="w-3 h-3" /> Pending
                     </span>
-                  ) : (
+                  )}
+                  {d.status === 'ai_answered' && (
+                    <span className="px-2.5 py-0.5 bg-violet-100 text-violet-800 rounded-full font-bold text-[10px] flex items-center gap-1">
+                      <Bot className="w-3 h-3" /> AI Answered
+                    </span>
+                  )}
+                  {d.status === 'escalated' && (
+                    <span className="px-2.5 py-0.5 bg-rose-100 text-rose-800 rounded-full font-bold text-[10px] flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3" /> Needs Faculty
+                    </span>
+                  )}
+                  {d.status === 'answered' && (
                     <span className="px-2.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-full font-bold text-[10px] flex items-center gap-1">
                       <CheckCircle2 className="w-3 h-3" /> Answered
                     </span>
                   )}
+                  {/* ─── /PATCH D ─── */}
                 </div>
 
                 <p className="text-sm font-semibold text-slate-800 leading-snug mb-2">{d.question}</p>
@@ -174,7 +197,7 @@ export const AdminDoubts: React.FC = () => {
                 <div className="pt-2">
                   <p className="text-[10px] font-bold text-slate-500 mb-1 flex items-center justify-between">
                     <span>Attached Picture:</span>
-                    <button 
+                    <button
                       type="button"
                       onClick={() => {
                         setSelectedImage(activeDoubt.imageUrl!);
@@ -190,9 +213,9 @@ export const AdminDoubts: React.FC = () => {
                       This image was uploaded using an older, unsupported format and cannot be displayed. Please ask the student to re-upload.
                     </div>
                   ) : activeDoubt.imageUrl.startsWith('chunked:') ? (
-                    <ChunkedImage 
-                      fileId={activeDoubt.imageUrl.split(':')[1]} 
-                      className="w-full max-h-48 object-cover rounded-xl border border-slate-300 shadow-sm cursor-pointer hover:opacity-90 transition-opacity" 
+                    <ChunkedImage
+                      fileId={activeDoubt.imageUrl.split(':')[1]}
+                      className="w-full max-h-48 object-cover rounded-xl border border-slate-300 shadow-sm cursor-pointer hover:opacity-90 transition-opacity"
                     />
                   ) : (
                     <img
@@ -204,6 +227,30 @@ export const AdminDoubts: React.FC = () => {
                 </div>
               )}
             </div>
+
+            {/* ─── PATCH E: Apex AI's auto-answer panel — review before sending yours ─── */}
+            {activeDoubt.aiAnswer && (
+              <div className="bg-gradient-to-br from-violet-50 to-fuchsia-50 p-4 rounded-xl border border-violet-200 space-y-1 text-xs">
+                <p className="text-violet-700 font-bold flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
+                  <Bot className="w-3.5 h-3.5" /> Apex AI's Answer (review before sending yours)
+                  {activeDoubt.escalatedToFaculty && (
+                    <span className="ml-1 px-1.5 py-0.5 bg-rose-100 text-rose-700 rounded-full text-[9px] normal-case tracking-normal">
+                      AI escalated
+                    </span>
+                  )}
+                </p>
+                <p className="text-slate-700 leading-relaxed font-medium whitespace-pre-wrap">{activeDoubt.aiAnswer}</p>
+                {activeDoubt.aiFollowUp && (
+                  <p className="text-slate-500 italic pt-1 border-t border-violet-100">
+                    {activeDoubt.aiFollowUp}
+                  </p>
+                )}
+                <p className="text-[10px] text-slate-400 font-mono pt-1">
+                  AI confidence: {activeDoubt.aiConfidence || 'unknown'} • answered at {activeDoubt.aiAnsweredAt || '—'}
+                </p>
+              </div>
+            )}
+            {/* ─── /PATCH E ─── */}
 
             <form onSubmit={handleAnswerSubmit} className="space-y-3">
               <div>
