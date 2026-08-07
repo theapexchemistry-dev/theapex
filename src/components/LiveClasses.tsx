@@ -1,29 +1,35 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Role, Student } from '../types';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { Role, Student, Batch } from '../types';
+import { StorageService } from '../lib/storage';
 import {
-  Video, VideoOff, Mic, MicOff, Plus, Trash2, Calendar,
-  Users, Copy, X, Circle, Radio, Clock, Play
+  Video, VideoOff, Mic, MicOff, Trash2, Users, Copy,
+  X, Circle, Radio, Play, Zap, ShieldCheck, AlertCircle, Calendar
 } from 'lucide-react';
 
 /* ============================================================================
- *  THE APEX WORLD — Live Classes (Jitsi Meet embed)
+ *  THE APEX WORLD — Live Classes (batch-based instant meetings)
  * ----------------------------------------------------------------------------
- *  100% FREE • No API key • No time limit • No signup
- *  Uses the public `meet.jit.si` infrastructure via the official
- *  Jitsi Meet External API (iframe-based).
+ *  Admin starts an instant meeting for a specific Batch / Class / Everyone.
+ *  Only students in that target group see the "LIVE NOW" banner and can join.
+ *  Students auto-join with their real name as the display name.
  *
- *  This file is SELF-CONTAINED — it does not depend on any other file.
+ *  Powered by Jitsi Meet (meet.jit.si) — 100% free, no API key, no time limit.
  * ========================================================================== */
 
 // ---------- Types ----------
-interface LiveClass {
+interface LiveMeeting {
   id: string;
   title: string;
-  batch: string;
+  scope: 'batch' | 'class' | 'all';
+  batchId?: string;
+  batchTitle?: string;
+  className?: string;
   teacherName: string;
-  scheduledAt: number;
-  durationMins: number;
   roomName: string;
+  startedAt: number;
+  durationMins: number;
+  active: boolean;
+  endedAt?: number;
   createdAt: number;
 }
 
@@ -39,39 +45,33 @@ interface JitsiMeetExternalAPIConstructor {
     parentNode: HTMLElement;
     configOverwrite?: Record<string, unknown>;
     interfaceConfigOverwrite?: Record<string, unknown>;
-    userInfo?: { displayName: string; avatarUrl?: string };
+    userInfo?: { displayName: string };
   }): JitsiMeetExternalAPIInstance;
-}
-
-declare global {
-  interface Window {
-    JitsiMeetExternalAPI?: JitsiMeetExternalAPIConstructor;
-  }
 }
 
 // ---------- Constants ----------
 const JITSI_DOMAIN = 'meet.jit.si';
 const JITSI_API_URL = `https://${JITSI_DOMAIN}/external_api.js`;
-const STORAGE_KEY = 'apex_live_classes';
+const STORAGE_KEY = 'apex_live_meetings';
+const FALLBACK_CLASSES = ['Class 9', 'Class 10', 'Class 11', 'Class 12'];
 
 // ---------- Jitsi script loader (loads once, globally) ----------
-let jitsiApiPromise: Promise<JitsiMeetExternalAPIConstructor> | null = null;
+let jitsiPromise: Promise<JitsiMeetExternalAPIConstructor> | null = null;
 
 function loadJitsiApi(): Promise<JitsiMeetExternalAPIConstructor> {
   if (typeof window === 'undefined') {
     return Promise.reject(new Error('Jitsi can only run in the browser'));
   }
-  if (window.JitsiMeetExternalAPI) {
-    return Promise.resolve(window.JitsiMeetExternalAPI);
-  }
-  if (jitsiApiPromise) return jitsiApiPromise;
+  const w = window as unknown as { JitsiMeetExternalAPI?: JitsiMeetExternalAPIConstructor };
+  if (w.JitsiMeetExternalAPI) return Promise.resolve(w.JitsiMeetExternalAPI);
+  if (jitsiPromise) return jitsiPromise;
 
-  jitsiApiPromise = new Promise((resolve, reject) => {
+  jitsiPromise = new Promise((resolve, reject) => {
     const existing = document.getElementById('jitsi-external-api') as HTMLScriptElement | null;
     if (existing) {
-      if (window.JitsiMeetExternalAPI) { resolve(window.JitsiMeetExternalAPI); return; }
+      if (w.JitsiMeetExternalAPI) { resolve(w.JitsiMeetExternalAPI); return; }
       existing.addEventListener('load', () => {
-        if (window.JitsiMeetExternalAPI) resolve(window.JitsiMeetExternalAPI);
+        if (w.JitsiMeetExternalAPI) resolve(w.JitsiMeetExternalAPI);
         else reject(new Error('Jitsi API script failed to initialise'));
       });
       existing.addEventListener('error', () => reject(new Error('Failed to load Jitsi API')));
@@ -82,39 +82,60 @@ function loadJitsiApi(): Promise<JitsiMeetExternalAPIConstructor> {
     script.src = JITSI_API_URL;
     script.async = true;
     script.onload = () => {
-      if (window.JitsiMeetExternalAPI) resolve(window.JitsiMeetExternalAPI);
+      if (w.JitsiMeetExternalAPI) resolve(w.JitsiMeetExternalAPI);
       else reject(new Error('Jitsi API script loaded but constructor not found'));
     };
     script.onerror = () => reject(new Error('Failed to load Jitsi API script'));
     document.head.appendChild(script);
   });
-  return jitsiApiPromise;
+  return jitsiPromise;
 }
 
+// ---------- Helpers ----------
 function sanitizeRoomName(input: string): string {
-  return input
-    .trim()
-    .replace(/[^a-zA-Z0-9-_]/g, '')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 60);
+  return input.replace(/[^a-zA-Z0-9-_]/g, '').replace(/^-+|-+$/g, '').slice(0, 60);
 }
 
-// ---------- Storage helpers (self-contained) ----------
-function getLiveClasses(): LiveClass[] {
+function generateRoomName(): string {
+  const rand = Math.random().toString(36).slice(2, 10);
+  return sanitizeRoomName(`ApexWorld_${Date.now().toString(36)}_${rand}`);
+}
+
+function getMeetings(): LiveMeeting[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed) ? (parsed as LiveMeeting[]) : [];
   } catch {
     return [];
   }
 }
 
-function saveLiveClasses(classes: LiveClass[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(classes));
+function saveMeetings(meetings: LiveMeeting[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(meetings));
+  } catch {
+    /* storage full or unavailable — ignore */
+  }
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event('apex_storage_updated'));
+  }
+}
+
+function getBatchesSafe(): Batch[] {
+  try {
+    return StorageService.getBatches();
+  } catch {
+    return [];
+  }
+}
+
+function getStudentsSafe(): Student[] {
+  try {
+    return StorageService.getStudents();
+  } catch {
+    return [];
   }
 }
 
@@ -125,24 +146,43 @@ function formatDateTime(ms: number): string {
   });
 }
 
-// "Live now" window: 5 min before start until duration + 30 min grace.
-function isLiveNow(cls: LiveClass): boolean {
-  const now = Date.now();
-  const start = cls.scheduledAt;
-  const end = start + cls.durationMins * 60 * 1000;
-  return now >= start - 5 * 60 * 1000 && now <= end + 30 * 60 * 1000;
+/**
+ * Decide whether a given student should see / join a meeting.
+ * - scope 'all'    → every student
+ * - scope 'batch'  → only students whose batchId matches
+ * - scope 'class'  → only students whose className matches (case-insensitive)
+ */
+function canStudentSee(meeting: LiveMeeting, student: Student): boolean {
+  if (!meeting.active) return false;
+  if (meeting.scope === 'all') return true;
+  if (meeting.scope === 'batch') {
+    return (meeting.batchId || '') === student.batchId;
+  }
+  if (meeting.scope === 'class') {
+    const mc = (meeting.className || '').toLowerCase().trim();
+    const sc = (student.className || '').toLowerCase().trim();
+    return mc !== '' && mc === sc;
+  }
+  return false;
+}
+
+function meetingAudienceLabel(meeting: LiveMeeting): string {
+  if (meeting.scope === 'all') return 'All Students';
+  if (meeting.scope === 'batch') return meeting.batchTitle || meeting.batchId || 'Batch';
+  if (meeting.scope === 'class') return meeting.className || 'Class';
+  return '—';
 }
 
 // ============================================================================
-//  Embedded call overlay — mounts the Jitsi iframe full-screen
+//  CallOverlay — full-screen embedded Jitsi video call
 // ============================================================================
 interface CallOverlayProps {
-  cls: LiveClass;
+  meeting: LiveMeeting;
   displayName: string;
   onLeave: () => void;
 }
 
-const CallOverlay: React.FC<CallOverlayProps> = ({ cls, displayName, onLeave }) => {
+const CallOverlay: React.FC<CallOverlayProps> = ({ meeting, displayName, onLeave }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<JitsiMeetExternalAPIInstance | null>(null);
   const [status, setStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
@@ -158,14 +198,13 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ cls, displayName, onLeave }) 
       .then((JitsiMeetExternalAPI) => {
         if (disposed || !containerRef.current) return;
         const api = new JitsiMeetExternalAPI({
-          roomName: cls.roomName,
+          roomName: meeting.roomName,
           parentNode: containerRef.current,
           configOverwrite: {
             startWithAudioMuted: false,
             startWithVideoMuted: false,
             prejoinPageEnabled: false,
-            disableInviteFunctions: false,
-            subject: cls.title,
+            subject: meeting.title,
           },
           interfaceConfigOverwrite: {
             SHOW_JITSI_WATERMARK: false,
@@ -174,7 +213,7 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ cls, displayName, onLeave }) 
             TOOLBAR_BUTTONS: [
               'microphone', 'camera', 'desktop', 'fullscreen', 'fodeviceselection',
               'hangup', 'chat', 'settings', 'raisehand', 'videoquality',
-              'filmstrip', 'shortcuts', 'tileview', 'mute-everyone', 'mute-video-everyone'
+              'filmstrip', 'shortcuts', 'tileview', 'mute-everyone', 'mute-video-everyone',
             ],
           },
           userInfo: { displayName },
@@ -193,7 +232,7 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ cls, displayName, onLeave }) 
           if (typeof off === 'boolean') setVideoOff(off);
         });
       })
-      .catch((err) => {
+      .catch((err: unknown) => {
         if (disposed) return;
         setErrMsg(err instanceof Error ? err.message : 'Failed to load Jitsi');
         setStatus('error');
@@ -201,17 +240,29 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ cls, displayName, onLeave }) 
 
     return () => {
       disposed = true;
-      try { apiRef.current?.dispose(); } catch { /* noop */ }
+      try {
+        apiRef.current?.dispose();
+      } catch {
+        /* noop */
+      }
       apiRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const toggleMic = () => {
-    try { apiRef.current?.executeCommand('toggleAudio'); } catch { /* noop */ }
+    try {
+      apiRef.current?.executeCommand('toggleAudio');
+    } catch {
+      /* noop */
+    }
   };
   const toggleVideo = () => {
-    try { apiRef.current?.executeCommand('toggleVideo'); } catch { /* noop */ }
+    try {
+      apiRef.current?.executeCommand('toggleVideo');
+    } catch {
+      /* noop */
+    }
   };
 
   return (
@@ -230,8 +281,10 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ cls, displayName, onLeave }) 
           ) : (
             <span className="text-red-400 text-xs font-bold">Error</span>
           )}
-          <span className="text-white font-bold text-sm truncate">{cls.title}</span>
-          <span className="text-slate-500 text-xs hidden sm:inline">· {cls.batch}</span>
+          <span className="text-white font-bold text-sm truncate">{meeting.title}</span>
+          <span className="text-slate-500 text-xs hidden sm:inline">
+            · {meetingAudienceLabel(meeting)}
+          </span>
         </div>
         <button
           onClick={onLeave}
@@ -243,14 +296,20 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ cls, displayName, onLeave }) 
 
       {/* Jitsi iframe container */}
       <div className="flex-1 relative">
-        <div ref={containerRef} className="absolute inset-0" aria-label="Live class video call" />
+        <div
+          ref={containerRef}
+          className="absolute inset-0"
+          aria-label="Live class video call"
+        />
 
         {status === 'connecting' && (
           <div className="absolute inset-0 flex items-center justify-center bg-slate-950 pointer-events-none">
             <div className="text-center">
               <div className="w-12 h-12 mx-auto mb-3 border-4 border-amber-400/30 border-t-amber-400 rounded-full animate-spin" />
               <p className="text-slate-300 text-sm font-semibold">Connecting to live class…</p>
-              <p className="text-slate-500 text-xs mt-1">Room: <span className="font-mono">{cls.roomName}</span></p>
+              <p className="text-slate-500 text-xs mt-1">
+                Room: <span className="font-mono">{meeting.roomName}</span>
+              </p>
             </div>
           </div>
         )}
@@ -258,11 +317,14 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ cls, displayName, onLeave }) 
         {status === 'error' && (
           <div className="absolute inset-0 flex items-center justify-center bg-slate-950 p-6">
             <div className="max-w-md text-center bg-slate-900 border border-red-500/30 rounded-2xl p-6">
-              <p className="text-red-400 font-bold text-sm mb-2">Couldn't start the live class</p>
+              <p className="text-red-400 font-bold text-sm mb-2">
+                Couldn&apos;t start the live class
+              </p>
               <p className="text-slate-400 text-xs mb-4">{errorMsg}</p>
               <p className="text-slate-500 text-xs">
                 Check your internet connection and make sure{' '}
-                <span className="font-mono text-slate-300">{JITSI_DOMAIN}</span> is reachable, then try again.
+                <span className="font-mono text-slate-300">{JITSI_DOMAIN}</span> is reachable,
+                then try again.
               </p>
             </div>
           </div>
@@ -312,19 +374,32 @@ interface LiveClassesProps {
 
 export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
   const isAdmin = role === 'admin';
-  const [classes, setClasses] = useState<LiveClass[]>(() => getLiveClasses());
-  const [showCreate, setShowCreate] = useState(false);
-  const [activeCall, setActiveCall] = useState<LiveClass | null>(null);
 
-  const [form, setForm] = useState({
+  const [meetings, setMeetings] = useState<LiveMeeting[]>(() => getMeetings());
+  const [batches, setBatches] = useState<Batch[]>(() => getBatchesSafe());
+  const [studentCount, setStudentCount] = useState<number>(() => getStudentsSafe().length);
+  const [showStart, setShowStart] = useState(false);
+  const [activeCall, setActiveCall] = useState<LiveMeeting | null>(null);
+
+  // Start-meeting form state
+  const [form, setForm] = useState<{
+    scope: 'batch' | 'class' | 'all';
+    batchId: string;
+    className: string;
+    title: string;
+  }>({
+    scope: 'class',
+    batchId: '',
+    className: 'Class 12',
     title: '',
-    batch: 'All Batches',
-    date: '',
-    time: '',
-    durationMins: 60,
   });
 
-  const refresh = useCallback(() => setClasses(getLiveClasses()), []);
+  const refresh = useCallback(() => {
+    setMeetings(getMeetings());
+    setBatches(getBatchesSafe());
+    setStudentCount(getStudentsSafe().length);
+  }, []);
+
   useEffect(() => {
     const handler = () => refresh();
     window.addEventListener('apex_storage_updated', handler);
@@ -337,73 +412,147 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
 
   const displayName = isAdmin
     ? 'Mr. Subhamoy Mondal (Teacher)'
-    : (student?.name || 'Student');
+    : student?.name || 'Student';
 
-  const handleCreate = () => {
-    if (!form.title.trim() || !form.date || !form.time) return;
-    const dt = new Date(`${form.date}T${form.time}`);
-    if (isNaN(dt.getTime())) return;
+  // Build class-name dropdown from real batches + a fallback list.
+  const classOptions = useMemo(() => {
+    const fromBatches = batches.map((b) => b.className).filter(Boolean);
+    const merged = Array.from(new Set([...FALLBACK_CLASSES, ...fromBatches]));
+    return merged.sort();
+  }, [batches]);
 
-    const id = 'live-' + Date.now().toString(36);
-    const roomBase = `ApexWorld_${id}`;
-    const cls: LiveClass = {
-      id,
-      title: form.title.trim(),
-      batch: form.batch.trim() || 'All Batches',
+  // Count how many students belong to a given scope/target.
+  const countStudentsFor = useCallback(
+    (
+      scope: 'batch' | 'class' | 'all',
+      batchId?: string,
+      className?: string
+    ): number => {
+      const students = getStudentsSafe();
+      if (scope === 'all') return students.length;
+      if (scope === 'batch') {
+        return students.filter((s) => s.batchId === batchId).length;
+      }
+      const target = (className || '').toLowerCase().trim();
+      return students.filter(
+        (s) => (s.className || '').toLowerCase().trim() === target
+      ).length;
+    },
+    []
+  );
+
+  // ---- Actions ----
+
+  const handleStartMeeting = () => {
+    const scope = form.scope;
+    let title = form.title.trim();
+    let batchId: string | undefined;
+    let batchTitle: string | undefined;
+    let className: string | undefined;
+
+    if (scope === 'batch') {
+      if (!form.batchId) return;
+      const batch = batches.find((b) => b.id === form.batchId);
+      if (!batch) return;
+      batchId = batch.id;
+      batchTitle = batch.title;
+      className = batch.className;
+      if (!title) title = `${batch.className} — Live Class`;
+    } else if (scope === 'class') {
+      if (!form.className) return;
+      className = form.className;
+      if (!title) title = `${form.className} — Live Class`;
+    } else {
+      if (!title) title = 'Live Class — All Batches';
+    }
+
+    const meeting: LiveMeeting = {
+      id: 'live-' + Date.now().toString(36),
+      title,
+      scope,
+      batchId,
+      batchTitle,
+      className,
       teacherName: 'Mr. Subhamoy Mondal',
-      scheduledAt: dt.getTime(),
-      durationMins: Math.max(15, Math.min(240, Number(form.durationMins) || 60)),
-      roomName: sanitizeRoomName(roomBase),
+      roomName: generateRoomName(),
+      startedAt: Date.now(),
+      durationMins: 60,
+      active: true,
       createdAt: Date.now(),
     };
-    const updated = [cls, ...getLiveClasses()];
-    saveLiveClasses(updated);
-    setClasses(updated);
-    setShowCreate(false);
-    setForm({ title: '', batch: 'All Batches', date: '', time: '', durationMins: 60 });
+
+    const updated = [meeting, ...getMeetings()];
+    saveMeetings(updated);
+    setMeetings(updated);
+    setShowStart(false);
+    setForm({ scope: 'class', batchId: '', className: 'Class 12', title: '' });
+
+    // Admin auto-joins the call immediately.
+    setActiveCall(meeting);
   };
 
-  const handleDelete = (id: string) => {
-    if (!confirm('Delete this live class? Students will no longer see it.')) return;
-    const updated = getLiveClasses().filter(c => c.id !== id);
-    saveLiveClasses(updated);
-    setClasses(updated);
+  const handleEndMeeting = (id: string) => {
+    const ok = window.confirm(
+      'End this live class?\n\nStudents will no longer be able to join from the website. ' +
+      'If you are still inside the Jitsi call, also click "End meeting for all" in Jitsi ' +
+      'to disconnect everyone.'
+    );
+    if (!ok) return;
+    const updated = getMeetings().map((m) =>
+      m.id === id ? { ...m, active: false, endedAt: Date.now() } : m
+    );
+    saveMeetings(updated);
+    setMeetings(updated);
   };
 
-  const handleCopyLink = (cls: LiveClass) => {
-    const url = `https://${JITSI_DOMAIN}/${cls.roomName}`;
+  const handleDeleteMeeting = (id: string) => {
+    if (!window.confirm('Delete this meeting record? This cannot be undone.')) return;
+    const updated = getMeetings().filter((m) => m.id !== id);
+    saveMeetings(updated);
+    setMeetings(updated);
+  };
+
+  const handleCopyLink = (meeting: LiveMeeting) => {
+    const url = `https://${JITSI_DOMAIN}/${meeting.roomName}`;
     if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(url).then(
-        () => alert('Live class link copied!\n\n' + url),
-        () => alert('Link: ' + url)
+        () => window.alert('Live class link copied!\n\n' + url),
+        () => window.alert('Link: ' + url)
       );
     } else {
-      alert('Link: ' + url);
+      window.alert('Link: ' + url);
     }
   };
 
-  const now = Date.now();
-  const sorted = [...classes].sort((a, b) => {
-    const aLive = isLiveNow(a) ? 1 : 0;
-    const bLive = isLiveNow(b) ? 1 : 0;
-    if (aLive !== bLive) return bLive - aLive;
-    const aUpcoming = a.scheduledAt > now ? 1 : 0;
-    const bUpcoming = b.scheduledAt > now ? 1 : 0;
-    if (aUpcoming && bUpcoming) return a.scheduledAt - b.scheduledAt;
-    if (aUpcoming && !bUpcoming) return -1;
-    if (!aUpcoming && bUpcoming) return 1;
-    return b.scheduledAt - a.scheduledAt;
-  });
+  // ---- Derived lists ----
+
+  const visibleMeetings = isAdmin
+    ? meetings
+    : meetings.filter((m) => (student ? canStudentSee(m, student) : false));
+
+  const activeMeetings = visibleMeetings.filter((m) => m.active);
+  const endedMeetings = visibleMeetings.filter((m) => !m.active);
+
+  const sortedActive = [...activeMeetings].sort(
+    (a, b) => b.startedAt - a.startedAt
+  );
+  const sortedEnded = [...endedMeetings].sort(
+    (a, b) => (b.endedAt || 0) - (a.endedAt || 0)
+  );
+
+  // ---- Render ----
 
   if (activeCall) {
     return (
       <CallOverlay
-        cls={activeCall}
+        meeting={activeCall}
         displayName={displayName}
         onLeave={() => setActiveCall(null)}
       />
     );
   }
+
+  const canStart = form.scope !== 'batch' || form.batchId !== '';
 
   return (
     <div className="space-y-6">
@@ -415,124 +564,154 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
           </h1>
           <p className="text-sm text-slate-500 mt-1">
             {isAdmin
-              ? 'Schedule and start live video classes for your students.'
-              : 'Join live video classes hosted by your teacher.'}
+              ? 'Start an instant live class for a specific batch or class.'
+              : 'Join live classes hosted by your teacher.'}
           </p>
         </div>
         {isAdmin && (
           <button
-            onClick={() => setShowCreate(true)}
+            onClick={() => setShowStart(true)}
             className="px-4 py-2.5 bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold text-sm rounded-xl shadow-sm transition-colors flex items-center gap-2"
           >
-            <Plus className="w-4 h-4" /> Schedule New Class
+            <Zap className="w-4 h-4" /> Start Instant Meeting
           </button>
         )}
       </div>
 
       {/* Info banner */}
       <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
-        <Circle className="w-3 h-3 text-amber-500 fill-amber-500 mt-1 shrink-0" />
+        <ShieldCheck className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
         <p className="text-xs text-amber-800 leading-relaxed">
-          <strong>Free &amp; unlimited.</strong> Live classes run on the open-source Jitsi Meet platform —
-          no API key, no time limit, no installation. Just click <strong>Join</strong> and allow
-          camera/mic access when your browser asks.
+          <strong>Batch-restricted.</strong> Only students in the selected batch or class can
+          see and join the meeting. Each class gets a unique, unguessable Jitsi room. Free,
+          unlimited, no signup — just allow camera &amp; mic access when your browser asks.
         </p>
       </div>
 
-      {/* Class list */}
-      {sorted.length === 0 ? (
+      {/* Student: no active meetings */}
+      {!isAdmin && sortedActive.length === 0 && (
         <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center">
           <Video className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-          <p className="text-slate-700 font-bold">No live classes scheduled yet</p>
+          <p className="text-slate-700 font-bold">No live classes right now</p>
           <p className="text-slate-400 text-sm mt-1">
-            {isAdmin
-              ? 'Click "Schedule New Class" to create one.'
-              : 'Check back soon — your teacher will schedule classes here.'}
+            When your teacher starts a class for your batch, it will appear here automatically.
           </p>
-        </div>
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {sorted.map(cls => {
-            const live = isLiveNow(cls);
-            const upcoming = cls.scheduledAt > now;
-            return (
-              <div
-                key={cls.id}
-                className={`bg-white border rounded-2xl p-5 flex flex-col gap-3 transition-shadow hover:shadow-md ${
-                  live ? 'border-red-300 ring-2 ring-red-100' : 'border-slate-200'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  {live ? (
-                    <span className="flex items-center gap-1.5 px-2.5 py-1 bg-red-100 text-red-700 text-[10px] font-black rounded-full uppercase tracking-wide">
-                      <Radio className="w-3 h-3 animate-pulse" /> Live Now
-                    </span>
-                  ) : upcoming ? (
-                    <span className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-100 text-emerald-700 text-[10px] font-black rounded-full uppercase tracking-wide">
-                      <Clock className="w-3 h-3" /> Upcoming
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 text-slate-500 text-[10px] font-black rounded-full uppercase tracking-wide">
-                      <Circle className="w-2.5 h-2.5" /> Ended
-                    </span>
-                  )}
-                </div>
-
-                <div>
-                  <h3 className="font-black text-slate-900 leading-tight">{cls.title}</h3>
-                  <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-                    <Users className="w-3.5 h-3.5" /> {cls.batch}
-                  </p>
-                  <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-                    <Calendar className="w-3.5 h-3.5" /> {formatDateTime(cls.scheduledAt)}
-                  </p>
-                  <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-                    <Clock className="w-3.5 h-3.5" /> {cls.durationMins} minutes
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2 mt-auto pt-2">
-                  <button
-                    onClick={() => setActiveCall(cls)}
-                    disabled={!live && !upcoming}
-                    className={`flex-1 px-3 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors ${
-                      live
-                        ? 'bg-red-500 hover:bg-red-600 text-white'
-                        : upcoming
-                        ? 'bg-amber-400 hover:bg-amber-500 text-slate-950'
-                        : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                    }`}
-                  >
-                    <Play className="w-4 h-4" /> {live ? 'Join Now' : upcoming ? 'Join Early' : 'Ended'}
-                  </button>
-                  <button
-                    onClick={() => handleCopyLink(cls)}
-                    title="Copy shareable link"
-                    className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
-                  >
-                    <Copy className="w-4 h-4" />
-                  </button>
-                  {isAdmin && (
-                    <button
-                      onClick={() => handleDelete(cls.id)}
-                      title="Delete class"
-                      className="p-2 rounded-xl bg-slate-100 hover:bg-red-100 text-slate-500 hover:text-red-600 transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
         </div>
       )}
 
-      {/* Create modal */}
-      {showCreate && (
+      {/* Active (LIVE NOW) meetings */}
+      {sortedActive.length > 0 && (
+        <div className="space-y-4">
+          {sortedActive.map((m) => (
+            <div
+              key={m.id}
+              className={`bg-white border-2 rounded-2xl p-5 ${
+                isAdmin ? 'border-red-200' : 'border-red-300'
+              } ring-4 ring-red-50`}
+            >
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="flex items-center gap-1.5 px-3 py-1 bg-red-500 text-white text-[10px] font-black rounded-full uppercase tracking-wider">
+                      <Radio className="w-3 h-3 animate-pulse" /> Live Now
+                    </span>
+                    <span className="text-xs text-slate-500 font-semibold">
+                      {meetingAudienceLabel(m)}
+                    </span>
+                  </div>
+                  <h3 className="text-lg font-black text-slate-900 leading-tight">
+                    {m.title}
+                  </h3>
+                  <div className="flex flex-wrap items-center gap-4 mt-2 text-xs text-slate-500">
+                    <span className="flex items-center gap-1">
+                      <Calendar className="w-3.5 h-3.5" /> {formatDateTime(m.startedAt)}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Users className="w-3.5 h-3.5" />
+                      {countStudentsFor(m.scope, m.batchId, m.className)} students
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setActiveCall(m)}
+                    className="px-5 py-2.5 bg-red-500 hover:bg-red-600 text-white font-bold text-sm rounded-xl flex items-center gap-2 transition-colors"
+                  >
+                    <Play className="w-4 h-4" /> Join Now
+                  </button>
+                  {isAdmin && (
+                    <>
+                      <button
+                        onClick={() => handleCopyLink(m)}
+                        title="Copy direct link"
+                        className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleEndMeeting(m.id)}
+                        title="End meeting"
+                        className="px-3 py-2.5 rounded-xl bg-slate-100 hover:bg-red-100 text-slate-600 hover:text-red-600 font-bold text-xs transition-colors"
+                      >
+                        End
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+              {!isAdmin && (
+                <p className="text-xs text-emerald-600 mt-3 flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5" /> You will join as{' '}
+                  <strong>{displayName}</strong>
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Past meetings (admin only) */}
+      {isAdmin && sortedEnded.length > 0 && (
+        <div>
+          <h2 className="text-sm font-black text-slate-400 uppercase tracking-wider mb-3">
+            Past Meetings
+          </h2>
+          <div className="space-y-2">
+            {sortedEnded.slice(0, 10).map((m) => (
+              <div
+                key={m.id}
+                className="bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-center justify-between gap-3"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-500 text-[10px] font-black rounded-full uppercase">
+                      Ended
+                    </span>
+                    <p className="font-bold text-slate-700 text-sm truncate">{m.title}</p>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {meetingAudienceLabel(m)} · {formatDateTime(m.startedAt)}
+                    {m.endedAt && ` → ended ${formatDateTime(m.endedAt)}`}
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleDeleteMeeting(m.id)}
+                  className="p-2 rounded-lg bg-slate-50 hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"
+                  title="Delete record"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Start meeting modal */}
+      {showStart && (
         <div
           className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4"
-          onClick={() => setShowCreate(false)}
+          onClick={() => setShowStart(false)}
         >
           <div
             className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto"
@@ -540,16 +719,116 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
           >
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
-                <Plus className="w-5 h-5 text-amber-500" /> Schedule Live Class
+                <Zap className="w-5 h-5 text-amber-500" /> Start Instant Meeting
               </h3>
-              <button onClick={() => setShowCreate(false)} className="p-1.5 text-slate-400 hover:text-slate-700">
+              <button
+                onClick={() => setShowStart(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="space-y-4">
+              {/* Scope selector */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Class Title *</label>
+                <label className="block text-xs font-bold text-slate-700 mb-2">
+                  Who can join?
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(
+                    [
+                      { val: 'class', label: 'Entire Class' },
+                      { val: 'batch', label: 'Specific Batch' },
+                      { val: 'all', label: 'All Students' },
+                    ] as const
+                  ).map((opt) => (
+                    <button
+                      key={opt.val}
+                      onClick={() => setForm({ ...form, scope: opt.val })}
+                      className={`px-3 py-2.5 rounded-xl text-xs font-bold border-2 transition-all ${
+                        form.scope === opt.val
+                          ? 'border-amber-400 bg-amber-50 text-amber-700'
+                          : 'border-slate-200 text-slate-500 hover:border-slate-300'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Batch selector */}
+              {form.scope === 'batch' && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Select Batch *
+                  </label>
+                  {batches.length === 0 ? (
+                    <p className="text-xs text-red-500 bg-red-50 rounded-lg p-3">
+                      No batches found. Add batches first in the Batches tab.
+                    </p>
+                  ) : (
+                    <select
+                      value={form.batchId}
+                      onChange={(e) => setForm({ ...form, batchId: e.target.value })}
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
+                    >
+                      <option value="">— Select a batch —</option>
+                      {batches.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.title} ({b.className})
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {form.batchId && (
+                    <p className="text-xs text-slate-500 mt-1.5 flex items-center gap-1">
+                      <Users className="w-3 h-3" />
+                      {countStudentsFor('batch', form.batchId)} student(s) will see this meeting
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Class selector */}
+              {form.scope === 'class' && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Select Class *
+                  </label>
+                  <select
+                    value={form.className}
+                    onChange={(e) => setForm({ ...form, className: e.target.value })}
+                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
+                  >
+                    {classOptions.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-slate-500 mt-1.5 flex items-center gap-1">
+                    <Users className="w-3 h-3" />
+                    {countStudentsFor('class', undefined, form.className)} student(s) will see
+                    this meeting
+                  </p>
+                </div>
+              )}
+
+              {/* All-students info */}
+              {form.scope === 'all' && (
+                <p className="text-xs text-amber-700 bg-amber-50 rounded-lg p-3 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  All {studentCount} students across every batch will see this meeting.
+                </p>
+              )}
+
+              {/* Title */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Class Title (optional)
+                </label>
                 <input
                   type="text"
                   value={form.title}
@@ -557,73 +836,25 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
                   placeholder="e.g. Mole Concept — Doubt Clearing"
                   className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
                 />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Batch</label>
-                <select
-                  value={form.batch}
-                  onChange={(e) => setForm({ ...form, batch: e.target.value })}
-                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
-                >
-                  <option>All Batches</option>
-                  <option>Batch A</option>
-                  <option>Batch B</option>
-                  <option>Batch C</option>
-                  <option>Class 11</option>
-                  <option>Class 12</option>
-                  <option>NEET Droppers</option>
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Date *</label>
-                  <input
-                    type="date"
-                    value={form.date}
-                    onChange={(e) => setForm({ ...form, date: e.target.value })}
-                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Time *</label>
-                  <input
-                    type="time"
-                    value={form.time}
-                    onChange={(e) => setForm({ ...form, time: e.target.value })}
-                    className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Duration (minutes)</label>
-                <input
-                  type="number"
-                  min={15}
-                  max={240}
-                  step={15}
-                  value={form.durationMins}
-                  onChange={(e) => setForm({ ...form, durationMins: Number(e.target.value) })}
-                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-                />
+                <p className="text-xs text-slate-400 mt-1">
+                  Leave blank to auto-generate from the class or batch name.
+                </p>
               </div>
             </div>
 
             <div className="flex gap-3 mt-6">
               <button
-                onClick={() => setShowCreate(false)}
+                onClick={() => setShowStart(false)}
                 className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-700 font-bold text-sm rounded-xl hover:bg-slate-50 transition-colors"
               >
                 Cancel
               </button>
               <button
-                onClick={handleCreate}
-                disabled={!form.title.trim() || !form.date || !form.time}
-                className="flex-1 px-4 py-2.5 bg-amber-400 hover:bg-amber-500 disabled:bg-slate-200 disabled:text-slate-400 text-slate-950 font-bold text-sm rounded-xl transition-colors"
+                onClick={handleStartMeeting}
+                disabled={!canStart}
+                className="flex-1 px-4 py-2.5 bg-amber-400 hover:bg-amber-500 disabled:bg-slate-200 disabled:text-slate-400 text-slate-950 font-bold text-sm rounded-xl transition-colors flex items-center justify-center gap-2"
               >
-                Schedule Class
+                <Zap className="w-4 h-4" /> Start &amp; Join
               </button>
             </div>
           </div>
