@@ -1,6 +1,9 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Role, Student, Batch } from '../types';
 import { StorageService } from '../lib/storage';
+import { syncDocToFirestore, deleteFromFirestore } from '../lib/firebaseSync';
+import { collection, onSnapshot } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 import {
   Video, Trash2, Users, Copy, X, Radio, Play,
   Zap, ShieldCheck, AlertCircle, Calendar, ExternalLink
@@ -14,13 +17,8 @@ import {
  *  Students auto-join with their real name as the display name.
  *
  *  Powered by Jitsi Meet (meet.jit.si) — 100% free, no API key, no time limit.
- *
- *  ⚠️  IMPLEMENTATION NOTE:
- *  We use a PLAIN <iframe> pointing at meet.jit.si with URL-hash config.
- *  We do NOT use the external_api.js script because the current build of
- *  meet.jit.si throws "Failed to construct 'URL': Invalid URL" when the
- *  script tries to resolve its own config URLs. The iframe method is the
- *  officially supported "simple embed" and is 100% reliable.
+ *  Meetings sync through Firestore so students on other devices see them
+ *  in real time (same sync mechanism as notes, doubts, fees, etc.).
  * ========================================================================== */
 
 // ---------- Types ----------
@@ -43,6 +41,7 @@ interface LiveMeeting {
 // ---------- Constants ----------
 const JITSI_DOMAIN = 'meet.jit.si';
 const STORAGE_KEY = 'apex_live_meetings';
+const FIRESTORE_COLLECTION = 'liveMeetings';
 const FALLBACK_CLASSES = ['Class 9', 'Class 10', 'Class 11', 'Class 12'];
 
 // ---------- Helpers ----------
@@ -66,14 +65,41 @@ function getMeetings(): LiveMeeting[] {
   }
 }
 
-function saveMeetings(meetings: LiveMeeting[]): void {
+function saveMeetingsLocal(meetings: LiveMeeting[]): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(meetings));
   } catch {
-    /* storage full or unavailable — ignore */
+    /* ignore */
   }
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event('apex_storage_updated'));
+  }
+}
+
+/** Write a single meeting doc to Firestore (fire-and-forget). */
+function syncMeetingToFirestore(meeting: LiveMeeting): void {
+  try {
+    syncDocToFirestore(FIRESTORE_COLLECTION, meeting.id, {
+      ...meeting,
+      // Strip undefined fields — Firestore rejects undefined values.
+      batchId: meeting.batchId || null,
+      batchTitle: meeting.batchTitle || null,
+      className: meeting.className || null,
+      endedAt: meeting.endedAt || null,
+    }).catch(() => {
+      /* ignore — local data still works */
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Delete a meeting doc from Firestore (fire-and-forget). */
+function deleteMeetingFromFirestore(id: string): void {
+  try {
+    deleteFromFirestore(FIRESTORE_COLLECTION, id).catch(() => {});
+  } catch {
+    /* ignore */
   }
 }
 
@@ -100,21 +126,6 @@ function formatDateTime(ms: number): string {
   });
 }
 
-/**
- * Build the Jitsi embed URL for a given room + display name.
- *
- * We use the URL-hash config format documented at:
- *   https://jitsi.github.io/handbook/docs/dev-guide/dev-guide-iframe
- *
- *   #config.startWithAudioMuted=false
- *   &config.startWithVideoMuted=false
- *   &config.prejoinPageEnabled=false        ← skip Jitsi's own lobby
- *   &config.disableDeepLinking=true         ← don't try to open the native app
- *   &userInfo.displayName=<encoded>         ← set the student/teacher name
- *
- * This avoids the external_api.js script entirely, which throws
- * "Failed to construct 'URL': Invalid URL" in the current meet.jit.si build.
- */
 function buildJitsiUrl(roomName: string, displayName: string): string {
   const safeRoom = sanitizeRoomName(roomName);
   const encodedName = encodeURIComponent(displayName);
@@ -128,12 +139,6 @@ function buildJitsiUrl(roomName: string, displayName: string): string {
   return `https://${JITSI_DOMAIN}/${safeRoom}#${hash}`;
 }
 
-/**
- * Decide whether a given student should see / join a meeting.
- * - scope 'all'    → every student
- * - scope 'batch'  → only students whose batchId matches
- * - scope 'class'  → only students whose className matches (case-insensitive)
- */
 function canStudentSee(meeting: LiveMeeting, student: Student): boolean {
   if (!meeting.active) return false;
   if (meeting.scope === 'all') return true;
@@ -172,21 +177,33 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ meeting, displayName, onLeave
 
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [iframeError, setIframeError] = useState(false);
+  const loadedRef = useRef(false);
 
-  // Safety net: if the iframe hasn't fired onLoad within 20s, show an error
-  // hint so the user isn't stuck looking at a spinner forever.
   useEffect(() => {
+    // Run ONCE on mount — empty dependency array is intentional.
+    // The old version had [iframeLoaded] here which caused a reset loop:
+    // onLoad → setIframeLoaded(true) → effect re-runs → setIframeLoaded(false)
+    // → timer restarts → error shows after 20s even though iframe loaded fine.
+    loadedRef.current = false;
     setIframeLoaded(false);
     setIframeError(false);
+
     const timer = setTimeout(() => {
-      if (!iframeLoaded) setIframeError(true);
-    }, 20000);
+      if (!loadedRef.current) {
+        setIframeError(true);
+      }
+    }, 30000);
+
     return () => clearTimeout(timer);
-  }, [iframeLoaded]);
+  }, []);
+
+  const handleIframeLoad = useCallback(() => {
+    loadedRef.current = true;
+    setIframeLoaded(true);
+  }, []);
 
   return (
     <div className="fixed inset-0 z-[100] bg-slate-950 flex flex-col">
-      {/* Top bar */}
       <div className="flex items-center justify-between px-4 py-3 bg-slate-900 border-b border-slate-800 shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           <span className="flex items-center gap-1.5 text-red-400 text-xs font-bold">
@@ -203,7 +220,7 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ meeting, displayName, onLeave
             target="_blank"
             rel="noopener noreferrer"
             className="hidden sm:flex px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold rounded-lg items-center gap-1.5 transition-colors"
-            title="Open in full Jitsi tab (useful for screen share / desktop mode)"
+            title="Open in full Jitsi tab"
           >
             <ExternalLink className="w-3.5 h-3.5" /> Open in tab
           </a>
@@ -216,7 +233,6 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ meeting, displayName, onLeave
         </div>
       </div>
 
-      {/* Jitsi iframe (plain embed — no external_api.js) */}
       <div className="flex-1 relative bg-slate-950">
         <iframe
           src={jitsiUrl}
@@ -224,11 +240,9 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ meeting, displayName, onLeave
           allow="camera; microphone; fullscreen; display-capture; autoplay; encrypted-media; picture-in-picture"
           allowFullScreen
           className="absolute inset-0 w-full h-full border-0 bg-slate-950"
-          onLoad={() => setIframeLoaded(true)}
-          onError={() => setIframeError(true)}
+          onLoad={handleIframeLoad}
         />
 
-        {/* Loading spinner shown until the iframe reports onLoad */}
         {!iframeLoaded && !iframeError && (
           <div className="absolute inset-0 flex items-center justify-center bg-slate-950 pointer-events-none">
             <div className="text-center">
@@ -246,7 +260,6 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ meeting, displayName, onLeave
           </div>
         )}
 
-        {/* Timeout / load error hint */}
         {iframeError && (
           <div className="absolute inset-0 flex items-center justify-center bg-slate-950 p-6">
             <div className="max-w-md text-center bg-slate-900 border border-amber-500/30 rounded-2xl p-6">
@@ -256,7 +269,8 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ meeting, displayName, onLeave
               </p>
               <p className="text-slate-400 text-xs mb-4">
                 The live class is still connecting. If your browser didn&apos;t ask for
-                camera/mic permission, the page might be blocking it.
+                camera/mic permission, the page might be blocking it. Try opening the
+                class in a new tab instead.
               </p>
               <div className="flex flex-col gap-2">
                 <a
@@ -279,7 +293,6 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ meeting, displayName, onLeave
         )}
       </div>
 
-      {/* Bottom hint bar */}
       <div className="px-4 py-2 bg-slate-900 border-t border-slate-800 shrink-0">
         <p className="text-center text-[11px] text-slate-500">
           Use the buttons inside the video player to mute mic, turn off camera, share screen,
@@ -337,6 +350,39 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
       window.removeEventListener('storage', handler);
     };
   }, [refresh]);
+
+  // ── Firestore real-time listener ───────────────────────────────────────
+  // This is what makes meetings show up on the STUDENT'S device. When the
+  // admin starts a meeting, it's written to Firestore; this listener fires
+  // in every browser (admin + student) and updates the local state.
+  useEffect(() => {
+    let unsubscribe: (() => void) | null = null;
+    try {
+      const q = collection(db, FIRESTORE_COLLECTION);
+      unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+          const firestoreMeetings = snapshot.docs.map((d) => d.data() as LiveMeeting);
+          saveMeetingsLocal(firestoreMeetings);
+          setMeetings(firestoreMeetings);
+        },
+        (err) => {
+          console.debug('Live meetings listener error:', err);
+        }
+      );
+    } catch (e) {
+      console.debug('Firebase listener setup failed:', e);
+    }
+    return () => {
+      if (unsubscribe) {
+        try {
+          unsubscribe();
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+  }, []);
 
   const displayName = isAdmin
     ? 'Mr. Subhamoy Mondal (Teacher)'
@@ -406,11 +452,12 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
     };
 
     const updated = [meeting, ...getMeetings()];
-    saveMeetings(updated);
+    saveMeetingsLocal(updated);
     setMeetings(updated);
+    syncMeetingToFirestore(meeting);
+
     setShowStart(false);
     setForm({ scope: 'class', batchId: '', className: 'Class 12', title: '' });
-
     setActiveCall(meeting);
   };
 
@@ -419,18 +466,23 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
       'End this live class?\n\nStudents will no longer be able to join from the website.'
     );
     if (!ok) return;
+
     const updated = getMeetings().map((m) =>
       m.id === id ? { ...m, active: false, endedAt: Date.now() } : m
     );
-    saveMeetings(updated);
+    saveMeetingsLocal(updated);
     setMeetings(updated);
+
+    const ended = updated.find((m) => m.id === id);
+    if (ended) syncMeetingToFirestore(ended);
   };
 
   const handleDeleteMeeting = (id: string) => {
     if (!window.confirm('Delete this meeting record? This cannot be undone.')) return;
     const updated = getMeetings().filter((m) => m.id !== id);
-    saveMeetings(updated);
+    saveMeetingsLocal(updated);
     setMeetings(updated);
+    deleteMeetingFromFirestore(id);
   };
 
   const handleCopyLink = (meeting: LiveMeeting) => {
@@ -473,7 +525,6 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl sm:text-3xl font-black text-slate-900 flex items-center gap-2">
@@ -495,7 +546,6 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
         )}
       </div>
 
-      {/* Info banner */}
       <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
         <ShieldCheck className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
         <p className="text-xs text-amber-800 leading-relaxed">
@@ -505,7 +555,6 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
         </p>
       </div>
 
-      {/* Student: no active meetings */}
       {!isAdmin && sortedActive.length === 0 && (
         <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center">
           <Video className="w-12 h-12 text-slate-300 mx-auto mb-3" />
@@ -516,7 +565,6 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
         </div>
       )}
 
-      {/* Active (LIVE NOW) meetings */}
       {sortedActive.length > 0 && (
         <div className="space-y-4">
           {sortedActive.map((m) => (
@@ -587,7 +635,6 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
         </div>
       )}
 
-      {/* Past meetings (admin only) */}
       {isAdmin && sortedEnded.length > 0 && (
         <div>
           <h2 className="text-sm font-black text-slate-400 uppercase tracking-wider mb-3">
@@ -624,7 +671,6 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
         </div>
       )}
 
-      {/* Start meeting modal */}
       {showStart && (
         <div
           className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4"
