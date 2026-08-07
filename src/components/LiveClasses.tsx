@@ -197,28 +197,44 @@ const CallOverlay: React.FC<CallOverlayProps> = ({ meeting, displayName, onLeave
     loadJitsiApi()
       .then((JitsiMeetExternalAPI) => {
         if (disposed || !containerRef.current) return;
-        const api = new JitsiMeetExternalAPI({
-          roomName: meeting.roomName,
-          parentNode: containerRef.current,
-          configOverwrite: {
-            startWithAudioMuted: false,
-            startWithVideoMuted: false,
-            prejoinPageEnabled: false,
-            subject: meeting.title,
-          },
-          interfaceConfigOverwrite: {
-            SHOW_JITSI_WATERMARK: false,
-            SHOW_WATERMARK_FOR_GUESTS: false,
-            SHOW_BRAND_WATERMARK: false,
-            TOOLBAR_BUTTONS: [
-              'microphone', 'camera', 'desktop', 'fullscreen', 'fodeviceselection',
-              'hangup', 'chat', 'settings', 'raisehand', 'videoquality',
-              'filmstrip', 'shortcuts', 'tileview', 'mute-everyone', 'mute-video-everyone',
-            ],
-          },
-          userInfo: { displayName },
-        });
+
+        // ⚠️  Do NOT pass `interfaceConfigOverwrite` — it is deprecated in the
+        // current Jitsi external API and causes:
+        //   "Failed to construct 'URL': Invalid URL"
+        // because the API tries to resolve icon URLs for toolbar button names
+        // that no longer exist in the current meet.jit.si build.
+        // We also keep `configOverwrite` to a minimal, safe set.
+        let api: JitsiMeetExternalAPIInstance;
+        try {
+          api = new JitsiMeetExternalAPI({
+            roomName: meeting.roomName,
+            parentNode: containerRef.current,
+            configOverwrite: {
+              startWithAudioMuted: false,
+              startWithVideoMuted: false,
+              prejoinPageEnabled: false, // skip Jitsi's own lobby — we set the name ourselves
+            },
+            userInfo: { displayName },
+          });
+        } catch (syncErr) {
+          if (disposed) return;
+          setErrMsg(
+            syncErr instanceof Error
+              ? syncErr.message
+              : 'Failed to initialise Jitsi video call'
+          );
+          setStatus('error');
+          return;
+        }
         apiRef.current = api;
+
+        // Set the meeting title safely via executeCommand (more reliable than
+        // putting `subject` inside configOverwrite).
+        try {
+          api.executeCommand('subject', meeting.title);
+        } catch {
+          /* not critical — ignore */
+        }
 
         api.on('videoConferenceJoined', () => setStatus('connected'));
         api.on('videoConferenceLeft', () => { if (!disposed) onLeave(); });
