@@ -8,8 +8,7 @@ import {
   Test,
   TestResult,
   NotificationItem,
-  SupabaseConfig,
-  Meeting
+  SupabaseConfig
 } from '../types';
 import {
   INITIAL_BATCHES,
@@ -29,7 +28,6 @@ const KEYS = {
   DOUBTS: 'apex_doubts_v2',
   TESTS: 'apex_tests_v2',
   NOTIFICATIONS: 'apex_notifications_v2',
-  MEETINGS: 'apex_meetings_v2',
   SUPABASE_CONFIG: 'apex_supabase_config_v2',
   SITE_LOGO: 'apex_site_logo',
   SITE_NAME: 'apex_site_name',
@@ -51,7 +49,7 @@ function setItem<T>(key: string, value: T): void {
   try {
     localStorage.setItem(key, JSON.stringify(value));
   } catch (e) {
-    console.error('Error writing localStorage', e);
+    console.error('Error writing to localStorage', e);
   }
 }
 
@@ -240,18 +238,21 @@ export class StorageService {
     const year = new Date().getFullYear();
     const existing = this.getStudents();
 
+    // Build a set of all IDs ever used (current + deleted blacklist)
     const usedIds = new Set<string>();
     existing.forEach(s => usedIds.add(s.id));
 
     const deletedIds = this.getDeletedStudentIds();
     deletedIds.forEach(id => usedIds.add(id));
 
+    // Find the next available number starting from 101
     let nextNum = 101;
     while (usedIds.has(`APEX${year}${nextNum}`)) {
       nextNum++;
     }
     const id = `APEX${year}${nextNum}`;
 
+    // Random password — always different from any previous one
     const pass = 'apex' + Math.floor(1000 + Math.random() * 9000);
     return { id, pass };
   }
@@ -275,6 +276,7 @@ export class StorageService {
     const updated = [newStudent, ...students];
     this.saveStudents(updated);
 
+    // Initialize fee record for current month
     const currentMonth = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
     this.addFeeRecord({
       studentId: newStudent.id,
@@ -308,8 +310,10 @@ export class StorageService {
   }
 
   static deleteStudent(id: string): void {
+    // Blacklist the ID so it can NEVER be reused (fire-and-forget)
     this.addDeletedStudentId(id);
 
+    // Also delete the student's fee records
     const allFees = this.getFeeRecords();
     const remainingFees = allFees.filter(f => f.studentId !== id);
     this.saveFeeRecords(remainingFees);
@@ -392,6 +396,7 @@ export class StorageService {
     const updated = [newNote, ...notes];
     this.saveNotes(updated);
 
+    // Notify students
     this.addNotification({
       title: 'New Study Material Notes Uploaded',
       message: `${newNote.title} has been added to batch ${newNote.batchTitle || ''}.`,
@@ -440,6 +445,7 @@ export class StorageService {
     this.saveDoubts(updated);
     syncDocToFirestore('doubts', newDoubt.id, newDoubt);
 
+    // Trigger Admin notification when student posts a doubt
     this.addNotification({
       title: 'New Student Doubt Received',
       message: `${newDoubt.studentName} (${newDoubt.studentClass}) asked a question in ${newDoubt.subject}.`,
@@ -486,6 +492,7 @@ export class StorageService {
       syncDocToFirestore('doubts', answeredDoubtDoc.id, answeredDoubtDoc);
     }
 
+    // Send targeted notification to student
     if (targetStudentId) {
       const questionSnippet = targetQuestion.length > 40 ? targetQuestion.substring(0, 40) + '...' : targetQuestion;
       this.addNotification({
@@ -520,6 +527,7 @@ export class StorageService {
     syncArrayToFirestore('tests', tests);
   }
 
+  // Automatic Rank Calculation Helper
   static calculateRanks(results: TestResult[]): TestResult[] {
     const sorted = [...results].sort((a, b) => b.marksObtained - a.marksObtained);
 
@@ -553,6 +561,7 @@ export class StorageService {
     const updated = [newTest, ...tests];
     this.saveTests(updated);
 
+    // Notify students
     this.addNotification({
       title: 'New Test Results Published',
       message: `Scores and Ranks for "${newTest.title}" have been released by Admin!`,
@@ -635,108 +644,30 @@ export class StorageService {
     }
   }
 
-  // -------- Meetings (Video Call) --------
-  // Uses the notifications collection to broadcast meeting status,
-  // because the AI Studio-managed Firestore rules block the 'meetings' collection.
-  static startMeeting(batchId: string, batchName: string): Meeting {
-    const meeting: Meeting = {
-      id: `meeting_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      roomName: `apex-${batchId.replace(/[^a-zA-Z0-9]/g, '')}-${Date.now()}`,
-      batchId,
-      batchName,
-      status: 'active',
-      startedAt: new Date().toISOString(),
-      startedBy: 'Mr. Subhamoy Mondal'
-    };
-
-    const meetings = this.getMeetings();
-    meetings.forEach(m => {
-      if (m.batchId === batchId && m.status === 'active') {
-        m.status = 'ended';
-        m.endedAt = new Date().toISOString();
+  /**
+   * ✅ FIX: Mark ALL notifications as read (or only the ones whose id is in `ids`).
+   *
+   * Use this for a "Mark all as read" button in a view that shows
+   * notifications for every role — `markNotificationsRead(role)` only
+   * covers a single role, so student-targeted notifications would be
+   * skipped and the button would appear to do nothing.
+   */
+  static markAllNotificationsRead(ids?: string[]): void {
+    const notifs = this.getNotifications();
+    const idSet = ids && ids.length > 0 ? new Set(ids) : null;
+    let changed = false;
+    const updated = notifs.map(n => {
+      if (idSet ? idSet.has(n.id) : true) {
+        if (!n.read) changed = true;
+        return { ...n, read: true };
       }
+      return n;
     });
-    meetings.unshift(meeting);
-    setItem(KEYS.MEETINGS, meetings);
-
-    const notif: any = {
-      id: meeting.id,
-      title: `Live class started: ${batchName}`,
-      message: JSON.stringify(meeting),
-      type: 'meeting',
-      timestamp: new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }),
-      targetRole: 'student',
-      read: false
-    };
-    const notifs = this.getNotifications();
-    const filtered = notifs.filter(n => !(n.type === ('meeting' as any) && n.message.includes(`"batchId":"${batchId}"`)));
-    filtered.unshift(notif);
-    setItem(KEYS.NOTIFICATIONS, filtered);
-    syncDocToFirestore('notifications', notif.id, notif);
-
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new Event('apex_storage_updated'));
-    }
-    return meeting;
-  }
-
-  static endMeeting(meetingId: string): void {
-    const meetings = this.getMeetings();
-    const meeting = meetings.find(m => m.id === meetingId);
-    if (meeting) {
-      meeting.status = 'ended';
-      meeting.endedAt = new Date().toISOString();
-      setItem(KEYS.MEETINGS, meetings);
-    }
-
-    const notifs = this.getNotifications();
-    const filtered = notifs.filter(n => n.id !== meetingId);
-    setItem(KEYS.NOTIFICATIONS, filtered);
-    deleteFromFirestore('notifications', meetingId);
-
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new Event('apex_storage_updated'));
-    }
-  }
-
-  static getActiveMeetingForBatch(batchId: string): Meeting | null {
-    const notifs = this.getNotifications();
-    const meetingNotif = notifs.find(n =>
-      n.type === ('meeting' as any) &&
-      n.message.includes(`"batchId":"${batchId}"`) &&
-      n.message.includes(`"status":"active"`)
-    );
-    if (meetingNotif) {
-      try {
-        const meeting = JSON.parse(meetingNotif.message);
-        if (meeting.status === 'active') return meeting;
-      } catch {}
-    }
-    return this.getMeetings().find(m => m.batchId === batchId && m.status === 'active') || null;
-  }
-
-  static getActiveMeetings(): Meeting[] {
-    const notifs = this.getNotifications();
-    const active: Meeting[] = [];
-    notifs.forEach(n => {
-      if (n.type === ('meeting' as any)) {
-        try {
-          const m = JSON.parse(n.message);
-          if (m.status === 'active') active.push(m);
-        } catch {}
+    if (changed) {
+      this.saveNotifications(updated);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('apex_storage_updated'));
       }
-    });
-    return active;
-  }
-
-  static getMeetings(): Meeting[] {
-    return getItem<Meeting[]>(KEYS.MEETINGS, []);
-  }
-
-  static saveMeetings(meetings: Meeting[]): void {
-    setItem(KEYS.MEETINGS, meetings);
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new Event('apex_storage_updated'));
     }
   }
 }
