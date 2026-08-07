@@ -426,6 +426,14 @@ export class StorageService {
   }
 
   static addDoubt(doubtData: Omit<Doubt, 'id' | 'status' | 'createdAt'>): Doubt {
+  static addDoubt(
+    doubtData: Omit<Doubt, 'id' | 'status' | 'createdAt'> & {
+      aiAnswer?: string;
+      aiConfidence?: 'high' | 'medium' | 'low' | 'unknown';
+      aiFollowUp?: string;
+      escalatedToFaculty?: boolean;
+    }
+  ): Doubt {
     const doubts = this.getDoubts();
     const batches = this.getBatches();
     const batch = batches.find(b => b.id === doubtData.batchId);
@@ -433,13 +441,47 @@ export class StorageService {
     const now = new Date();
     const formattedDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
+    let status: Doubt['status'] = 'pending';
+    if (doubtData.aiAnswer) {
+      status = doubtData.escalatedToFaculty ? 'escalated' : 'ai_answered';
+    }
+
     const newDoubt: Doubt = {
       ...doubtData,
       id: 'd-' + Date.now().toString(36),
       batchTitle: batch ? batch.title : doubtData.batchTitle,
-      status: 'pending',
-      createdAt: formattedDate
+      status,
+      createdAt: formattedDate,
+      aiAnsweredAt: doubtData.aiAnswer ? formattedDate : undefined
     };
+
+    const updated = [newDoubt, ...doubts];
+    this.saveDoubts(updated);
+    syncDocToFirestore('doubts', newDoubt.id, newDoubt);
+
+    const escalationNote = newDoubt.escalatedToFaculty
+      ? ' (AI could not fully resolve — needs faculty review)'
+      : newDoubt.aiAnswer
+      ? ' (AI answered — review recommended)'
+      : '';
+
+    this.addNotification({
+      title: newDoubt.escalatedToFaculty
+        ? '⚠ Student Doubt Needs Faculty Reply'
+        : 'New Student Doubt Received',
+      message: `${newDoubt.studentName} (${newDoubt.studentClass}) asked a question in ${newDoubt.subject}.${escalationNote}`,
+      type: 'doubt',
+      timestamp: 'Just now',
+      targetRole: 'admin',
+      read: false
+    });
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('apex_storage_updated'));
+    }
+
+    return newDoubt;
+  }
 
     const updated = [newDoubt, ...doubts];
     this.saveDoubts(updated);
@@ -584,11 +626,19 @@ export class StorageService {
     syncArrayToFirestore('notifications', notifs);
   }
 
-  static addNotification(notif: Omit<NotificationItem, 'id' | 'timestamp'> & { timestamp?: string }): NotificationItem {
+  static addNotification(
+    notif: Omit<NotificationItem, 'id' | 'timestamp'> & { timestamp?: string }
+  ): NotificationItem {
     const notifs = this.getNotifications();
 
     const now = new Date();
-    const formattedTime = now.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+    const formattedTime = now.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
 
     const newNotif: NotificationItem = {
       ...notif,
@@ -602,6 +652,21 @@ export class StorageService {
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new Event('apex_storage_updated'));
     }
+
+    // ─── PUSH NOTIFICATIONS — enqueue so the Cloud Function can deliver it ───
+    import('./pushNotifications')
+      .then(({ enqueuePushNotification }) =>
+        enqueuePushNotification({
+          id: newNotif.id,
+          title: newNotif.title,
+          message: newNotif.message,
+          type: newNotif.type,
+          targetRole: newNotif.targetRole,
+          targetStudentId: newNotif.targetStudentId
+        })
+      )
+      .catch((e) => console.warn('Push enqueue failed:', e));
+    // ─── /PUSH NOTIFICATIONS ─────────────────────────────────────────────────
 
     return newNotif;
   }
