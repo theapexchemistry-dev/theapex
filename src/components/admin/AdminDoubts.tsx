@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { StorageService } from '../../lib/storage';
 import { Doubt, Batch } from '../../types';
-import { HelpCircle, CheckCircle2, Clock, MessageSquare, Send, Image as ImageIcon, Eye, XCircle } from 'lucide-react';
+import { HelpCircle, CheckCircle2, Clock, MessageSquare, Send, Image as ImageIcon, Eye, XCircle, Bot, AlertTriangle } from 'lucide-react';
 import { ChunkedImage } from '../ChunkedImage';
 
 export const AdminDoubts: React.FC = () => {
@@ -9,7 +9,7 @@ export const AdminDoubts: React.FC = () => {
   const [doubts, setDoubts] = useState<Doubt[]>(() => StorageService.getDoubts());
 
   const [selectedBatchId, setSelectedBatchId] = useState<string>('ALL');
-  const [filterStatus, setFilterStatus] = useState<'ALL' | 'PENDING' | 'ANSWERED'>('ALL');
+    const [filterStatus, setFilterStatus] = useState<'ALL' | 'PENDING' | 'ANSWERED' | 'AI_ANSWERED' | 'ESCALATED'>('ALL');
 
   const [activeDoubt, setActiveDoubt] = useState<Doubt | null>(null);
   const [answerText, setAnswerText] = useState('');
