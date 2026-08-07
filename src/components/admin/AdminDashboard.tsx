@@ -64,8 +64,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     };
   }, []);
 
-  // ✅ FIX: Sort notifications NEWEST FIRST
+  // ✅ FIX 1: Sort notifications NEWEST FIRST
+  // Notifications are stored newest-first, but we sort explicitly to be safe
   const sortedNotifications = [...allNotifications].sort((a, b) => {
+    // Try to parse timestamps — handle both "Just now" and formatted dates
     const parseTimestamp = (ts: string): number => {
       if (!ts || ts === 'Just now') return Date.now();
       const parsed = Date.parse(ts);
@@ -74,6 +76,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return parseTimestamp(b.timestamp) - parseTimestamp(a.timestamp);
   });
 
+  // Show only top 3 in the dashboard panel (already newest-first)
   const recentNotifications = sortedNotifications.slice(0, 3);
 
   const handleRefreshDatabase = async () => {
@@ -121,6 +124,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const maxChartAmount = Math.max(...chartData.map(m => m.amount), 1000);
   const totalCollection = chartData.reduce((sum, m) => sum + m.amount, 0);
 
+  // ✅ FIX 2: "View All" opens a modal showing ALL notifications
+  // (was previously redirecting to 'doubts' tab)
+
   const getNotificationIcon = (type: string) => {
     switch (type) {
       case 'doubt':
@@ -154,13 +160,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  // Mark a single notification as read
   const handleMarkAsRead = (id: string) => {
     StorageService.markSingleNotificationRead(id);
     setAllNotifications(StorageService.getNotifications());
   };
 
+  // ✅ FIX: Mark ALL notifications shown in the admin view as read.
+  // The dashboard displays notifications for every role (admin + student),
+  // so we must mark all of them — markNotificationsRead('admin') alone
+  // leaves student-targeted notifications unread, which makes the button
+  // look like it does nothing.
   const handleMarkAllRead = () => {
-    StorageService.markNotificationsRead('admin');
+    StorageService.markAllNotificationsRead(sortedNotifications.map(n => n.id));
     setAllNotifications(StorageService.getNotifications());
   };
 
@@ -182,7 +194,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
-            onClick={() => onTabChange('settings')}
+            onClick={() => onTabChange('calendar')}
             className="px-3 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
           >
             <Calendar className="w-3.5 h-3.5" /> Sync Calendar
@@ -256,27 +268,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           </div>
 
-          {/* ✅ FIXED CHART: uses pixel-based heights instead of broken '100%' */}
           <div className="flex items-end justify-between gap-3 h-48 mt-6">
-            {chartData.map((month, idx) => {
-              const barHeight = maxChartAmount > 0
-                ? Math.max((month.amount / maxChartAmount) * 140, month.amount > 0 ? 6 : 0)
-                : 0;
-              return (
-                <div key={idx} className="flex-1 flex flex-col items-center gap-1 h-full justify-end">
-                  <div className="text-[10px] font-bold text-slate-700">
-                    ₹{month.amount > 0 ? (month.amount / 1000).toFixed(0) + 'k' : '0'}
-                  </div>
-                  <div className="w-full h-[140px] bg-slate-100 rounded-t-lg relative overflow-hidden">
-                    <div
-                      className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-indigo-600 to-indigo-400 rounded-t-lg transition-all duration-500 hover:from-indigo-700 hover:to-indigo-500"
-                      style={{ height: `${barHeight}px` }}
-                    />
-                  </div>
-                  <div className="text-[10px] font-bold text-slate-500">{month.label}</div>
+            {chartData.map((month, idx) => (
+              <div key={idx} className="flex-1 flex flex-col items-center gap-2">
+                <div className="text-[10px] font-bold text-slate-700">
+                  ₹{month.amount > 0 ? (month.amount / 1000).toFixed(0) + 'k' : '0'}
                 </div>
-              );
-            })}
+                <div className="w-full bg-slate-100 rounded-t-lg relative group" style={{ height: '100%' }}>
+                  <div
+                    className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-indigo-600 to-indigo-400 rounded-t-lg transition-all duration-500 group-hover:from-indigo-700 group-hover:to-indigo-500"
+                    style={{ height: `${(month.amount / maxChartAmount) * 100}%` }}
+                  />
+                </div>
+                <div className="text-[10px] font-bold text-slate-500">{month.label}</div>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -286,6 +292,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
               <Bell className="w-4 h-4 text-amber-500" /> Recent Activity
             </h3>
+            {/* ✅ FIX 2: View All opens modal instead of going to doubts */}
             <button
               onClick={() => setShowAllNotificationsModal(true)}
               className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-0.5 transition-colors"
@@ -330,7 +337,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       </div>
 
-      {/* All Notifications Modal */}
+      {/* ✅ FIX 2: All Notifications Modal */}
       {showAllNotificationsModal && (
         <div
           className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
@@ -369,7 +376,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </div>
 
-            {/* Modal Body */}
+            {/* Modal Body — Scrollable list of ALL notifications */}
             <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
               {sortedNotifications.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 text-center">
