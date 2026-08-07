@@ -1,0 +1,11 @@
+{
+  "name": "theapex-functions",
+  "description": "Cloud Functions for THE APEX WORLD (FCM push notifications)",
+  "engines": { "node": "20" },
+  "main": "index.js",
+  "dependencies": {
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^5.1.1"
+  },
+  "private": true
+}
