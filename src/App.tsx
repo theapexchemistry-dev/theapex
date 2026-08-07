@@ -1,3 +1,4 @@
+import { LiveClasses } from './components/LiveClasses';
 import React, { useState, useEffect } from 'react';
 import { Role, Student } from './types';
 import { Navbar } from './components/Navbar';
@@ -154,6 +155,7 @@ export default function App() {
                 {activeTab === 'fees' && <AdminFees />}
                 {activeTab === 'notes' && <AdminNotes />}
                 {activeTab === 'doubts' && <AdminDoubts />}
+                {activeTab === 'live' && <LiveClasses role="admin" />}
                 {activeTab === 'tests' && <AdminTests />}
                 {activeTab === 'settings' && <AdminSettings />}
               </>
@@ -171,6 +173,7 @@ export default function App() {
                 {activeTab === 'notes' && <StudentNotes student={currentStudent} />}
                 {activeTab === 'tests' && <StudentTests student={currentStudent} />}
                 {activeTab === 'doubts' && <StudentDoubts student={currentStudent} />}
+                {activeTab === 'live' && <LiveClasses role="student" student={currentStudent} />}
                 {activeTab === 'profile' && <StudentProfile student={currentStudent} />}
                 {activeTab === 'help' && <StudentHelp student={currentStudent} />}
               </>
