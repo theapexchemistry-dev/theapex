@@ -61,9 +61,14 @@ export interface Doubt {
   question: string;
   subject: string;
   imageUrl?: string;
-  status: 'pending' | 'answered';
+  status: 'pending' | 'answered' | 'ai_answered' | 'escalated';
   answerText?: string;
   answeredAt?: string;
+  aiAnswer?: string;
+  aiConfidence?: 'high' | 'medium' | 'low' | 'unknown';
+  aiFollowUp?: string;
+  aiAnsweredAt?: string;
+  escalatedToFaculty?: boolean;
   createdAt: string;
 }
 
