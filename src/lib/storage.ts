@@ -238,21 +238,18 @@ export class StorageService {
     const year = new Date().getFullYear();
     const existing = this.getStudents();
 
-    // Build a set of all IDs ever used (current + deleted blacklist)
     const usedIds = new Set<string>();
     existing.forEach(s => usedIds.add(s.id));
 
     const deletedIds = this.getDeletedStudentIds();
     deletedIds.forEach(id => usedIds.add(id));
 
-    // Find the next available number starting from 101
     let nextNum = 101;
     while (usedIds.has(`APEX${year}${nextNum}`)) {
       nextNum++;
     }
     const id = `APEX${year}${nextNum}`;
 
-    // Random password — always different from any previous one
     const pass = 'apex' + Math.floor(1000 + Math.random() * 9000);
     return { id, pass };
   }
@@ -276,7 +273,6 @@ export class StorageService {
     const updated = [newStudent, ...students];
     this.saveStudents(updated);
 
-    // Initialize fee record for current month
     const currentMonth = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
     this.addFeeRecord({
       studentId: newStudent.id,
@@ -310,10 +306,8 @@ export class StorageService {
   }
 
   static deleteStudent(id: string): void {
-    // Blacklist the ID so it can NEVER be reused (fire-and-forget)
     this.addDeletedStudentId(id);
 
-    // Also delete the student's fee records
     const allFees = this.getFeeRecords();
     const remainingFees = allFees.filter(f => f.studentId !== id);
     this.saveFeeRecords(remainingFees);
@@ -396,7 +390,6 @@ export class StorageService {
     const updated = [newNote, ...notes];
     this.saveNotes(updated);
 
-    // Notify students
     this.addNotification({
       title: 'New Study Material Notes Uploaded',
       message: `${newNote.title} has been added to batch ${newNote.batchTitle || ''}.`,
@@ -425,7 +418,7 @@ export class StorageService {
     syncArrayToFirestore('doubts', doubts);
   }
 
-  static addDoubt(doubtData: Omit<Doubt, 'id' | 'status' | 'createdAt'>): Doubt {
+  // ─── PATCHED ADD DOUBT — supports AI auto-answer + escalation flag ───────
   static addDoubt(
     doubtData: Omit<Doubt, 'id' | 'status' | 'createdAt'> & {
       aiAnswer?: string;
@@ -441,6 +434,7 @@ export class StorageService {
     const now = new Date();
     const formattedDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
+    // Decide status based on whether AI answered + whether it escalated
     let status: Doubt['status'] = 'pending';
     if (doubtData.aiAnswer) {
       status = doubtData.escalatedToFaculty ? 'escalated' : 'ai_answered';
@@ -459,6 +453,8 @@ export class StorageService {
     this.saveDoubts(updated);
     syncDocToFirestore('doubts', newDoubt.id, newDoubt);
 
+    // Always notify admin — even for AI-answered doubts, so the faculty can
+    // review the AI's answer and step in if needed.
     const escalationNote = newDoubt.escalatedToFaculty
       ? ' (AI could not fully resolve — needs faculty review)'
       : newDoubt.aiAnswer
@@ -482,27 +478,7 @@ export class StorageService {
 
     return newDoubt;
   }
-
-    const updated = [newDoubt, ...doubts];
-    this.saveDoubts(updated);
-    syncDocToFirestore('doubts', newDoubt.id, newDoubt);
-
-    // Trigger Admin notification when student posts a doubt
-    this.addNotification({
-      title: 'New Student Doubt Received',
-      message: `${newDoubt.studentName} (${newDoubt.studentClass}) asked a question in ${newDoubt.subject}.`,
-      type: 'doubt',
-      timestamp: 'Just now',
-      targetRole: 'admin',
-      read: false
-    });
-
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new Event('apex_storage_updated'));
-    }
-
-    return newDoubt;
-  }
+  // ─── /PATCHED ADD DOUBT ──────────────────────────────────────────────────
 
   static answerDoubt(id: string, answerText: string): void {
     const doubts = this.getDoubts();
@@ -534,7 +510,6 @@ export class StorageService {
       syncDocToFirestore('doubts', answeredDoubtDoc.id, answeredDoubtDoc);
     }
 
-    // Send targeted notification to student
     if (targetStudentId) {
       const questionSnippet = targetQuestion.length > 40 ? targetQuestion.substring(0, 40) + '...' : targetQuestion;
       this.addNotification({
@@ -569,7 +544,6 @@ export class StorageService {
     syncArrayToFirestore('tests', tests);
   }
 
-  // Automatic Rank Calculation Helper
   static calculateRanks(results: TestResult[]): TestResult[] {
     const sorted = [...results].sort((a, b) => b.marksObtained - a.marksObtained);
 
@@ -603,7 +577,6 @@ export class StorageService {
     const updated = [newTest, ...tests];
     this.saveTests(updated);
 
-    // Notify students
     this.addNotification({
       title: 'New Test Results Published',
       message: `Scores and Ranks for "${newTest.title}" have been released by Admin!`,
@@ -626,6 +599,7 @@ export class StorageService {
     syncArrayToFirestore('notifications', notifs);
   }
 
+  // ─── PATCHED ADD NOTIFICATION — enqueues a real push to FCM ──────────────
   static addNotification(
     notif: Omit<NotificationItem, 'id' | 'timestamp'> & { timestamp?: string }
   ): NotificationItem {
@@ -653,7 +627,8 @@ export class StorageService {
       window.dispatchEvent(new Event('apex_storage_updated'));
     }
 
-    // ─── PUSH NOTIFICATIONS — enqueue so the Cloud Function can deliver it ───
+    // Enqueue a push to the Cloud Function so it lands in the phone's
+    // notification bar. Imported lazily to avoid circular deps during build.
     import('./pushNotifications')
       .then(({ enqueuePushNotification }) =>
         enqueuePushNotification({
@@ -666,10 +641,11 @@ export class StorageService {
         })
       )
       .catch((e) => console.warn('Push enqueue failed:', e));
-    // ─── /PUSH NOTIFICATIONS ─────────────────────────────────────────────────
+    // ─── /PUSH NOTIFICATIONS ───────────────────────────────────────────────
 
     return newNotif;
   }
+  // ─── /PATCHED ADD NOTIFICATION ───────────────────────────────────────────
 
   static markSingleNotificationRead(id: string): void {
     const notifs = this.getNotifications();
@@ -709,14 +685,6 @@ export class StorageService {
     }
   }
 
-  /**
-   * ✅ FIX: Mark ALL notifications as read (or only the ones whose id is in `ids`).
-   *
-   * Use this for a "Mark all as read" button in a view that shows
-   * notifications for every role — `markNotificationsRead(role)` only
-   * covers a single role, so student-targeted notifications would be
-   * skipped and the button would appear to do nothing.
-   */
   static markAllNotificationsRead(ids?: string[]): void {
     const notifs = this.getNotifications();
     const idSet = ids && ids.length > 0 ? new Set(ids) : null;
