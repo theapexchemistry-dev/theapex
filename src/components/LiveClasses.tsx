@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Role, Student, Batch } from '../types';
 import { StorageService } from '../lib/storage';
 import {
-  Video, VideoOff, Mic, MicOff, Trash2, Users, Copy,
-  X, Circle, Radio, Play, Zap, ShieldCheck, AlertCircle, Calendar
+  Video, Trash2, Users, Copy, X, Radio, Play,
+  Zap, ShieldCheck, AlertCircle, Calendar, ExternalLink
 } from 'lucide-react';
 
 /* ============================================================================
@@ -14,6 +14,13 @@ import {
  *  Students auto-join with their real name as the display name.
  *
  *  Powered by Jitsi Meet (meet.jit.si) — 100% free, no API key, no time limit.
+ *
+ *  ⚠️  IMPLEMENTATION NOTE:
+ *  We use a PLAIN <iframe> pointing at meet.jit.si with URL-hash config.
+ *  We do NOT use the external_api.js script because the current build of
+ *  meet.jit.si throws "Failed to construct 'URL': Invalid URL" when the
+ *  script tries to resolve its own config URLs. The iframe method is the
+ *  officially supported "simple embed" and is 100% reliable.
  * ========================================================================== */
 
 // ---------- Types ----------
@@ -33,63 +40,10 @@ interface LiveMeeting {
   createdAt: number;
 }
 
-interface JitsiMeetExternalAPIInstance {
-  dispose: () => void;
-  executeCommand: (command: string, value?: unknown) => void;
-  on: (event: string, callback: (...args: unknown[]) => void) => void;
-}
-
-interface JitsiMeetExternalAPIConstructor {
-  new (options: {
-    roomName: string;
-    parentNode: HTMLElement;
-    configOverwrite?: Record<string, unknown>;
-    interfaceConfigOverwrite?: Record<string, unknown>;
-    userInfo?: { displayName: string };
-  }): JitsiMeetExternalAPIInstance;
-}
-
 // ---------- Constants ----------
 const JITSI_DOMAIN = 'meet.jit.si';
-const JITSI_API_URL = `https://${JITSI_DOMAIN}/external_api.js`;
 const STORAGE_KEY = 'apex_live_meetings';
 const FALLBACK_CLASSES = ['Class 9', 'Class 10', 'Class 11', 'Class 12'];
-
-// ---------- Jitsi script loader (loads once, globally) ----------
-let jitsiPromise: Promise<JitsiMeetExternalAPIConstructor> | null = null;
-
-function loadJitsiApi(): Promise<JitsiMeetExternalAPIConstructor> {
-  if (typeof window === 'undefined') {
-    return Promise.reject(new Error('Jitsi can only run in the browser'));
-  }
-  const w = window as unknown as { JitsiMeetExternalAPI?: JitsiMeetExternalAPIConstructor };
-  if (w.JitsiMeetExternalAPI) return Promise.resolve(w.JitsiMeetExternalAPI);
-  if (jitsiPromise) return jitsiPromise;
-
-  jitsiPromise = new Promise((resolve, reject) => {
-    const existing = document.getElementById('jitsi-external-api') as HTMLScriptElement | null;
-    if (existing) {
-      if (w.JitsiMeetExternalAPI) { resolve(w.JitsiMeetExternalAPI); return; }
-      existing.addEventListener('load', () => {
-        if (w.JitsiMeetExternalAPI) resolve(w.JitsiMeetExternalAPI);
-        else reject(new Error('Jitsi API script failed to initialise'));
-      });
-      existing.addEventListener('error', () => reject(new Error('Failed to load Jitsi API')));
-      return;
-    }
-    const script = document.createElement('script');
-    script.id = 'jitsi-external-api';
-    script.src = JITSI_API_URL;
-    script.async = true;
-    script.onload = () => {
-      if (w.JitsiMeetExternalAPI) resolve(w.JitsiMeetExternalAPI);
-      else reject(new Error('Jitsi API script loaded but constructor not found'));
-    };
-    script.onerror = () => reject(new Error('Failed to load Jitsi API script'));
-    document.head.appendChild(script);
-  });
-  return jitsiPromise;
-}
 
 // ---------- Helpers ----------
 function sanitizeRoomName(input: string): string {
@@ -147,6 +101,34 @@ function formatDateTime(ms: number): string {
 }
 
 /**
+ * Build the Jitsi embed URL for a given room + display name.
+ *
+ * We use the URL-hash config format documented at:
+ *   https://jitsi.github.io/handbook/docs/dev-guide/dev-guide-iframe
+ *
+ *   #config.startWithAudioMuted=false
+ *   &config.startWithVideoMuted=false
+ *   &config.prejoinPageEnabled=false        ← skip Jitsi's own lobby
+ *   &config.disableDeepLinking=true         ← don't try to open the native app
+ *   &userInfo.displayName=<encoded>         ← set the student/teacher name
+ *
+ * This avoids the external_api.js script entirely, which throws
+ * "Failed to construct 'URL': Invalid URL" in the current meet.jit.si build.
+ */
+function buildJitsiUrl(roomName: string, displayName: string): string {
+  const safeRoom = sanitizeRoomName(roomName);
+  const encodedName = encodeURIComponent(displayName);
+  const hash = [
+    'config.startWithAudioMuted=false',
+    'config.startWithVideoMuted=false',
+    'config.prejoinPageEnabled=false',
+    'config.disableDeepLinking=true',
+    `userInfo.displayName=${encodedName}`,
+  ].join('&');
+  return `https://${JITSI_DOMAIN}/${safeRoom}#${hash}`;
+}
+
+/**
  * Decide whether a given student should see / join a meeting.
  * - scope 'all'    → every student
  * - scope 'batch'  → only students whose batchId matches
@@ -174,7 +156,7 @@ function meetingAudienceLabel(meeting: LiveMeeting): string {
 }
 
 // ============================================================================
-//  CallOverlay — full-screen embedded Jitsi video call
+//  CallOverlay — full-screen embedded Jitsi video call via plain <iframe>
 // ============================================================================
 interface CallOverlayProps {
   meeting: LiveMeeting;
@@ -183,199 +165,130 @@ interface CallOverlayProps {
 }
 
 const CallOverlay: React.FC<CallOverlayProps> = ({ meeting, displayName, onLeave }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const apiRef = useRef<JitsiMeetExternalAPIInstance | null>(null);
-  const [status, setStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
-  const [errorMsg, setErrMsg] = useState('');
-  const [muted, setMuted] = useState(false);
-  const [videoOff, setVideoOff] = useState(false);
+  const jitsiUrl = useMemo(
+    () => buildJitsiUrl(meeting.roomName, displayName),
+    [meeting.roomName, displayName]
+  );
 
+  const [iframeLoaded, setIframeLoaded] = useState(false);
+  const [iframeError, setIframeError] = useState(false);
+
+  // Safety net: if the iframe hasn't fired onLoad within 20s, show an error
+  // hint so the user isn't stuck looking at a spinner forever.
   useEffect(() => {
-    let disposed = false;
-    setStatus('connecting');
-
-    loadJitsiApi()
-      .then((JitsiMeetExternalAPI) => {
-        if (disposed || !containerRef.current) return;
-
-        // ⚠️  Do NOT pass `interfaceConfigOverwrite` — it is deprecated in the
-        // current Jitsi external API and causes:
-        //   "Failed to construct 'URL': Invalid URL"
-        // because the API tries to resolve icon URLs for toolbar button names
-        // that no longer exist in the current meet.jit.si build.
-        // We also keep `configOverwrite` to a minimal, safe set.
-        let api: JitsiMeetExternalAPIInstance;
-        try {
-          api = new JitsiMeetExternalAPI({
-            roomName: meeting.roomName,
-            parentNode: containerRef.current,
-            configOverwrite: {
-              startWithAudioMuted: false,
-              startWithVideoMuted: false,
-              prejoinPageEnabled: false, // skip Jitsi's own lobby — we set the name ourselves
-            },
-            userInfo: { displayName },
-          });
-        } catch (syncErr) {
-          if (disposed) return;
-          setErrMsg(
-            syncErr instanceof Error
-              ? syncErr.message
-              : 'Failed to initialise Jitsi video call'
-          );
-          setStatus('error');
-          return;
-        }
-        apiRef.current = api;
-
-        // Set the meeting title safely via executeCommand (more reliable than
-        // putting `subject` inside configOverwrite).
-        try {
-          api.executeCommand('subject', meeting.title);
-        } catch {
-          /* not critical — ignore */
-        }
-
-        api.on('videoConferenceJoined', () => setStatus('connected'));
-        api.on('videoConferenceLeft', () => { if (!disposed) onLeave(); });
-        api.on('readyToClose', () => { if (!disposed) onLeave(); });
-        api.on('audioMuteStatusChanged', (e: unknown) => {
-          const m = (e as { muted?: boolean })?.muted;
-          if (typeof m === 'boolean') setMuted(m);
-        });
-        api.on('videoMuteStatusChanged', (e: unknown) => {
-          const off = (e as { muted?: boolean })?.muted;
-          if (typeof off === 'boolean') setVideoOff(off);
-        });
-      })
-      .catch((err: unknown) => {
-        if (disposed) return;
-        setErrMsg(err instanceof Error ? err.message : 'Failed to load Jitsi');
-        setStatus('error');
-      });
-
-    return () => {
-      disposed = true;
-      try {
-        apiRef.current?.dispose();
-      } catch {
-        /* noop */
-      }
-      apiRef.current = null;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const toggleMic = () => {
-    try {
-      apiRef.current?.executeCommand('toggleAudio');
-    } catch {
-      /* noop */
-    }
-  };
-  const toggleVideo = () => {
-    try {
-      apiRef.current?.executeCommand('toggleVideo');
-    } catch {
-      /* noop */
-    }
-  };
+    setIframeLoaded(false);
+    setIframeError(false);
+    const timer = setTimeout(() => {
+      if (!iframeLoaded) setIframeError(true);
+    }, 20000);
+    return () => clearTimeout(timer);
+  }, [iframeLoaded]);
 
   return (
     <div className="fixed inset-0 z-[100] bg-slate-950 flex flex-col">
       {/* Top bar */}
       <div className="flex items-center justify-between px-4 py-3 bg-slate-900 border-b border-slate-800 shrink-0">
         <div className="flex items-center gap-2 min-w-0">
-          {status === 'connected' ? (
-            <span className="flex items-center gap-1.5 text-red-400 text-xs font-bold">
-              <Radio className="w-4 h-4 animate-pulse" /> LIVE
-            </span>
-          ) : status === 'connecting' ? (
-            <span className="flex items-center gap-1.5 text-amber-400 text-xs font-bold">
-              <Circle className="w-3 h-3 fill-amber-400" /> Connecting…
-            </span>
-          ) : (
-            <span className="text-red-400 text-xs font-bold">Error</span>
-          )}
+          <span className="flex items-center gap-1.5 text-red-400 text-xs font-bold">
+            <Radio className="w-4 h-4 animate-pulse" /> LIVE
+          </span>
           <span className="text-white font-bold text-sm truncate">{meeting.title}</span>
           <span className="text-slate-500 text-xs hidden sm:inline">
             · {meetingAudienceLabel(meeting)}
           </span>
         </div>
-        <button
-          onClick={onLeave}
-          className="px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors"
-        >
-          <X className="w-4 h-4" /> Leave
-        </button>
+        <div className="flex items-center gap-2">
+          <a
+            href={jitsiUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hidden sm:flex px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold rounded-lg items-center gap-1.5 transition-colors"
+            title="Open in full Jitsi tab (useful for screen share / desktop mode)"
+          >
+            <ExternalLink className="w-3.5 h-3.5" /> Open in tab
+          </a>
+          <button
+            onClick={onLeave}
+            className="px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors"
+          >
+            <X className="w-4 h-4" /> Leave
+          </button>
+        </div>
       </div>
 
-      {/* Jitsi iframe container */}
-      <div className="flex-1 relative">
-        <div
-          ref={containerRef}
-          className="absolute inset-0"
-          aria-label="Live class video call"
+      {/* Jitsi iframe (plain embed — no external_api.js) */}
+      <div className="flex-1 relative bg-slate-950">
+        <iframe
+          src={jitsiUrl}
+          title={`Live class: ${meeting.title}`}
+          allow="camera; microphone; fullscreen; display-capture; autoplay; encrypted-media; picture-in-picture"
+          allowFullScreen
+          className="absolute inset-0 w-full h-full border-0 bg-slate-950"
+          onLoad={() => setIframeLoaded(true)}
+          onError={() => setIframeError(true)}
         />
 
-        {status === 'connecting' && (
+        {/* Loading spinner shown until the iframe reports onLoad */}
+        {!iframeLoaded && !iframeError && (
           <div className="absolute inset-0 flex items-center justify-center bg-slate-950 pointer-events-none">
             <div className="text-center">
               <div className="w-12 h-12 mx-auto mb-3 border-4 border-amber-400/30 border-t-amber-400 rounded-full animate-spin" />
-              <p className="text-slate-300 text-sm font-semibold">Connecting to live class…</p>
+              <p className="text-slate-300 text-sm font-semibold">
+                Connecting to live class…
+              </p>
               <p className="text-slate-500 text-xs mt-1">
                 Room: <span className="font-mono">{meeting.roomName}</span>
+              </p>
+              <p className="text-slate-600 text-[10px] mt-3">
+                Please allow camera &amp; mic access when your browser asks.
               </p>
             </div>
           </div>
         )}
 
-        {status === 'error' && (
+        {/* Timeout / load error hint */}
+        {iframeError && (
           <div className="absolute inset-0 flex items-center justify-center bg-slate-950 p-6">
-            <div className="max-w-md text-center bg-slate-900 border border-red-500/30 rounded-2xl p-6">
-              <p className="text-red-400 font-bold text-sm mb-2">
-                Couldn&apos;t start the live class
+            <div className="max-w-md text-center bg-slate-900 border border-amber-500/30 rounded-2xl p-6">
+              <AlertCircle className="w-8 h-8 text-amber-400 mx-auto mb-2" />
+              <p className="text-amber-300 font-bold text-sm mb-2">
+                Taking longer than expected
               </p>
-              <p className="text-slate-400 text-xs mb-4">{errorMsg}</p>
-              <p className="text-slate-500 text-xs">
-                Check your internet connection and make sure{' '}
-                <span className="font-mono text-slate-300">{JITSI_DOMAIN}</span> is reachable,
-                then try again.
+              <p className="text-slate-400 text-xs mb-4">
+                The live class is still connecting. If your browser didn&apos;t ask for
+                camera/mic permission, the page might be blocking it.
               </p>
+              <div className="flex flex-col gap-2">
+                <a
+                  href={jitsiUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-2 bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold text-sm rounded-xl inline-flex items-center justify-center gap-1.5"
+                >
+                  <ExternalLink className="w-4 h-4" /> Open class in a new tab
+                </a>
+                <button
+                  onClick={onLeave}
+                  className="px-4 py-2 border border-slate-700 text-slate-300 font-bold text-sm rounded-xl hover:bg-slate-800"
+                >
+                  Go back
+                </button>
+              </div>
             </div>
           </div>
         )}
       </div>
 
-      {/* Bottom controls (only when connected) */}
-      {status === 'connected' && (
-        <div className="flex items-center justify-center gap-3 px-4 py-3 bg-slate-900 border-t border-slate-800 shrink-0">
-          <button
-            onClick={toggleMic}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
-              muted ? 'bg-red-500 text-white' : 'bg-slate-700 text-white hover:bg-slate-600'
-            }`}
-            title={muted ? 'Unmute mic' : 'Mute mic'}
-          >
-            {muted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+      {/* Bottom hint bar */}
+      <div className="px-4 py-2 bg-slate-900 border-t border-slate-800 shrink-0">
+        <p className="text-center text-[11px] text-slate-500">
+          Use the buttons inside the video player to mute mic, turn off camera, share screen,
+          or leave the call.{' '}
+          <button onClick={onLeave} className="text-red-400 hover:underline font-semibold">
+            Leave call
           </button>
-          <button
-            onClick={toggleVideo}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
-              videoOff ? 'bg-red-500 text-white' : 'bg-slate-700 text-white hover:bg-slate-600'
-            }`}
-            title={videoOff ? 'Turn on camera' : 'Turn off camera'}
-          >
-            {videoOff ? <VideoOff className="w-5 h-5" /> : <Video className="w-5 h-5" />}
-          </button>
-          <button
-            onClick={onLeave}
-            className="px-6 h-12 bg-red-500 hover:bg-red-600 text-white rounded-full font-bold text-sm flex items-center gap-2 transition-colors"
-          >
-            <X className="w-5 h-5" /> Leave Call
-          </button>
-        </div>
-      )}
+        </p>
+      </div>
     </div>
   );
 };
@@ -397,7 +310,6 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
   const [showStart, setShowStart] = useState(false);
   const [activeCall, setActiveCall] = useState<LiveMeeting | null>(null);
 
-  // Start-meeting form state
   const [form, setForm] = useState<{
     scope: 'batch' | 'class' | 'all';
     batchId: string;
@@ -430,14 +342,12 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
     ? 'Mr. Subhamoy Mondal (Teacher)'
     : student?.name || 'Student';
 
-  // Build class-name dropdown from real batches + a fallback list.
   const classOptions = useMemo(() => {
     const fromBatches = batches.map((b) => b.className).filter(Boolean);
     const merged = Array.from(new Set([...FALLBACK_CLASSES, ...fromBatches]));
     return merged.sort();
   }, [batches]);
 
-  // Count how many students belong to a given scope/target.
   const countStudentsFor = useCallback(
     (
       scope: 'batch' | 'class' | 'all',
@@ -456,8 +366,6 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
     },
     []
   );
-
-  // ---- Actions ----
 
   const handleStartMeeting = () => {
     const scope = form.scope;
@@ -503,15 +411,12 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
     setShowStart(false);
     setForm({ scope: 'class', batchId: '', className: 'Class 12', title: '' });
 
-    // Admin auto-joins the call immediately.
     setActiveCall(meeting);
   };
 
   const handleEndMeeting = (id: string) => {
     const ok = window.confirm(
-      'End this live class?\n\nStudents will no longer be able to join from the website. ' +
-      'If you are still inside the Jitsi call, also click "End meeting for all" in Jitsi ' +
-      'to disconnect everyone.'
+      'End this live class?\n\nStudents will no longer be able to join from the website.'
     );
     if (!ok) return;
     const updated = getMeetings().map((m) =>
@@ -529,7 +434,7 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
   };
 
   const handleCopyLink = (meeting: LiveMeeting) => {
-    const url = `https://${JITSI_DOMAIN}/${meeting.roomName}`;
+    const url = `https://${JITSI_DOMAIN}/${sanitizeRoomName(meeting.roomName)}`;
     if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(url).then(
         () => window.alert('Live class link copied!\n\n' + url),
@@ -539,8 +444,6 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
       window.alert('Link: ' + url);
     }
   };
-
-  // ---- Derived lists ----
 
   const visibleMeetings = isAdmin
     ? meetings
@@ -555,8 +458,6 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
   const sortedEnded = [...endedMeetings].sort(
     (a, b) => (b.endedAt || 0) - (a.endedAt || 0)
   );
-
-  // ---- Render ----
 
   if (activeCall) {
     return (
@@ -746,7 +647,6 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
             </div>
 
             <div className="space-y-4">
-              {/* Scope selector */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-2">
                   Who can join?
@@ -774,7 +674,6 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
                 </div>
               </div>
 
-              {/* Batch selector */}
               {form.scope === 'batch' && (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">
@@ -807,7 +706,6 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
                 </div>
               )}
 
-              {/* Class selector */}
               {form.scope === 'class' && (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">
@@ -832,7 +730,6 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
                 </div>
               )}
 
-              {/* All-students info */}
               {form.scope === 'all' && (
                 <p className="text-xs text-amber-700 bg-amber-50 rounded-lg p-3 flex items-start gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -840,7 +737,6 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
                 </p>
               )}
 
-              {/* Title */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">
                   Class Title (optional)
