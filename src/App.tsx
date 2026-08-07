@@ -21,8 +21,7 @@ import { StudentProfile } from './components/student/StudentProfile';
 import { StudentHelp } from './components/student/StudentHelp';
 import { StorageService } from './lib/storage';
 import { runMonthlyFeeReminderTask } from './lib/scheduledTasks';
-import { AdminVideoCall } from './components/admin/AdminVideoCall';
-import { StudentVideoCall } from './components/student/StudentVideoCall';
+import { loadInitialDataFromFirestore } from './lib/firebaseSync';
 
 export default function App() {
   const [role, setRole] = useState<Role>(() => {
@@ -57,6 +56,18 @@ export default function App() {
   // Scheduled Task: Automatically run 5th-day monthly fee reminder on app initialization
   useEffect(() => {
     runMonthlyFeeReminderTask().catch((e) => console.warn('Monthly fee reminder task failed:', e));
+  }, []);
+
+  // ✅ FIX: Load Firestore data in the background AFTER the app renders.
+  // This replaces the old "Connecting to Database..." loading screen that
+  // blocked the whole app from mounting. The app now opens instantly and
+  // data syncs silently — components already listen for the
+  // 'apex_storage_updated' event, so they re-render automatically when
+  // Firestore data lands in localStorage.
+  useEffect(() => {
+    loadInitialDataFromFirestore().catch((e) =>
+      console.warn('Background Firestore load failed:', e)
+    );
   }, []);
 
   // Handle Login
@@ -125,21 +136,13 @@ export default function App() {
             
             {role === 'admin' && (
               <>
-                {activeTab === 'dashboard' && (
-                  <AdminDashboard
-                    onTabChange={setActiveTab}
-                    onAddStudent={() => setActiveTab('students')}
-                    onAddBatch={() => setActiveTab('batches')}
-                    onUploadNotes={() => setActiveTab('notes')}
-                  />
-                )}
+                {activeTab === 'dashboard' && <AdminDashboard onNavigate={setActiveTab} />}
                 {activeTab === 'students' && <AdminStudents />}
                 {activeTab === 'batches' && <AdminBatches />}
                 {activeTab === 'fees' && <AdminFees />}
                 {activeTab === 'notes' && <AdminNotes />}
                 {activeTab === 'doubts' && <AdminDoubts />}
                 {activeTab === 'tests' && <AdminTests />}
-                {activeTab === 'videocall' && <AdminVideoCall />}
                 {activeTab === 'settings' && <AdminSettings />}
               </>
             )}
@@ -156,7 +159,6 @@ export default function App() {
                 {activeTab === 'notes' && <StudentNotes student={currentStudent} />}
                 {activeTab === 'tests' && <StudentTests student={currentStudent} />}
                 {activeTab === 'doubts' && <StudentDoubts student={currentStudent} />}
-                {activeTab === 'videocall' && <StudentVideoCall student={currentStudent} />}
                 {activeTab === 'profile' && <StudentProfile student={currentStudent} />}
                 {activeTab === 'help' && <StudentHelp student={currentStudent} />}
               </>
