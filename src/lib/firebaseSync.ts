@@ -35,7 +35,7 @@ export function setupFirestoreListeners() {
     { key: 'students', col: 'students' },
     { key: 'batches', col: 'batches' },
     { key: 'tests', col: 'tests' },
-    { key: 'meetings', col: 'meetings' },
+    { key: 'liveMeetings', col: 'liveMeetings' },
     { key: 'siteSettings', col: 'siteSettings' }
   ];
 
@@ -44,7 +44,6 @@ export function setupFirestoreListeners() {
       onSnapshot(collection(db, col), (snapshot) => {
         if (!snapshot.empty) {
           const items = snapshot.docs.map(d => d.data());
-          // For siteSettings, distribute each doc to its specific localStorage key
           if (col === 'siteSettings') {
             items.forEach((doc: any) => {
               if (doc.id === 'logo' && doc.logoData) {
@@ -74,7 +73,6 @@ export function setupFirestoreListeners() {
   });
 }
 
-// Pure fetch (no listener re-attach). Used by the admin Refresh button.
 export async function fetchDataFromFirestore(): Promise<boolean> {
   const collectionsToLoad = [
     { key: 'batches',    col: 'batches' },
@@ -84,7 +82,7 @@ export async function fetchDataFromFirestore(): Promise<boolean> {
     { key: 'doubts',     col: 'doubts' },
     { key: 'tests',      col: 'tests' },
     { key: 'notifications', col: 'notifications' },
-    { key: 'meetings',   col: 'meetings' }
+    { key: 'liveMeetings', col: 'liveMeetings' }
   ];
 
   let hasData = false;
@@ -112,11 +110,6 @@ export async function fetchDataFromFirestore(): Promise<boolean> {
     console.debug('Firestore fetch notice:', err);
   }
 
-  // ---- Pull site settings (logo / name / tagline / deleted IDs) on boot ----
-  // Doc IDs and field names MUST match what StorageService writes:
-  //   siteSettings/logo              → { logoData: string }
-  //   siteSettings/branding          → { siteName: string, tagline: string }
-  //   siteSettings/deletedStudentIds → { ids: string[] }
   try {
     const settingsSnap = await getDocs(collection(db, 'siteSettings'));
     for (const docSnap of settingsSnap.docs) {
@@ -134,14 +127,12 @@ export async function fetchDataFromFirestore(): Promise<boolean> {
     console.warn('siteSettings load failed:', e);
   }
 
-  // Tell every component that localStorage changed so they re-render
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event('apex_storage_updated'));
   }
   return hasData;
 }
 
-// Original boot-time loader (kept for main.tsx) — fetch + attach listeners once.
 export async function loadInitialDataFromFirestore() {
   const hasData = await fetchDataFromFirestore();
   setupFirestoreListeners();
