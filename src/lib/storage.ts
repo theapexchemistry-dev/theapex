@@ -1,4 +1,13 @@
-import { syncArrayToFirestore, syncDocToFirestore, deleteFromFirestore } from './firebaseSync';
+// storage.ts — FIXED
+// CRITICAL FIX: Fee records are now DEDUPED by (studentId + month).
+// - getFeeRecords() always returns deduped records.
+// - saveFeeRecords() dedupes before saving (so duplicates never get written).
+// - addFeeRecord() now checks if a record for the same studentId+month
+//   already exists — if so, it UPDATES it instead of creating a duplicate.
+//   (Previously, "Mark Paid (Cash)" + Firestore sync could create two records
+//   for the same month with different IDs, causing the duplicate badges and
+//   inflated due amounts shown in the Fee Ledger.)
+import { syncArrayToFirestore, syncDocToFirestore, deleteFromFirestore, dedupeFeeRecords } from './firebaseSync';
 import {
   Batch,
   Student,
@@ -317,21 +326,50 @@ export class StorageService {
     this.saveStudents(students);
   }
 
-  // -------- Fees --------
+  // -------- Fees (DEDUPED) --------
+  // FIX: getFeeRecords() now returns DEDUPED records — one per (studentId + month).
+  // This eliminates the duplicate "Paid" + "Unpaid" badges for the same month
+  // and fixes the inflated due-amount calculation.
   static getFeeRecords(): FeeRecord[] {
-    return getItem<FeeRecord[]>(KEYS.FEES, INITIAL_FEES);
+    const raw = getItem<FeeRecord[]>(KEYS.FEES, INITIAL_FEES);
+    return dedupeFeeRecords(raw);
   }
 
   static saveFeeRecords(fees: FeeRecord[]): void {
-    setItem(KEYS.FEES, fees);
-    syncArrayToFirestore('feeRecords', fees);
+    // Dedupe BEFORE saving so duplicates never get persisted
+    const clean = dedupeFeeRecords(fees);
+    setItem(KEYS.FEES, clean);
+    syncArrayToFirestore('feeRecords', clean);
   }
 
+  // FIX: addFeeRecord() now checks if a record for the same (studentId + month)
+  // already exists. If so, it UPDATES that record instead of creating a new
+  // duplicate. This is the main source of duplicate badges.
   static addFeeRecord(feeData: Omit<FeeRecord, 'id'>): FeeRecord {
     const fees = this.getFeeRecords();
+
+    // Check for an existing record for the same student + month
+    const existingIdx = fees.findIndex(
+      f => f.studentId === feeData.studentId && f.month === feeData.month
+    );
+
+    if (existingIdx >= 0) {
+      // Update the existing record instead of creating a duplicate
+      const existing = fees[existingIdx];
+      const updatedRecord: FeeRecord = {
+        ...existing,
+        ...feeData,
+        id: existing.id, // keep original ID
+      };
+      fees[existingIdx] = updatedRecord;
+      this.saveFeeRecords(fees);
+      return updatedRecord;
+    }
+
+    // No existing record — create a new one
     const newRecord: FeeRecord = {
       ...feeData,
-      id: 'f-' + Date.now().toString(36)
+      id: 'f-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6)
     };
     const updated = [newRecord, ...fees];
     this.saveFeeRecords(updated);
@@ -364,6 +402,49 @@ export class StorageService {
     deleteFromFirestore('feeRecords', id);
     const fees = this.getFeeRecords().filter(f => f.id !== id);
     this.saveFeeRecords(fees);
+  }
+
+  // ── ONE-TIME CLEANUP MIGRATION ──────────────────────────────────────────
+  // Removes duplicate fee records that already exist in localStorage from
+  // earlier (buggy) versions of the app. Idempotent — safe to call on every
+  // boot. If duplicates are found, they are collapsed (best status wins) and
+  // the cleaned list is written back to localStorage + pushed to Firestore.
+  //
+  // This is the "vaccine" that fixes the Fee Ledger for users who already
+  // have corrupted data from the old dedupe-free code path.
+  static cleanupDuplicateFeeRecords(): { removed: number; kept: number } {
+    try {
+      const raw = localStorage.getItem(KEYS.FEES);
+      if (!raw) return { removed: 0, kept: 0 };
+      let parsed: FeeRecord[];
+      try {
+        parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return { removed: 0, kept: 0 };
+      } catch {
+        return { removed: 0, kept: 0 };
+      }
+
+      const clean = dedupeFeeRecords(parsed);
+      const removed = parsed.length - clean.length;
+      if (removed > 0) {
+        localStorage.setItem(KEYS.FEES, JSON.stringify(clean));
+        try {
+          syncArrayToFirestore('feeRecords', clean);
+        } catch (e) {
+          console.debug('cleanupDuplicateFeeRecords: Firestore sync skipped:', e);
+        }
+        console.warn(
+          `[storage] Fee Ledger cleanup: removed ${removed} duplicate record(s), kept ${clean.length}.`
+        );
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('apex_storage_updated'));
+        }
+      }
+      return { removed, kept: clean.length };
+    } catch (e) {
+      console.debug('cleanupDuplicateFeeRecords failed:', e);
+      return { removed: 0, kept: 0 };
+    }
   }
 
   // -------- Notes --------
@@ -418,7 +499,6 @@ export class StorageService {
     syncArrayToFirestore('doubts', doubts);
   }
 
-  // ─── PATCHED ADD DOUBT — supports AI auto-answer + escalation flag ───────
   static addDoubt(
     doubtData: Omit<Doubt, 'id' | 'status' | 'createdAt'> & {
       aiAnswer?: string;
@@ -434,7 +514,6 @@ export class StorageService {
     const now = new Date();
     const formattedDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-    // Decide status based on whether AI answered + whether it escalated
     let status: Doubt['status'] = 'pending';
     if (doubtData.aiAnswer) {
       status = doubtData.escalatedToFaculty ? 'escalated' : 'ai_answered';
@@ -453,8 +532,6 @@ export class StorageService {
     this.saveDoubts(updated);
     syncDocToFirestore('doubts', newDoubt.id, newDoubt);
 
-    // Always notify admin — even for AI-answered doubts, so the faculty can
-    // review the AI's answer and step in if needed.
     const escalationNote = newDoubt.escalatedToFaculty
       ? ' (AI could not fully resolve — needs faculty review)'
       : newDoubt.aiAnswer
@@ -478,7 +555,6 @@ export class StorageService {
 
     return newDoubt;
   }
-  // ─── /PATCHED ADD DOUBT ──────────────────────────────────────────────────
 
   static answerDoubt(id: string, answerText: string): void {
     const doubts = this.getDoubts();
@@ -599,7 +675,6 @@ export class StorageService {
     syncArrayToFirestore('notifications', notifs);
   }
 
-  // ─── PATCHED ADD NOTIFICATION — enqueues a real push to FCM ──────────────
   static addNotification(
     notif: Omit<NotificationItem, 'id' | 'timestamp'> & { timestamp?: string }
   ): NotificationItem {
@@ -627,8 +702,6 @@ export class StorageService {
       window.dispatchEvent(new Event('apex_storage_updated'));
     }
 
-    // Enqueue a push to the Cloud Function so it lands in the phone's
-    // notification bar. Imported lazily to avoid circular deps during build.
     import('./pushNotifications')
       .then(({ enqueuePushNotification }) =>
         enqueuePushNotification({
@@ -641,11 +714,9 @@ export class StorageService {
         })
       )
       .catch((e) => console.warn('Push enqueue failed:', e));
-    // ─── /PUSH NOTIFICATIONS ───────────────────────────────────────────────
 
     return newNotif;
   }
-  // ─── /PATCHED ADD NOTIFICATION ───────────────────────────────────────────
 
   static markSingleNotificationRead(id: string): void {
     const notifs = this.getNotifications();
