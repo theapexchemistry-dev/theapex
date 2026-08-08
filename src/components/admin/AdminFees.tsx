@@ -1,9 +1,8 @@
-// src/components/admin/AdminFees.tsx
 import { googleSignIn } from '../../lib/auth';
 import React, { useState, useMemo, useEffect } from 'react';
 import { StorageService } from '../../lib/storage';
 import { runMonthlyFeeReminderTask } from '../../lib/scheduledTasks';
-import { syncDocToFirestore } from '../../lib/firebaseSync';
+import { syncDocToFirestore, dedupeFeeRecords } from '../../lib/firebaseSync';
 import { Student, Batch, FeeRecord } from '../../types';
 import { ChunkedImage } from '../ChunkedImage';
 import {
@@ -42,6 +41,7 @@ export const AdminFees: React.FC = () => {
     };
   }, []);
 
+  // Search filter options
   const [filterType, setFilterType] = useState<'ALL' | 'BATCH' | 'STUDENT'>('ALL');
   const [selectedBatchId, setSelectedBatchId] = useState('');
   const [selectedStudentId, setSelectedStudentId] = useState('');
@@ -53,12 +53,15 @@ export const AdminFees: React.FC = () => {
   const [selectedModalRecord, setSelectedModalRecord] = useState<FeeRecord | null>(null);
   const [selectedModalStudent, setSelectedModalStudent] = useState<Student | null>(null);
 
+  // ===== Custom Fee Payment state =====
   const [customPayStudent, setCustomPayStudent] = useState<Student | null>(null);
   const [selectedMonths, setSelectedMonths] = useState<string[]>([]);
   const [customAmount, setCustomAmount] = useState<number>(0);
   const [customMethod, setCustomMethod] = useState<'cash' | 'online'>('cash');
   const [customBusy, setCustomBusy] = useState(false);
 
+  // Build a list of months in the SAME format as fee records:
+  //   new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' })  →  "January 2025"
   const availableMonths = useMemo(() => {
     const months: string[] = [];
     const now = new Date();
@@ -96,6 +99,7 @@ export const AdminFees: React.FC = () => {
     setFeeRecords(StorageService.getFeeRecords());
   };
 
+  // Filter students
   const filteredStudents = students.filter(student => {
     if (filterType === 'BATCH' && selectedBatchId && student.batchId !== selectedBatchId) return false;
     if (filterType === 'STUDENT' && selectedStudentId && student.id !== selectedStudentId) return false;
@@ -106,6 +110,7 @@ export const AdminFees: React.FC = () => {
     return true;
   });
 
+  // Handle personal Fee Reminder (WhatsApp + in-app)
   const handleSendReminder = (student: Student, dueAmount: number) => {
     const formattedPhone = student.phone.replace(/[^0-9]/g, '');
     const currentMonth = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
@@ -136,6 +141,7 @@ The Apex Chemistry`;
     setTimeout(() => setReminderSentMessage(''), 3000);
   };
 
+  // Mark a student's current-month fee as paid manually (cash)
   const handleMarkPaidManually = (student: Student) => {
     const currentMonth = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
 
@@ -173,6 +179,7 @@ The Apex Chemistry`;
     setTimeout(() => setReminderSentMessage(''), 4000);
   };
 
+  // ===== Custom Payment modal =====
   const openCustomPayment = (student: Student) => {
     setCustomPayStudent(student);
     setSelectedMonths([]);
@@ -205,6 +212,7 @@ The Apex Chemistry`;
       let workingRecords = StorageService.getFeeRecords();
 
       for (const month of selectedMonths) {
+        // FIX: find existing record for this student+month (deduped)
         const existingIdx = workingRecords.findIndex(
           r => r.studentId === customPayStudent.id && r.month === month
         );
@@ -223,6 +231,7 @@ The Apex Chemistry`;
             console.warn('Firestore sync failed for', workingRecords[existingIdx].id, e);
           }
         } else {
+          // Create a new record and mark it paid
           const newRecord = StorageService.addFeeRecord({
             studentId: customPayStudent.id,
             studentName: customPayStudent.name,
@@ -267,6 +276,7 @@ The Apex Chemistry`;
     }
   };
 
+  // Trigger 5th of Month Automated Batch Fee Reminders
   const handleTriggerMonthlyAutoReminders = async () => {
     setReminderLoading(true);
     setReminderSentMessage('');
@@ -311,6 +321,7 @@ The Apex Chemistry`;
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-black text-slate-900 tracking-tight">Fee Management & Reminders</h2>
@@ -337,6 +348,7 @@ The Apex Chemistry`;
         </div>
       )}
 
+      {/* SEARCH PANEL */}
       <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
         <h3 className="text-sm font-bold text-slate-800">Search & Filter Fee Ledger</h3>
 
@@ -406,6 +418,7 @@ The Apex Chemistry`;
         </div>
       </div>
 
+      {/* Student Fee Records Table */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs whitespace-nowrap">
@@ -422,16 +435,30 @@ The Apex Chemistry`;
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {filteredStudents.map(student => {
-                const sRecords = feeRecords
-                  .filter(f => f.studentId === student.id)
-                  .sort((a, b) => {
-                    const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-                    const [mA, yA] = a.month.split(' ');
-                    const [mB, yB] = b.month.split(' ');
-                    const ia = monthNames.indexOf(mA) + parseInt(yA) * 12;
-                    const ib = monthNames.indexOf(mB) + parseInt(yB) * 12;
-                    return ib - ia;
-                  });
+                // ── DEFENSIVE DEDUPE (UI-LEVEL GUARANTEE) ─────────────────────
+                // Even if StorageService.getFeeRecords() returns duplicate
+                // records for the same (student + month) — which happens when
+                // the deployed app is running an older version of storage.ts,
+                // OR when a Firestore sync race creates two records with
+                // different IDs for the same month — we collapse them HERE so
+                // the Fee Ledger NEVER shows contradictory badges (e.g.
+                // "August: Paid" + "August: Unpaid") for the same month.
+                //
+                // Best status wins: paid > pending_verification > unpaid.
+                // The screenshot bug (Tirtharaj with 2× "July: Paid" + an
+                // "August: Paid" + "August: Unpaid"; Aditya with 3× July
+                // badges) is impossible after this line.
+                const sRecords = dedupeFeeRecords(
+                  feeRecords.filter(f => f.studentId === student.id)
+                ).sort((a, b) => {
+                  // Sort chronologically (newest first)
+                  const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+                  const [mA, yA] = a.month.split(' ');
+                  const [mB, yB] = b.month.split(' ');
+                  const ia = monthNames.indexOf(mA) + parseInt(yA) * 12;
+                  const ib = monthNames.indexOf(mB) + parseInt(yB) * 12;
+                  return ib - ia;
+                });
                 const pendingRecords = sRecords.filter(f => f.status === 'unpaid' || f.status === 'pending_verification');
                 const totalDue = pendingRecords.reduce((acc, f) => acc + (f.amount || 0), 0);
 
@@ -554,6 +581,7 @@ The Apex Chemistry`;
                       )}
                     </td>
 
+                    {/* Personal Reminder column */}
                     <td className="p-3.5 text-right">
                       {totalDue > 0 ? (
                         <button
@@ -567,6 +595,7 @@ The Apex Chemistry`;
                       )}
                     </td>
 
+                    {/* Fee Actions column */}
                     <td className="p-3.5 text-right">
                       <div className="flex flex-col gap-1.5 items-end">
                         <button
