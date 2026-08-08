@@ -317,4 +317,161 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
           ) : (
             <div className="space-y-3">
               {visibleMeetings.map((m) => {
-                const scopeLabel = m.scope === "all" ? "All students" : m.scope === "class" ? m.className :
+                const scopeLabel = m.scope === "all" ? "All students" : m.scope === "class" ? m.className : m.batchTitle;
+                return (
+                  <div key={m.id} className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-1 flex items-center gap-2">
+                          <span className="flex h-2 w-2 items-center justify-center">
+                            <span className="h-2 w-2 animate-ping rounded-full bg-red-500 opacity-75" />
+                            <span className="h-2 w-2 rounded-full bg-red-500" />
+                          </span>
+                          <span className="text-xs font-bold uppercase tracking-wide text-red-600">Live</span>
+                          <span className="text-xs text-slate-500">· {timeAgo(m.startedAt)}</span>
+                        </div>
+                        <h4 className="truncate text-sm font-bold text-slate-900">{m.title}</h4>
+                        <p className="mt-0.5 text-xs text-slate-600">{m.teacherName} · {scopeLabel}</p>
+                        <p className="mt-1 text-[11px] text-slate-500">Started {formatTime(m.startedAt)} · {m.durationMins} min</p>
+                      </div>
+                      <div className="flex flex-shrink-0 items-center gap-1">
+                        <a href={buildJitsiUrl(m.roomName, m.teacherName)} target="_blank" rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700">
+                          <ExternalLink className="h-3 w-3" /> Join
+                        </a>
+                        <button onClick={() => handleEndMeeting(m.id)}
+                          className="inline-flex items-center gap-1 rounded-md bg-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-300">End</button>
+                        <button onClick={() => handleDeleteMeeting(m.id)}
+                          className="inline-flex items-center justify-center rounded-md bg-red-100 p-1.5 text-red-600 transition hover:bg-red-200">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ========================================================================
+  //  RENDER — STUDENT
+  // ========================================================================
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs text-emerald-700">
+        <div className="flex items-center gap-2 font-semibold">
+          <Wifi className="h-3.5 w-3.5" /> Live · synced
+        </div>
+        <span className="font-mono">{visibleMeetings.length} active</span>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-gradient-to-br from-amber-50 to-white p-5">
+        <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+          {student?.className || "Student"}
+          {student?.batchTitle ? ` · ${student.batchTitle}` : ""}
+        </p>
+        <h3 className="mt-1 text-lg font-bold text-slate-900">
+          Hi {student?.name?.split(" ")[0] || "there"} 👋
+        </h3>
+        <p className="text-sm text-slate-600">
+          Live classes started by your teacher will appear here automatically. You don't need to refresh.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        <h3 className="text-sm font-bold text-slate-900">Live now ({visibleMeetings.length})</h3>
+        {visibleMeetings.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100">
+              <Radio className="h-6 w-6 text-slate-400" />
+            </div>
+            <p className="text-sm font-semibold text-slate-700">No live classes right now</p>
+            <p className="mt-1 text-xs text-slate-500">
+              When your teacher starts a class, it will appear here instantly.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {visibleMeetings.map((m) => (
+              <div key={m.id} className="rounded-xl border-2 border-emerald-300 bg-white p-4 shadow-sm transition hover:shadow-md">
+                <div className="mb-3 flex items-center gap-2">
+                  <span className="flex h-2.5 w-2.5 items-center justify-center">
+                    <span className="h-2.5 w-2.5 animate-ping rounded-full bg-red-500 opacity-75" />
+                    <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
+                  </span>
+                  <span className="text-xs font-bold uppercase tracking-wide text-red-600">Live now</span>
+                  <span className="text-xs text-slate-500">· started {timeAgo(m.startedAt)}</span>
+                </div>
+                <h4 className="text-base font-bold text-slate-900">{m.title}</h4>
+                <p className="mt-1 text-sm text-slate-600">by <span className="font-semibold">{m.teacherName}</span></p>
+                <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                  <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {formatTime(m.startedAt)} · {m.durationMins} min</span>
+                  {m.scope !== "all" && (
+                    <span className="inline-flex items-center gap-1"><Users className="h-3.5 w-3.5" />
+                      {m.scope === "class" ? m.className : m.batchTitle}
+                    </span>
+                  )}
+                </div>
+                <button onClick={() => setJoinMeeting(m)}
+                  className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-emerald-700">
+                  <Play className="h-4 w-4" /> Join now
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {joinMeeting && (
+        <JoinModal meeting={joinMeeting} studentName={student?.name || "Student"} onClose={() => setJoinMeeting(null)} />
+      )}
+    </div>
+  );
+}
+
+function JoinModal({ meeting, studentName, onClose }: {
+  meeting: LiveMeeting; studentName: string; onClose: () => void;
+}) {
+  const joinUrl = buildJitsiUrl(meeting.roomName, studentName);
+  useEffect(() => {
+    try { window.open(joinUrl, "_blank", "noopener,noreferrer"); } catch { /* popup blocked */ }
+  }, [joinUrl]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-4 flex items-start justify-between">
+          <div>
+            <div className="mb-1 flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+              <span className="text-xs font-bold uppercase tracking-wide text-emerald-700">Joining class</span>
+            </div>
+            <h3 className="text-lg font-bold text-slate-900">{meeting.title}</h3>
+            <p className="text-sm text-slate-600">by {meeting.teacherName}</p>
+          </div>
+          <button onClick={onClose} className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">
+          <p className="mb-2 flex items-start gap-1.5">
+            <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
+            The meeting opens in a new tab. Allow camera & microphone access when your browser asks.
+          </p>
+          <p className="text-xs">If it didn't open automatically (popup blocked), click the button below:</p>
+        </div>
+        <a href={joinUrl} target="_blank" rel="noopener noreferrer"
+          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-emerald-700">
+          <ExternalLink className="h-4 w-4" /> Open meeting room
+        </a>
+        <button onClick={onClose} className="mt-2 w-full rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">Close</button>
+      </div>
+    </div>
+  );
+}
+
+export default LiveClasses;
