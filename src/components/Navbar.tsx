@@ -1,3 +1,4 @@
+// src/components/Navbar.tsx
 import React, { useState, useEffect } from 'react';
 import { Role, Student, NotificationItem } from '../types';
 import { StorageService } from '../lib/storage';
@@ -106,7 +107,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   return (
     <header className="sticky top-0 z-40 bg-[#0B132B] text-white border-b border-slate-800/80 shadow-lg">
       <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
-        {/* Logo Branding — allowed to shrink so name + tagline stay visible */}
         <div
           onClick={() => onTabChange(role === 'guest' ? 'home' : 'dashboard')}
           className="cursor-pointer group min-w-0 flex-1 lg:flex-none"
@@ -114,7 +114,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           <Logo size="md" variant="dark" />
         </div>
 
-        {/* Desktop Navigation Links — hidden below lg (1024px) */}
         {navItems.length > 0 && (
           <nav className="hidden lg:flex items-center gap-1 bg-slate-900/90 p-1 rounded-xl border border-slate-800 shrink-0">
             {navItems.map(item => (
@@ -133,7 +132,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           </nav>
         )}
 
-        {/* Right Side Actions & User Status */}
         <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
           {role !== 'guest' && (
             <div className="relative">
@@ -149,7 +147,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                 )}
               </button>
 
-              {/* Notifications Dropdown */}
               {showNotifications && (
                 <div className="fixed top-16 left-4 right-4 sm:absolute sm:top-auto sm:left-auto sm:right-0 mt-2 sm:w-80 max-w-sm bg-white text-slate-900 rounded-2xl shadow-2xl border border-slate-200 p-4 z-50 animate-in fade-in zoom-in-95 mx-auto">
                   <div className="flex justify-between items-center pb-2 border-b border-slate-100 mb-2">
@@ -205,7 +202,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           )}
 
-          {/* User Profile Badge or Login / Sign Up Buttons */}
           {role === 'guest' ? (
             <button
               onClick={onLoginClick}
@@ -247,7 +243,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           )}
 
-          {/* Mobile Menu Toggle — visible below lg (1024px) */}
           {role !== 'guest' && (
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -260,7 +255,6 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </div>
 
-      {/* Mobile Drawer Menu — visible below lg (1024px) */}
       {role !== 'guest' && mobileMenuOpen && (
         <div className="lg:hidden bg-slate-900 border-b border-slate-800 px-4 py-4 pb-28 space-y-2 shadow-2xl absolute w-full left-0 z-50 overflow-y-auto max-h-[85vh]">
           {navItems.map(item => (
