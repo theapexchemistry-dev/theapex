@@ -1,3 +1,4 @@
+// src/App.tsx
 import React, { useState, useEffect } from 'react';
 import { Role, Student } from './types';
 import { Navbar } from './components/Navbar';
@@ -46,16 +47,19 @@ export default function App() {
     return 'home';
   });
 
+  // Sync tab changes to storage
   useEffect(() => {
     if (role !== 'guest') {
       localStorage.setItem('apex_session_tab', activeTab);
     }
   }, [activeTab, role]);
 
+  // Scheduled Task: Automatically run 5th-day monthly fee reminder on app initialization
   useEffect(() => {
     runMonthlyFeeReminderTask().catch((e) => console.warn('Monthly fee reminder task failed:', e));
   }, []);
 
+  // Handle Login
   const handleLoginSuccess = (userRole: Role, studentObj?: Student) => {
     setRole(userRole);
     localStorage.setItem('apex_session_role', userRole);
@@ -72,6 +76,7 @@ export default function App() {
     }
   };
 
+  // Handle Logout
   const handleLogout = () => {
     setRole('guest');
     setCurrentStudent(null);
