@@ -1,12 +1,7 @@
 /**
  * ============================================================================
- *  LiveClasses.tsx — Self-contained real-time live classes
+ *  LiveClasses.tsx — Real-time live classes (Vite + React)
  * ----------------------------------------------------------------------------
- *  Paste this ONE file at:  src/components/LiveClasses.tsx
- *
- *  It only depends on:  src/lib/firebase.ts  (which exports `db`)
- *  You do NOT need to change firebaseSync.ts or any other file.
- *
  *  Features:
  *    1. Admin clicks "Start live class" → Jitsi tab opens AUTOMATICALLY
  *       (no need to click Join afterwards).
@@ -15,8 +10,6 @@
  *    3. Real-time sync across all devices via Firestore onSnapshot.
  * ============================================================================
  */
-
-"use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
@@ -35,17 +28,14 @@ import {
   History,
 } from "lucide-react";
 
-// ---- Firebase ----
+// ---- Firebase sync helpers ----
 import {
-  collection,
-  doc,
-  setDoc,
-  deleteDoc,
-  onSnapshot,
-  query,
-  serverTimestamp,
-} from "firebase/firestore";
-import { db } from "../lib/firebase";
+  subscribeToAllMeetings,
+  startMeeting as fbStartMeeting,
+  endMeeting as fbEndMeeting,
+  deleteMeeting as fbDeleteMeeting,
+  type LiveMeeting,
+} from "../lib/firebaseSync";
 
 // ---------- Types ----------
 export type Role = "admin" | "student";
@@ -58,29 +48,10 @@ export interface Student {
   batchTitle?: string;
 }
 
-interface LiveMeeting {
-  id: string;
-  title: string;
-  scope: "batch" | "class" | "all";
-  batchId?: string | null;
-  batchTitle?: string | null;
-  className?: string | null;
-  teacherName: string;
-  roomName: string;
-  startedAt: number;
-  durationMins: number;
-  active: boolean;
-  endedAt?: number | null;
-  createdAt: number;
-}
-
 interface LiveClassesProps {
   role: Role;
   student?: Student | null;
 }
-
-// ---------- Constants ----------
-const COLLECTION = "liveMeetings";
 
 // ---------- Jitsi helper ----------
 function buildJitsiUrl(roomName: string, displayName: string): string {
@@ -126,71 +97,16 @@ function formatDuration(startedAt: number, endedAt: number | null | undefined): 
 }
 
 // ============================================================================
-//  Firestore helpers (inline — no dependency on firebaseSync.ts)
-// ============================================================================
-
-// Subscribe to ALL meetings (active + ended). Returns an unsubscribe fn.
-function subscribeToAllMeetings(
-  onUpdate: (meetings: LiveMeeting[]) => void,
-  onError?: (err: Error) => void
-) {
-  const q = query(collection(db as any, COLLECTION));
-  return onSnapshot(
-    q as any,
-    (snap: any) => {
-      const meetings: LiveMeeting[] = [];
-      snap.forEach((d: any) => {
-        const data = d.data() as LiveMeeting;
-        meetings.push({ ...data, id: d.id });
-      });
-      meetings.sort((a, b) => b.startedAt - a.startedAt);
-      onUpdate(meetings);
-    },
-    (err: Error) => {
-      console.error("[LiveClasses] onSnapshot error:", err);
-      onError?.(err);
-    }
-  );
-}
-
-async function startMeeting(meeting: LiveMeeting): Promise<void> {
-  const ref = doc(db as any, COLLECTION, meeting.id);
-  await setDoc(ref as any, {
-    ...meeting,
-    active: true,
-    endedAt: null,
-    createdAt: Date.now(),
-    updatedAt: serverTimestamp(),
-  }, { merge: true });
-}
-
-async function endMeeting(id: string): Promise<void> {
-  const ref = doc(db as any, COLLECTION, id);
-  await setDoc(ref as any, {
-    active: false,
-    endedAt: Date.now(),
-    updatedAt: serverTimestamp(),
-  }, { merge: true });
-}
-
-async function deleteMeeting(id: string): Promise<void> {
-  const ref = doc(db as any, COLLECTION, id);
-  await deleteDoc(ref as any);
-}
-
-// ============================================================================
 //  Component
 // ============================================================================
 export function LiveClasses({ role, student }: LiveClassesProps) {
   const isStudent = role === "student";
 
-  // ---- Real-time meeting list from Firestore (active + ended) ----
   const [meetings, setMeetings] = useState<LiveMeeting[]>([]);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    // Subscribe to ALL meetings (active + ended) so we can show history.
     const unsub = subscribeToAllMeetings(
       (next) => {
         setMeetings(next);
@@ -205,14 +121,11 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
     return () => unsub();
   }, []);
 
-  // ---- Admin form state ----
   const [title, setTitle] = useState("");
   const [teacherName, setTeacherName] = useState("Apex Chemistry");
   const [scope, setScope] = useState<"batch" | "class" | "all">("all");
   const [duration, setDuration] = useState(60);
   const [starting, setStarting] = useState(false);
-
-  // ---- Join / started-meeting confirmation modal ----
   const [joinMeeting, setJoinMeeting] = useState<LiveMeeting | null>(null);
 
   const handleStartMeeting = useCallback(async () => {
@@ -236,9 +149,8 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
         createdAt: Date.now(),
       };
 
-      // ✅ Open the Jitsi tab IMMEDIATELY — synchronously, within the user's
-      // click gesture. This is critical: if we wait for the Firestore write
-      // to finish, the browser treats window.open() as a popup and blocks it.
+      // ✅ Open Jitsi tab IMMEDIATELY — synchronously inside the click gesture
+      // so popup blockers don't block it.
       const joinUrl = buildJitsiUrl(roomName, teacherName.trim() || "Apex Chemistry");
       let opened = false;
       try {
@@ -248,10 +160,8 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
         opened = false;
       }
 
-      // Write to Firestore (async). onSnapshot will add the card automatically.
-      await startMeeting(meeting);
+      await fbStartMeeting(meeting);
 
-      // Fallback modal if the popup was blocked.
       if (!opened) {
         setJoinMeeting(meeting);
       }
@@ -267,9 +177,7 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
 
   const handleEndMeeting = useCallback(async (id: string) => {
     try {
-      // Only sets active=false + endedAt=now. Does NOT delete the doc,
-      // so the meeting moves to the "Recent classes" history section.
-      await endMeeting(id);
+      await fbEndMeeting(id);
     } catch (err) {
       console.error("[LiveClasses] endMeeting failed:", err);
     }
@@ -277,23 +185,15 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
 
   const handleDeleteMeeting = useCallback(async (id: string) => {
     try {
-      await deleteMeeting(id);
+      await fbDeleteMeeting(id);
     } catch (err) {
       console.error("[LiveClasses] deleteMeeting failed:", err);
     }
   }, []);
 
-  // ---- Split meetings into active + past ----
-  const activeMeetings = useMemo(
-    () => meetings.filter((m) => m.active),
-    [meetings]
-  );
-  const pastMeetings = useMemo(
-    () => meetings.filter((m) => !m.active),
-    [meetings]
-  );
+  const activeMeetings = useMemo(() => meetings.filter((m) => m.active), [meetings]);
+  const pastMeetings = useMemo(() => meetings.filter((m) => !m.active), [meetings]);
 
-  // ---- Student: filter by scope ----
   const visibleActive = useMemo(() => {
     if (!isStudent || !student) return activeMeetings;
     return activeMeetings.filter((m) => {
@@ -314,7 +214,6 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
     });
   }, [pastMeetings, isStudent, student]);
 
-  // ---- Live "time ago" ticker ----
   const [, setTick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setTick((n) => n + 1), 30000);
@@ -329,7 +228,6 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
       <div className="space-y-6">
         <SyncStatusBar connected={connected} error={syncError} count={activeMeetings.length} />
 
-        {/* Start meeting form */}
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
@@ -340,9 +238,7 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Class title
-              </label>
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Class title</label>
               <input
                 type="text"
                 value={title}
@@ -351,11 +247,8 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
               />
             </div>
-
             <div className="space-y-2">
-              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Teacher name
-              </label>
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Teacher name</label>
               <input
                 type="text"
                 value={teacherName}
@@ -364,11 +257,8 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
               />
             </div>
-
             <div className="space-y-2">
-              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Audience
-              </label>
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Audience</label>
               <select
                 value={scope}
                 onChange={(e) => setScope(e.target.value as "batch" | "class" | "all")}
@@ -379,11 +269,8 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
                 <option value="batch">JEE Advanced batch only</option>
               </select>
             </div>
-
             <div className="space-y-2">
-              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Duration (minutes)
-              </label>
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Duration (minutes)</label>
               <input
                 type="number"
                 min={15}
@@ -420,20 +307,14 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
           </p>
         </div>
 
-        {/* Active meetings */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-slate-900">
-              Active right now ({activeMeetings.length})
-            </h3>
+            <h3 className="text-sm font-bold text-slate-900">Active right now ({activeMeetings.length})</h3>
           </div>
-
           {activeMeetings.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
               <Video className="mx-auto mb-2 h-8 w-8 text-slate-400" />
-              <p className="text-sm text-slate-500">
-                No active classes. Start one above and it appears here instantly.
-              </p>
+              <p className="text-sm text-slate-500">No active classes. Start one above and it appears here instantly.</p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -450,34 +331,22 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
           )}
         </div>
 
-        {/* Recent classes (history) */}
         {pastMeetings.length > 0 && (
           <div className="space-y-3">
             <div className="flex items-center gap-2">
               <History className="h-4 w-4 text-slate-500" />
-              <h3 className="text-sm font-bold text-slate-900">
-                Recent classes ({pastMeetings.length})
-              </h3>
+              <h3 className="text-sm font-bold text-slate-900">Recent classes ({pastMeetings.length})</h3>
             </div>
             <div className="space-y-2">
               {pastMeetings.map((m) => (
-                <PastMeetingCard
-                  key={m.id}
-                  meeting={m}
-                  isAdmin
-                  onDelete={() => handleDeleteMeeting(m.id)}
-                />
+                <PastMeetingCard key={m.id} meeting={m} isAdmin onDelete={() => handleDeleteMeeting(m.id)} />
               ))}
             </div>
           </div>
         )}
 
         {joinMeeting && (
-          <JoinModal
-            meeting={joinMeeting}
-            displayName={teacherName || "Apex Chemistry"}
-            onClose={() => setJoinMeeting(null)}
-          />
+          <JoinModal meeting={joinMeeting} displayName={teacherName || "Apex Chemistry"} onClose={() => setJoinMeeting(null)} />
         )}
       </div>
     );
@@ -495,9 +364,7 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
           {student?.className || "Student"}
           {student?.batchTitle ? ` · ${student.batchTitle}` : ""}
         </p>
-        <h3 className="mt-1 text-lg font-bold text-slate-900">
-          Hi {student?.name?.split(" ")[0] || "there"} 👋
-        </h3>
+        <h3 className="mt-1 text-lg font-bold text-slate-900">Hi {student?.name?.split(" ")[0] || "there"} 👋</h3>
         <p className="text-sm text-slate-600">
           Live classes started by your teacher will appear here automatically.
           You don&apos;t need to refresh — it updates in real-time.
@@ -506,11 +373,8 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
 
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-slate-900">
-            Live now ({visibleActive.length})
-          </h3>
+          <h3 className="text-sm font-bold text-slate-900">Live now ({visibleActive.length})</h3>
         </div>
-
         {visibleActive.length === 0 ? (
           <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
             <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100">
@@ -526,12 +390,7 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
         ) : (
           <div className="space-y-3">
             {visibleActive.map((m) => (
-              <StudentMeetingCard
-                key={m.id}
-                meeting={m}
-                studentName={student?.name || "Student"}
-                onJoin={() => setJoinMeeting(m)}
-              />
+              <StudentMeetingCard key={m.id} meeting={m} studentName={student?.name || "Student"} onJoin={() => setJoinMeeting(m)} />
             ))}
           </div>
         )}
@@ -541,9 +400,7 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
         <div className="space-y-3">
           <div className="flex items-center gap-2">
             <History className="h-4 w-4 text-slate-500" />
-            <h3 className="text-sm font-bold text-slate-900">
-              Recent classes ({visiblePast.length})
-            </h3>
+            <h3 className="text-sm font-bold text-slate-900">Recent classes ({visiblePast.length})</h3>
           </div>
           <div className="space-y-2">
             {visiblePast.map((m) => (
@@ -554,11 +411,7 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
       )}
 
       {joinMeeting && (
-        <JoinModal
-          meeting={joinMeeting}
-          displayName={student?.name || "Student"}
-          onClose={() => setJoinMeeting(null)}
-        />
+        <JoinModal meeting={joinMeeting} displayName={student?.name || "Student"} onClose={() => setJoinMeeting(null)} />
       )}
     </div>
   );
@@ -568,66 +421,23 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
 //  Sub-components
 // ============================================================================
 
-function SyncStatusBar({
-  connected,
-  error,
-  count,
-}: {
-  connected: boolean;
-  error: string | null;
-  count: number;
-}) {
+function SyncStatusBar({ connected, error, count }: { connected: boolean; error: string | null; count: number }) {
   return (
-    <div
-      className={`flex items-center justify-between gap-3 rounded-lg border px-4 py-2.5 text-xs ${
-        error
-          ? "border-red-200 bg-red-50 text-red-700"
-          : connected
-          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-          : "border-amber-200 bg-amber-50 text-amber-700"
-      }`}
-    >
+    <div className={`flex items-center justify-between gap-3 rounded-lg border px-4 py-2.5 text-xs ${
+      error ? "border-red-200 bg-red-50 text-red-700" : connected ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"
+    }`}>
       <div className="flex items-center gap-2 font-semibold">
-        {error ? (
-          <>
-            <WifiOff className="h-3.5 w-3.5" /> Sync error
-          </>
-        ) : connected ? (
-          <>
-            <Wifi className="h-3.5 w-3.5" /> Live · synced
-          </>
-        ) : (
-          <>
-            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-            Connecting…
-          </>
-        )}
+        {error ? (<><WifiOff className="h-3.5 w-3.5" /> Sync error</>)
+        : connected ? (<><Wifi className="h-3.5 w-3.5" /> Live · synced</>)
+        : (<><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> Connecting…</>)}
       </div>
-      <span className="font-mono">
-        {error ? "Check Firestore rules" : `${count} active`}
-      </span>
+      <span className="font-mono">{error ? "Check Firestore rules" : `${count} active`}</span>
     </div>
   );
 }
 
-function AdminMeetingCard({
-  meeting,
-  onEnd,
-  onDelete,
-  onRejoin,
-}: {
-  meeting: LiveMeeting;
-  onEnd: () => void;
-  onDelete: () => void;
-  onRejoin: () => void;
-}) {
-  const scopeLabel =
-    meeting.scope === "all"
-      ? "All students"
-      : meeting.scope === "class"
-      ? meeting.className
-      : meeting.batchTitle;
-
+function AdminMeetingCard({ meeting, onEnd, onDelete, onRejoin }: { meeting: LiveMeeting; onEnd: () => void; onDelete: () => void; onRejoin: () => void; }) {
+  const scopeLabel = meeting.scope === "all" ? "All students" : meeting.scope === "class" ? meeting.className : meeting.batchTitle;
   return (
     <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4">
       <div className="flex items-start justify-between gap-3">
@@ -641,34 +451,17 @@ function AdminMeetingCard({
             <span className="text-xs text-slate-500">· {timeAgo(meeting.startedAt)}</span>
           </div>
           <h4 className="truncate text-sm font-bold text-slate-900">{meeting.title}</h4>
-          <p className="mt-0.5 text-xs text-slate-600">
-            {meeting.teacherName} · {scopeLabel}
-          </p>
-          <p className="mt-1 text-[11px] text-slate-500">
-            Started {formatTime(meeting.startedAt)} · {meeting.durationMins} min
-          </p>
+          <p className="mt-0.5 text-xs text-slate-600">{meeting.teacherName} · {scopeLabel}</p>
+          <p className="mt-1 text-[11px] text-slate-500">Started {formatTime(meeting.startedAt)} · {meeting.durationMins} min</p>
         </div>
-
         <div className="flex flex-shrink-0 items-center gap-1">
-          <button
-            onClick={onRejoin}
-            title="Open the meeting room again"
-            className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700"
-          >
+          <button onClick={onRejoin} title="Open the meeting room again" className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700">
             <ExternalLink className="h-3 w-3" /> Join
           </button>
-          <button
-            onClick={onEnd}
-            title="End meeting (moves to history — does NOT delete)"
-            className="inline-flex items-center gap-1 rounded-md bg-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-300"
-          >
+          <button onClick={onEnd} title="End meeting (moves to history — does NOT delete)" className="inline-flex items-center gap-1 rounded-md bg-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-300">
             End
           </button>
-          <button
-            onClick={onDelete}
-            title="Permanently delete this record"
-            className="inline-flex items-center justify-center rounded-md bg-red-100 p-1.5 text-red-600 transition hover:bg-red-200"
-          >
+          <button onClick={onDelete} title="Permanently delete this record" className="inline-flex items-center justify-center rounded-md bg-red-100 p-1.5 text-red-600 transition hover:bg-red-200">
             <Trash2 className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -677,15 +470,7 @@ function AdminMeetingCard({
   );
 }
 
-function StudentMeetingCard({
-  meeting,
-  studentName,
-  onJoin,
-}: {
-  meeting: LiveMeeting;
-  studentName: string;
-  onJoin: () => void;
-}) {
+function StudentMeetingCard({ meeting, studentName, onJoin }: { meeting: LiveMeeting; studentName: string; onJoin: () => void; }) {
   return (
     <div className="rounded-xl border-2 border-emerald-300 bg-white p-4 shadow-sm transition hover:shadow-md">
       <div className="mb-3 flex items-center gap-2">
@@ -696,12 +481,8 @@ function StudentMeetingCard({
         <span className="text-xs font-bold uppercase tracking-wide text-red-600">Live now</span>
         <span className="text-xs text-slate-500">· started {timeAgo(meeting.startedAt)}</span>
       </div>
-
       <h4 className="text-base font-bold text-slate-900">{meeting.title}</h4>
-      <p className="mt-1 text-sm text-slate-600">
-        by <span className="font-semibold">{meeting.teacherName}</span>
-      </p>
-
+      <p className="mt-1 text-sm text-slate-600">by <span className="font-semibold">{meeting.teacherName}</span></p>
       <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500">
         <span className="inline-flex items-center gap-1">
           <Clock className="h-3.5 w-3.5" /> {formatTime(meeting.startedAt)} · {meeting.durationMins} min
@@ -713,59 +494,30 @@ function StudentMeetingCard({
           </span>
         )}
       </div>
-
-      <button
-        onClick={onJoin}
-        className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-emerald-700"
-      >
+      <button onClick={onJoin} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-emerald-700">
         <Play className="h-4 w-4" /> Join now
       </button>
     </div>
   );
 }
 
-function PastMeetingCard({
-  meeting,
-  isAdmin = false,
-  onDelete,
-}: {
-  meeting: LiveMeeting;
-  isAdmin?: boolean;
-  onDelete?: () => void;
-}) {
-  const scopeLabel =
-    meeting.scope === "all"
-      ? "All students"
-      : meeting.scope === "class"
-      ? meeting.className
-      : meeting.batchTitle;
-
+function PastMeetingCard({ meeting, isAdmin = false, onDelete }: { meeting: LiveMeeting; isAdmin?: boolean; onDelete?: () => void; }) {
+  const scopeLabel = meeting.scope === "all" ? "All students" : meeting.scope === "class" ? meeting.className : meeting.batchTitle;
   return (
     <div className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3">
       <div className="min-w-0 flex-1">
         <div className="mb-0.5 flex items-center gap-2">
           <CheckCircle2 className="h-3.5 w-3.5 text-slate-400" />
-          <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-            Ended
-          </span>
+          <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Ended</span>
         </div>
         <h4 className="truncate text-sm font-semibold text-slate-800">{meeting.title}</h4>
-        <p className="mt-0.5 text-xs text-slate-500">
-          {meeting.teacherName} · {scopeLabel}
-        </p>
+        <p className="mt-0.5 text-xs text-slate-500">{meeting.teacherName} · {scopeLabel}</p>
         <p className="mt-0.5 text-[11px] text-slate-400">
-          {formatTime(meeting.startedAt)}
-          {meeting.endedAt ? ` → ${formatTime(meeting.endedAt)}` : ""}
-          {" · "}
-          {formatDuration(meeting.startedAt, meeting.endedAt)}
+          {formatTime(meeting.startedAt)}{meeting.endedAt ? ` → ${formatTime(meeting.endedAt)}` : ""} · {formatDuration(meeting.startedAt, meeting.endedAt)}
         </p>
       </div>
       {isAdmin && onDelete && (
-        <button
-          onClick={onDelete}
-          title="Permanently delete this record"
-          className="inline-flex items-center justify-center rounded-md bg-red-50 p-1.5 text-red-500 transition hover:bg-red-100"
-        >
+        <button onClick={onDelete} title="Permanently delete this record" className="inline-flex items-center justify-center rounded-md bg-red-50 p-1.5 text-red-500 transition hover:bg-red-100">
           <Trash2 className="h-3.5 w-3.5" />
         </button>
       )}
@@ -773,80 +525,39 @@ function PastMeetingCard({
   );
 }
 
-function JoinModal({
-  meeting,
-  displayName,
-  onClose,
-}: {
-  meeting: LiveMeeting;
-  displayName: string;
-  onClose: () => void;
-}) {
+function JoinModal({ meeting, displayName, onClose }: { meeting: LiveMeeting; displayName: string; onClose: () => void; }) {
   const joinUrl = buildJitsiUrl(meeting.roomName, displayName);
-
   useEffect(() => {
-    try {
-      window.open(joinUrl, "_blank", "noopener,noreferrer");
-    } catch {
-      /* popup blocked — user can click the link below */
-    }
+    try { window.open(joinUrl, "_blank", "noopener,noreferrer"); } catch { /* popup blocked */ }
   }, [joinUrl]);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-start justify-between">
           <div>
             <div className="mb-1 flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-              <span className="text-xs font-bold uppercase tracking-wide text-emerald-700">
-                Joining class
-              </span>
+              <span className="text-xs font-bold uppercase tracking-wide text-emerald-700">Joining class</span>
             </div>
             <h3 className="text-lg font-bold text-slate-900">{meeting.title}</h3>
             <p className="text-sm text-slate-600">by {meeting.teacherName}</p>
           </div>
-          <button
-            onClick={onClose}
-            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-          >
+          <button onClick={onClose} className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
             <X className="h-5 w-5" />
           </button>
         </div>
-
         <div className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">
           <p className="mb-2 flex items-start gap-1.5">
             <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
-            The meeting opens in a new tab. Allow camera &amp; microphone access
-            when your browser asks.
+            The meeting opens in a new tab. Allow camera &amp; microphone access when your browser asks.
           </p>
-          <p className="text-xs">
-            If it didn&apos;t open automatically (popup blocked), click the
-            button below:
-          </p>
+          <p className="text-xs">If it didn&apos;t open automatically (popup blocked), click the button below:</p>
         </div>
-
-        <a
-          href={joinUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-emerald-700"
-        >
+        <a href={joinUrl} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-emerald-700">
           <ExternalLink className="h-4 w-4" /> Open meeting room
         </a>
-
-        <button
-          onClick={onClose}
-          className="mt-2 w-full rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
-        >
-          Close
-        </button>
+        <button onClick={onClose} className="mt-2 w-full rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">Close</button>
       </div>
     </div>
   );
