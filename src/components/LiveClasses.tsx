@@ -3,26 +3,27 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Role, Student, Batch } from '../types';
 import { StorageService } from '../lib/storage';
 import { syncDocToFirestore, deleteFromFirestore } from '../lib/firebaseSync';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, onSnapshot, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import {
   Video, Trash2, Users, Copy, X, Radio, Play,
   Zap, ShieldCheck, AlertCircle, Calendar, ExternalLink, Clock, KeyRound,
-  CheckCircle2
+  CheckCircle2, Wifi, WifiOff, RefreshCw, CloudOff
 } from 'lucide-react';
 
 /* ============================================================================
- *  THE APEX WORLD — Live Classes (batch-based instant meetings)
+ *  THE APEX WORLD — Live Classes (DIAGNOSTIC EDITION)
  * ----------------------------------------------------------------------------
- *  BULLETPROOF STUDENT VISIBILITY (FINAL FIX):
- *  - Students see EVERY active meeting — NO filtering.
- *  - Each meeting is labeled:
- *      🟢 "✓ For Your Class"  (green)  — matches the student's class/batch
- *      ⚪ "Other Class"        (grey)   — doesn't match, but still joinable
- *  - Plus a "Join by Code" fallback: admin copies the room code via the 🔑
- *    button and shares it with the student, who pastes it to join directly.
- *  - Meetings open in a NEW BROWSER TAB (not an embedded iframe) — this avoids
- *    Jitsi's 5-minute embedded limit.
+ *  This version adds a VISIBLE Firebase connection status badge so you can
+ *  immediately see WHY meetings aren't syncing between admin and student.
+ *
+ *  The status badge shows one of:
+ *    🟢 "Firebase: Connected"  — Firestore is reachable, meetings should sync
+ *    🔴 "Firebase: Error"      — Firestore is NOT reachable (config issue or rules)
+ *    🟡 "Firebase: Checking..." — attempting to connect
+ *    ⚪ "Firebase: Offline"     — not configured (using local-only mode)
+ *
+ *  Plus a "Refresh from Cloud" button that manually re-pulls meetings.
  * ========================================================================== */
 
 interface LiveMeeting {
@@ -77,20 +78,20 @@ function saveMeetingsLocal(meetings: LiveMeeting[]): void {
   }
 }
 
-function syncMeetingToFirestore(meeting: LiveMeeting): void {
-  try {
-    syncDocToFirestore(FIRESTORE_COLLECTION, meeting.id, {
-      ...meeting,
-      batchId: meeting.batchId || null,
-      batchTitle: meeting.batchTitle || null,
-      className: meeting.className || null,
-      endedAt: meeting.endedAt || null,
-    }).catch((e) => {
-      console.debug('Firestore sync failed (OK if not configured):', e);
-    });
-  } catch {
-    /* ignore */
-  }
+function syncMeetingToFirestore(meeting: LiveMeeting): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      syncDocToFirestore(FIRESTORE_COLLECTION, meeting.id, {
+        ...meeting,
+        batchId: meeting.batchId || null,
+        batchTitle: meeting.batchTitle || null,
+        className: meeting.className || null,
+        endedAt: meeting.endedAt || null,
+      }).then(() => resolve(true)).catch(() => resolve(false));
+    } catch {
+      resolve(false);
+    }
+  });
 }
 
 function deleteMeetingFromFirestore(id: string): void {
@@ -216,6 +217,22 @@ function openInNewTab(url: string): boolean {
   }
 }
 
+// ── Check if Firebase is configured ──────────────────────────────────────────
+function isFirebaseConfigured(): boolean {
+  try {
+    // @ts-ignore — check if db is a real Firestore instance
+    const config = (db as any)?._app?._options || (db as any)?.app?.options;
+    if (!config) return false;
+    const apiKey = config.apiKey || '';
+    const projectId = config.projectId || '';
+    // Check it's not a placeholder
+    if (apiKey.includes('YOUR_') || apiKey === '' || projectId === '') return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 interface LiveClassesProps {
   role: Role;
   student?: Student | null;
@@ -232,6 +249,15 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
   const [now, setNow] = useState<number>(() => Date.now());
   const [showManualJoin, setShowManualJoin] = useState(false);
   const [manualRoom, setManualRoom] = useState('');
+
+  // ── Firebase status (VISIBLE diagnostic) ──────────────────────────────────
+  type FbStatus = 'checking' | 'connected' | 'error' | 'offline';
+  const [fbStatus, setFbStatus] = useState<FbStatus>(() => {
+    return isFirebaseConfigured() ? 'checking' : 'offline';
+  });
+  const [fbError, setFbError] = useState<string>('');
+  const [cloudMeetingCount, setCloudMeetingCount] = useState<number | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const [form, setForm] = useState<{
     scope: 'batch' | 'class' | 'all';
@@ -266,14 +292,43 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
     };
   }, [refresh]);
 
-  // ── Firestore real-time listener — MERGES instead of overwriting ───────
+  // ── Manual "Refresh from Cloud" button ────────────────────────────────────
+  const handleRefreshFromCloud = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const snap = await getDocs(collection(db, FIRESTORE_COLLECTION));
+      const cloudMeetings = snap.docs.map(d => d.data() as LiveMeeting);
+      setCloudMeetingCount(cloudMeetings.length);
+      const local = getMeetings();
+      const merged = mergeMeetings(local, cloudMeetings);
+      saveMeetingsLocal(merged);
+      setMeetings(merged);
+      setFbStatus('connected');
+      setFbError('');
+    } catch (e: any) {
+      setFbStatus('error');
+      setFbError(e?.message || String(e));
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
+  // ── Firestore real-time listener — with VISIBLE status ───────────────────
   useEffect(() => {
+    if (!isFirebaseConfigured()) {
+      setFbStatus('offline');
+      return;
+    }
+
     let unsubscribe: (() => void) | null = null;
     try {
       const q = collection(db, FIRESTORE_COLLECTION);
       unsubscribe = onSnapshot(
         q,
         (snapshot) => {
+          setFbStatus('connected');
+          setFbError('');
+          setCloudMeetingCount(snapshot.size);
           const firestoreMeetings = snapshot.docs.map((d) => d.data() as LiveMeeting);
           const local = getMeetings();
           const merged = mergeMeetings(local, firestoreMeetings);
@@ -281,11 +336,15 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
           setMeetings(merged);
         },
         (err) => {
-          console.debug('Live meetings listener error (OK if not configured):', err);
+          console.error('🔴 Live meetings Firestore ERROR:', err);
+          setFbStatus('error');
+          setFbError(err?.message || String(err?.code || err));
         }
       );
-    } catch (e) {
-      console.debug('Firebase listener setup failed (OK if not configured):', e);
+    } catch (e: any) {
+      console.error('🔴 Firebase listener setup FAILED:', e);
+      setFbStatus('error');
+      setFbError(e?.message || String(e));
     }
     return () => {
       if (unsubscribe) {
@@ -341,7 +400,7 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
     }
   };
 
-  const handleStartMeeting = () => {
+  const handleStartMeeting = async () => {
     const scope = form.scope;
     let title = form.title.trim();
     let batchId: string | undefined;
@@ -382,7 +441,17 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
     const updated = [meeting, ...getMeetings()];
     saveMeetingsLocal(updated);
     setMeetings(updated);
-    syncMeetingToFirestore(meeting);
+
+    // ── Sync to Firestore and SHOW the result ──────────────────────────────
+    const synced = await syncMeetingToFirestore(meeting);
+    if (!synced) {
+      window.alert(
+        '⚠️ WARNING: Meeting was saved locally but FAILED to sync to Firebase!\n\n' +
+        'Students on OTHER devices will NOT see this meeting.\n\n' +
+        'Check your Firebase configuration (src/lib/firebase.ts) and Firestore security rules.\n\n' +
+        'You can still share the room code with students using the 🔑 button.'
+      );
+    }
 
     setShowStart(false);
     setForm({ scope: 'class', batchId: '', className: 'Class 12', title: '' });
@@ -457,7 +526,6 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
     }
   };
 
-  // ── BULLETPROOF: students see ALL active meetings (no filtering) ────────
   const visibleMeetings = isAdmin
     ? meetings
     : meetings.filter((m) => m.active);
@@ -496,6 +564,14 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleRefreshFromCloud}
+            disabled={refreshing}
+            title="Manually pull meetings from Firebase"
+            className="px-3 py-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-sm rounded-xl transition-colors flex items-center gap-2 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} /> Refresh
+          </button>
           {!isAdmin && (
             <button
               onClick={() => setShowManualJoin(true)}
@@ -512,6 +588,66 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
             >
               <Zap className="w-4 h-4" /> Start Instant Meeting
             </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── FIREBASE STATUS BADGE (VISIBLE DIAGNOSTIC) ──────────────────────── */}
+      <div className={`rounded-2xl p-4 flex items-start gap-3 border-2 ${
+        fbStatus === 'connected' ? 'bg-emerald-50 border-emerald-300' :
+        fbStatus === 'error' ? 'bg-red-50 border-red-300' :
+        fbStatus === 'checking' ? 'bg-amber-50 border-amber-300' :
+        'bg-slate-100 border-slate-300'
+      }`}>
+        {fbStatus === 'connected' ? (
+          <Wifi className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+        ) : fbStatus === 'error' ? (
+          <WifiOff className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+        ) : fbStatus === 'checking' ? (
+          <RefreshCw className="w-5 h-5 text-amber-600 shrink-0 mt-0.5 animate-spin" />
+        ) : (
+          <CloudOff className="w-5 h-5 text-slate-500 shrink-0 mt-0.5" />
+        )}
+        <div className="text-xs leading-relaxed flex-1">
+          <p className={`font-black ${
+            fbStatus === 'connected' ? 'text-emerald-800' :
+            fbStatus === 'error' ? 'text-red-800' :
+            fbStatus === 'checking' ? 'text-amber-800' :
+            'text-slate-700'
+          }`}>
+            Firebase: {
+              fbStatus === 'connected' ? '✅ Connected' :
+              fbStatus === 'error' ? '❌ Error — Sync NOT working' :
+              fbStatus === 'checking' ? '🔄 Checking...' :
+              '⚪ Offline (local-only mode)'
+            }
+          </p>
+          {fbStatus === 'connected' && (
+            <p className="text-emerald-700 mt-1">
+              Real-time sync is active. Cloud has <strong>{cloudMeetingCount ?? 0}</strong> meeting(s).
+              Local storage has <strong>{totalMeetingsInStorage}</strong> total, <strong>{totalActiveInStorage}</strong> active.
+            </p>
+          )}
+          {fbStatus === 'error' && (
+            <div className="mt-1 text-red-700">
+              <p>Meetings are <strong>NOT syncing</strong> between admin and student devices!</p>
+              <p className="mt-1 font-mono text-[11px] bg-red-100 p-2 rounded mt-2 break-all">{fbError}</p>
+              <p className="mt-2 font-bold">How to fix:</p>
+              <ol className="list-decimal list-inside mt-1 space-y-0.5">
+                <li>Check <code className="bg-red-100 px-1 rounded">src/lib/firebase.ts</code> has real API key &amp; projectId (not placeholders)</li>
+                <li>Check Firestore Rules allow read/write (see below)</li>
+                <li>Make sure your internet is working</li>
+              </ol>
+            </div>
+          )}
+          {fbStatus === 'offline' && (
+            <p className="text-slate-600 mt-1">
+              Firebase is <strong>not configured</strong>. Meetings only exist on the device that creates them.
+              To sync across devices, add your Firebase credentials to <code className="bg-slate-200 px-1 rounded">src/lib/firebase.ts</code>.
+            </p>
+          )}
+          {fbStatus === 'checking' && (
+            <p className="text-amber-700 mt-1">Connecting to Firestore...</p>
           )}
         </div>
       </div>
@@ -542,7 +678,9 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
               <p><span className="text-slate-400">Your name:</span> {student.name || '—'}</p>
               <p><span className="text-slate-400">Your class:</span> {student.className || '—'}</p>
               <p><span className="text-slate-400">Your batch ID:</span> {student.batchId || '—'}</p>
-              <p><span className="text-slate-400">Meetings in storage:</span> {totalMeetingsInStorage} total, {totalActiveInStorage} active</p>
+              <p><span className="text-slate-400">Meetings in local storage:</span> {totalMeetingsInStorage} total, {totalActiveInStorage} active</p>
+              <p><span className="text-slate-400">Meetings in cloud:</span> {cloudMeetingCount ?? 'unknown'}</p>
+              <p><span className="text-slate-400">Firebase status:</span> {fbStatus}</p>
             </div>
           )}
 
