@@ -1,5 +1,6 @@
+// src/components/admin/AdminFees.tsx
 import { googleSignIn } from '../../lib/auth';
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { StorageService } from '../../lib/storage';
 import { runMonthlyFeeReminderTask } from '../../lib/scheduledTasks';
 import { syncDocToFirestore } from '../../lib/firebaseSync';
@@ -21,10 +22,26 @@ import {
 
 export const AdminFees: React.FC = () => {
   const [students, setStudents] = useState<Student[]>(() => StorageService.getStudents());
-  const [batches] = useState<Batch[]>(() => StorageService.getBatches());
+  const [batches, setBatches] = useState<Batch[]>(() => StorageService.getBatches());
   const [feeRecords, setFeeRecords] = useState<FeeRecord[]>(() => StorageService.getFeeRecords());
 
-  // Search filter options
+  // FIX: Listen for storage updates so the table refreshes instantly when
+  // Firestore pushes new data (e.g., a student uploads a payment screenshot
+  // on another device). Without this, the admin had to manually refresh.
+  useEffect(() => {
+    const refreshData = () => {
+      setStudents(StorageService.getStudents());
+      setBatches(StorageService.getBatches());
+      setFeeRecords(StorageService.getFeeRecords());
+    };
+    window.addEventListener('apex_storage_updated', refreshData);
+    window.addEventListener('storage', refreshData);
+    return () => {
+      window.removeEventListener('apex_storage_updated', refreshData);
+      window.removeEventListener('storage', refreshData);
+    };
+  }, []);
+
   const [filterType, setFilterType] = useState<'ALL' | 'BATCH' | 'STUDENT'>('ALL');
   const [selectedBatchId, setSelectedBatchId] = useState('');
   const [selectedStudentId, setSelectedStudentId] = useState('');
@@ -36,18 +53,12 @@ export const AdminFees: React.FC = () => {
   const [selectedModalRecord, setSelectedModalRecord] = useState<FeeRecord | null>(null);
   const [selectedModalStudent, setSelectedModalStudent] = useState<Student | null>(null);
 
-  // ===== NEW: Custom Fee Payment state =====
   const [customPayStudent, setCustomPayStudent] = useState<Student | null>(null);
   const [selectedMonths, setSelectedMonths] = useState<string[]>([]);
   const [customAmount, setCustomAmount] = useState<number>(0);
   const [customMethod, setCustomMethod] = useState<'cash' | 'online'>('cash');
   const [customBusy, setCustomBusy] = useState(false);
 
-  // Build a list of months in the SAME format as fee records:
-  //   new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' })  →  "January 2025"
-  // Range: 12 months BEFORE current + current month + 3 months AHEAD
-  // (so admin can clear backlog fees AND record advance payments)
-  // Also pulls in any older months that already have fee records for this student.
   const availableMonths = useMemo(() => {
     const months: string[] = [];
     const now = new Date();
@@ -55,8 +66,6 @@ export const AdminFees: React.FC = () => {
       const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
       months.push(d.toLocaleString('en-US', { month: 'long', year: 'numeric' }));
     }
-    // Include any months that already have fee records for this student
-    // (in case they're older than 12 months back — e.g., a very old unpaid record)
     if (customPayStudent) {
       feeRecords
         .filter(r => r.studentId === customPayStudent.id)
@@ -64,7 +73,6 @@ export const AdminFees: React.FC = () => {
           if (!months.includes(r.month)) months.push(r.month);
         });
     }
-    // Sort chronologically (oldest first) using a safe month-name parser
     const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
     months.sort((a, b) => {
       const [mA, yA] = a.split(' ');
@@ -84,10 +92,10 @@ export const AdminFees: React.FC = () => {
 
   const refreshData = () => {
     setStudents(StorageService.getStudents());
+    setBatches(StorageService.getBatches());
     setFeeRecords(StorageService.getFeeRecords());
   };
 
-  // Filter students
   const filteredStudents = students.filter(student => {
     if (filterType === 'BATCH' && selectedBatchId && student.batchId !== selectedBatchId) return false;
     if (filterType === 'STUDENT' && selectedStudentId && student.id !== selectedStudentId) return false;
@@ -98,7 +106,6 @@ export const AdminFees: React.FC = () => {
     return true;
   });
 
-  // Handle personal Fee Reminder (WhatsApp + in-app)
   const handleSendReminder = (student: Student, dueAmount: number) => {
     const formattedPhone = student.phone.replace(/[^0-9]/g, '');
     const currentMonth = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
@@ -129,10 +136,11 @@ The Apex Chemistry`;
     setTimeout(() => setReminderSentMessage(''), 3000);
   };
 
-  // Mark a student's current-month fee as paid manually (cash)
   const handleMarkPaidManually = (student: Student) => {
     const currentMonth = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
 
+    // FIX: addFeeRecord() now dedupes — if a record for this student+month
+    // already exists, it updates it instead of creating a duplicate.
     let record = feeRecords.find(
       f => f.studentId === student.id && f.month === currentMonth
     );
@@ -165,7 +173,6 @@ The Apex Chemistry`;
     setTimeout(() => setReminderSentMessage(''), 4000);
   };
 
-  // ===== NEW: Open the Custom Payment modal for a student =====
   const openCustomPayment = (student: Student) => {
     setCustomPayStudent(student);
     setSelectedMonths([]);
@@ -173,14 +180,12 @@ The Apex Chemistry`;
     setCustomMethod('cash');
   };
 
-  // ===== NEW: Toggle a month on/off in the selection =====
   const toggleMonth = (month: string) => {
     setSelectedMonths(prev =>
       prev.includes(month) ? prev.filter(m => m !== month) : [...prev, month]
     );
   };
 
-  // ===== NEW: Submit — mark all selected months as paid =====
   const handleCustomPayment = async () => {
     if (!customPayStudent) return;
     if (selectedMonths.length === 0) {
@@ -200,18 +205,17 @@ The Apex Chemistry`;
       let workingRecords = StorageService.getFeeRecords();
 
       for (const month of selectedMonths) {
-        // Try to find an existing record for this student + month
         const existingIdx = workingRecords.findIndex(
           r => r.studentId === customPayStudent.id && r.month === month
         );
 
         if (existingIdx >= 0) {
-          // Update existing record to paid
           workingRecords[existingIdx] = {
             ...workingRecords[existingIdx],
             status: 'paid',
             transactionRef: ref,
-            amount: customAmount
+            amount: customAmount,
+            paidDate: new Date().toISOString().split('T')[0]
           };
           try {
             await syncDocToFirestore('feeRecords', workingRecords[existingIdx].id, workingRecords[existingIdx]);
@@ -219,7 +223,6 @@ The Apex Chemistry`;
             console.warn('Firestore sync failed for', workingRecords[existingIdx].id, e);
           }
         } else {
-          // Create a new record and mark it paid
           const newRecord = StorageService.addFeeRecord({
             studentId: customPayStudent.id,
             studentName: customPayStudent.name,
@@ -229,7 +232,6 @@ The Apex Chemistry`;
             status: 'unpaid'
           });
           StorageService.updateFeeStatus(newRecord.id, 'paid', ref, undefined);
-          // Re-read to get the updated record
           workingRecords = StorageService.getFeeRecords();
           const updated = workingRecords.find(r => r.id === newRecord.id);
           if (updated) {
@@ -242,7 +244,6 @@ The Apex Chemistry`;
         }
       }
 
-      // Notify the student
       StorageService.addNotification({
         title: 'Fees Marked Paid',
         message: `Your fee for ${selectedMonths.length} month(s) (${selectedMonths.join(', ')}) was marked as paid (${customMethod}) by admin.`,
@@ -266,7 +267,6 @@ The Apex Chemistry`;
     }
   };
 
-  // Trigger 5th of Month Automated Batch Fee Reminders
   const handleTriggerMonthlyAutoReminders = async () => {
     setReminderLoading(true);
     setReminderSentMessage('');
@@ -311,7 +311,6 @@ The Apex Chemistry`;
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-black text-slate-900 tracking-tight">Fee Management & Reminders</h2>
@@ -338,7 +337,6 @@ The Apex Chemistry`;
         </div>
       )}
 
-      {/* SEARCH PANEL */}
       <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
         <h3 className="text-sm font-bold text-slate-800">Search & Filter Fee Ledger</h3>
 
@@ -408,7 +406,6 @@ The Apex Chemistry`;
         </div>
       </div>
 
-      {/* Student Fee Records Table */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs whitespace-nowrap">
@@ -425,9 +422,18 @@ The Apex Chemistry`;
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {filteredStudents.map(student => {
-                const sRecords = feeRecords.filter(f => f.studentId === student.id);
+                const sRecords = feeRecords
+                  .filter(f => f.studentId === student.id)
+                  .sort((a, b) => {
+                    const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+                    const [mA, yA] = a.month.split(' ');
+                    const [mB, yB] = b.month.split(' ');
+                    const ia = monthNames.indexOf(mA) + parseInt(yA) * 12;
+                    const ib = monthNames.indexOf(mB) + parseInt(yB) * 12;
+                    return ib - ia;
+                  });
                 const pendingRecords = sRecords.filter(f => f.status === 'unpaid' || f.status === 'pending_verification');
-                const totalDue = pendingRecords.reduce((acc, f) => acc + f.amount, 0);
+                const totalDue = pendingRecords.reduce((acc, f) => acc + (f.amount || 0), 0);
 
                 return (
                   <tr key={student.id} className="hover:bg-slate-50 transition-colors">
@@ -446,32 +452,36 @@ The Apex Chemistry`;
 
                     <td className="p-3.5">
                       <div className="flex flex-wrap gap-1.5 max-w-xs">
-                        {sRecords.map(r => (
-                          <div
-                            key={r.id}
-                            title={`${r.month}: ${r.status}`}
-                            className={`inline-flex items-center gap-1.5 px-2 py-1 text-[10px] font-bold rounded-lg border ${
-                              r.status === 'paid'
-                                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                : r.status === 'pending_verification'
-                                ? 'bg-amber-50 text-amber-800 border-amber-300 animate-pulse'
-                                : 'bg-red-50 text-red-700 border-red-200'
-                            }`}
-                          >
-                            <span>
-                              {r.month.split(' ')[0]}: {r.status === 'paid' ? 'Paid' : r.status === 'pending_verification' ? 'Pending' : 'Unpaid'}
-                            </span>
-                            {r.screenshotUrl && (
-                              <button
-                                onClick={() => openScreenshotModal(r, student)}
-                                className="p-0.5 hover:bg-black/10 rounded transition-colors text-indigo-700 flex items-center gap-0.5"
-                                title="View uploaded screenshot"
-                              >
-                                <Eye className="w-3 h-3 text-indigo-600" />
-                              </button>
-                            )}
-                          </div>
-                        ))}
+                        {sRecords.length === 0 ? (
+                          <span className="text-[11px] text-slate-400 italic">No records yet</span>
+                        ) : (
+                          sRecords.map(r => (
+                            <div
+                              key={r.id}
+                              title={`${r.month}: ${r.status}`}
+                              className={`inline-flex items-center gap-1.5 px-2 py-1 text-[10px] font-bold rounded-lg border ${
+                                r.status === 'paid'
+                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                  : r.status === 'pending_verification'
+                                  ? 'bg-amber-50 text-amber-800 border-amber-300 animate-pulse'
+                                  : 'bg-red-50 text-red-700 border-red-200'
+                              }`}
+                            >
+                              <span>
+                                {r.month.split(' ')[0]}: {r.status === 'paid' ? 'Paid' : r.status === 'pending_verification' ? 'Pending' : 'Unpaid'}
+                              </span>
+                              {r.screenshotUrl && (
+                                <button
+                                  onClick={() => openScreenshotModal(r, student)}
+                                  className="p-0.5 hover:bg-black/10 rounded transition-colors text-indigo-700 flex items-center gap-0.5"
+                                  title="View uploaded screenshot"
+                                >
+                                  <Eye className="w-3 h-3 text-indigo-600" />
+                                </button>
+                              )}
+                            </div>
+                          ))
+                        )}
                       </div>
                     </td>
 
@@ -544,7 +554,6 @@ The Apex Chemistry`;
                       )}
                     </td>
 
-                    {/* Personal Reminder column */}
                     <td className="p-3.5 text-right">
                       {totalDue > 0 ? (
                         <button
@@ -558,10 +567,8 @@ The Apex Chemistry`;
                       )}
                     </td>
 
-                    {/* ===== FIXED + NEW: Fee Actions column (inside the table row) ===== */}
                     <td className="p-3.5 text-right">
                       <div className="flex flex-col gap-1.5 items-end">
-                        {/* Always visible: Mark Paid (Cash) — current month only */}
                         <button
                           onClick={() => handleMarkPaidManually(student)}
                           title="Mark this month's fee as paid via cash"
@@ -570,7 +577,6 @@ The Apex Chemistry`;
                           <CheckCircle2 className="w-3.5 h-3.5" /> Mark Paid (Cash)
                         </button>
 
-                        {/* NEW: Custom Payment — pick any months */}
                         <button
                           onClick={() => openCustomPayment(student)}
                           title="Mark multiple months as paid (cash or online)"
@@ -666,11 +672,10 @@ The Apex Chemistry`;
         </div>
       )}
 
-      {/* ===== NEW: Custom Fee Payment Modal ===== */}
+      {/* Custom Fee Payment Modal */}
       {customPayStudent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-5 border border-slate-200 relative max-h-[92vh] flex flex-col">
-            {/* Header */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <Wallet className="w-5 h-5 text-indigo-600" />
@@ -690,9 +695,7 @@ The Apex Chemistry`;
               </button>
             </div>
 
-            {/* Body */}
             <div className="space-y-4 mt-4 flex-1 overflow-y-auto">
-              {/* Month selection */}
               <div>
                 <label className="text-sm font-bold text-slate-800 mb-2 block">
                   Select Months
@@ -759,7 +762,6 @@ The Apex Chemistry`;
                 </p>
               </div>
 
-              {/* Amount per month */}
               <div>
                 <label className="text-sm font-bold text-slate-800 mb-2 block">Amount per month (₹)</label>
                 <input
@@ -771,7 +773,6 @@ The Apex Chemistry`;
                 />
               </div>
 
-              {/* Payment method */}
               <div>
                 <label className="text-sm font-bold text-slate-800 mb-2 block">Payment Method</label>
                 <div className="flex gap-2">
@@ -800,14 +801,12 @@ The Apex Chemistry`;
                 </div>
               </div>
 
-              {/* Total preview */}
               <div className="text-sm bg-indigo-50 border border-indigo-200 p-3 rounded-xl flex justify-between items-center">
                 <span className="text-slate-700 font-semibold">Total Amount:</span>
                 <strong className="text-indigo-900 text-lg">₹{(customAmount * selectedMonths.length).toLocaleString()}</strong>
               </div>
             </div>
 
-            {/* Footer */}
             <div className="pt-3 border-t border-slate-100 flex gap-2 justify-end">
               <button
                 onClick={() => setCustomPayStudent(null)}
