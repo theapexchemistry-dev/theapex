@@ -1,3 +1,4 @@
+// src/components/LiveClasses.tsx
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Role, Student, Batch } from '../types';
 import { StorageService } from '../lib/storage';
@@ -6,32 +7,24 @@ import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import {
   Video, Trash2, Users, Copy, X, Radio, Play,
-  Zap, ShieldCheck, AlertCircle, Calendar, ExternalLink, Clock, KeyRound
+  Zap, ShieldCheck, AlertCircle, Calendar, ExternalLink, Clock, KeyRound,
+  CheckCircle2
 } from 'lucide-react';
 
 /* ============================================================================
  *  THE APEX WORLD — Live Classes (batch-based instant meetings)
  * ----------------------------------------------------------------------------
- *  Admin starts an instant meeting for a specific Batch / Class / Everyone.
- *  Only students in that target group see the "LIVE NOW" banner and can join.
- *  Students join with their real name as the display name.
- *
- *  Meetings open in a NEW BROWSER TAB (not an embedded iframe) — this avoids
- *  Jitsi's 5-minute embedded limit and gives full meet.jit.si functionality
- *  (free, unlimited, no signup).
- *
- *  DATA SYNC STRATEGY (important):
- *  - Meetings are saved to localStorage AND synced to Firestore.
- *  - The Firestore listener MERGES remote data with local data — it NEVER
- *    overwrites local-only meetings with an empty Firestore snapshot.
- *    (This was the bug that made students not see meetings: an empty
- *    Firestore snapshot was wiping out locally-saved meetings.)
- *  - For same-browser testing (admin + student in different tabs), localStorage
- *    syncing via the 'storage' event is enough.
- *  - For cross-device, Firestore must be configured correctly.
+ *  BULLETPROOF STUDENT VISIBILITY (FINAL FIX):
+ *  - Students see EVERY active meeting — NO filtering.
+ *  - Each meeting is labeled:
+ *      🟢 "✓ For Your Class"  (green)  — matches the student's class/batch
+ *      ⚪ "Other Class"        (grey)   — doesn't match, but still joinable
+ *  - Plus a "Join by Code" fallback: admin copies the room code via the 🔑
+ *    button and shares it with the student, who pastes it to join directly.
+ *  - Meetings open in a NEW BROWSER TAB (not an embedded iframe) — this avoids
+ *    Jitsi's 5-minute embedded limit.
  * ========================================================================== */
 
-// ---------- Types ----------
 interface LiveMeeting {
   id: string;
   title: string;
@@ -48,13 +41,11 @@ interface LiveMeeting {
   createdAt: number;
 }
 
-// ---------- Constants ----------
 const JITSI_DOMAIN = 'meet.jit.si';
 const STORAGE_KEY = 'apex_live_meetings';
 const FIRESTORE_COLLECTION = 'liveMeetings';
 const FALLBACK_CLASSES = ['Class 9', 'Class 10', 'Class 11', 'Class 12'];
 
-// ---------- Helpers ----------
 function sanitizeRoomName(input: string): string {
   return input.replace(/[^a-zA-Z0-9-_]/g, '').replace(/^-+|-+$/g, '').slice(0, 60);
 }
@@ -143,11 +134,6 @@ function formatDuration(ms: number): string {
   return `${s}s`;
 }
 
-/**
- * Normalize a class name to just the grade number.
- * "Class 12" → "12", "class 12" → "12", "12th" → "12", "Grade 12" → "12",
- * "Class 12 CBSE" → "12". Robust to formatting differences.
- */
 function normalizeClassName(c: string): string {
   if (!c) return '';
   const lower = c.toLowerCase().trim();
@@ -172,8 +158,7 @@ function buildPlainLink(roomName: string): string {
   return `https://${JITSI_DOMAIN}/${sanitizeRoomName(roomName)}`;
 }
 
-function canStudentSee(meeting: LiveMeeting, student: Student): boolean {
-  if (!meeting.active) return false;
+function isMeetingForStudent(meeting: LiveMeeting, student: Student): boolean {
   if (meeting.scope === 'all') return true;
   if (meeting.scope === 'batch') {
     if (student.batchId && meeting.batchId && student.batchId === meeting.batchId) {
@@ -200,14 +185,6 @@ function meetingAudienceLabel(meeting: LiveMeeting): string {
   return '—';
 }
 
-/**
- * MERGE local + Firestore meeting lists.
- * - Union by ID.
- * - For the same ID: prefer the "ended" version (terminal state), then prefer
- *   the Firestore version (cross-device source of truth).
- * - This ensures an empty Firestore snapshot NEVER wipes out locally-saved
- *   meetings (which was the bug causing students to not see meetings).
- */
 function mergeMeetings(local: LiveMeeting[], firestore: LiveMeeting[]): LiveMeeting[] {
   const map = new Map<string, LiveMeeting>();
   for (const m of local) map.set(m.id, m);
@@ -239,9 +216,6 @@ function openInNewTab(url: string): boolean {
   }
 }
 
-// ============================================================================
-//  LiveClasses — main component
-// ============================================================================
 interface LiveClassesProps {
   role: Role;
   student?: Student | null;
@@ -456,6 +430,23 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
     }
   };
 
+  const handleCopyRoomCode = (meeting: LiveMeeting) => {
+    const code = meeting.roomName;
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(code).then(
+        () => {
+          window.alert(
+            '🔑 Room Code copied!\n\n' + code +
+            '\n\nShare this code with your student. They click "Join by Code" and paste it to join directly.'
+          );
+        },
+        () => window.alert('Room Code: ' + code)
+      );
+    } else {
+      window.alert('Room Code: ' + code);
+    }
+  };
+
   const handleCopyPopupUrl = () => {
     if (!popupBlockedUrl) return;
     if (navigator.clipboard?.writeText) {
@@ -466,14 +457,24 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
     }
   };
 
+  // ── BULLETPROOF: students see ALL active meetings (no filtering) ────────
   const visibleMeetings = isAdmin
     ? meetings
-    : meetings.filter((m) => (student ? canStudentSee(m, student) : false));
+    : meetings.filter((m) => m.active);
 
   const activeMeetings = visibleMeetings.filter((m) => m.active);
   const endedMeetings = visibleMeetings.filter((m) => !m.active);
 
-  const sortedActive = [...activeMeetings].sort((a, b) => b.startedAt - a.startedAt);
+  const sortedActive = isAdmin
+    ? [...activeMeetings].sort((a, b) => b.startedAt - a.startedAt)
+    : [...activeMeetings].sort((a, b) => {
+        if (student) {
+          const aFor = isMeetingForStudent(a, student) ? 0 : 1;
+          const bFor = isMeetingForStudent(b, student) ? 0 : 1;
+          if (aFor !== bFor) return aFor - bFor;
+        }
+        return b.startedAt - a.startedAt;
+      });
   const sortedEnded = [...endedMeetings].sort((a, b) => (b.endedAt || 0) - (a.endedAt || 0));
 
   const canStart = form.scope !== 'batch' || form.batchId !== '';
@@ -483,7 +484,6 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl sm:text-3xl font-black text-slate-900 flex items-center gap-2">
@@ -516,31 +516,31 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
         </div>
       </div>
 
-      {/* Info banner */}
       <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
         <ShieldCheck className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
         <div className="text-xs text-amber-800 leading-relaxed">
-          <strong>Batch-restricted &amp; unlimited.</strong> Only students in the selected
-          batch or class can see and join the meeting. Each class gets a unique, unguessable
-          Jitsi room. Meetings open in a <strong>new browser tab</strong> so there is no
-          time limit — just allow camera &amp; mic access when your browser asks.
+          <strong>Instant &amp; unlimited.</strong>{' '}
+          {isAdmin ? (
+            <>Each meeting gets a unique, unguessable Jitsi room. Use the <strong>🔑 button</strong> to copy the room code and share it with a student if they can&apos;t see the meeting automatically.</>
+          ) : (
+            <>When your teacher starts a class, it appears here automatically. If you don&apos;t see it, ask your teacher for the <strong>room code</strong> and use <strong>Join by Code</strong>.</>
+          )}{' '}
+          Meetings open in a <strong>new browser tab</strong> — just allow camera &amp; mic access when your browser asks.
         </div>
       </div>
 
-      {/* Student: no active meetings + diagnostic info */}
       {!isAdmin && sortedActive.length === 0 && (
         <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center">
           <Video className="w-12 h-12 text-slate-300 mx-auto mb-3" />
           <p className="text-slate-700 font-bold">No live classes right now</p>
           <p className="text-slate-400 text-sm mt-1">
-            When your teacher starts a class for your batch, it will appear here
-            automatically.
+            When your teacher starts a class, it will appear here automatically.
           </p>
 
           {student && (
             <div className="mt-5 inline-block text-left bg-slate-50 border border-slate-200 rounded-xl p-4 text-[11px] font-mono text-slate-500 space-y-1">
               <p><span className="text-slate-400">Your name:</span> {student.name || '—'}</p>
-              <p><span className="text-slate-400">Your class:</span> {student.className || '—'} (normalized: {normalizeClassName(student.className || '')})</p>
+              <p><span className="text-slate-400">Your class:</span> {student.className || '—'}</p>
               <p><span className="text-slate-400">Your batch ID:</span> {student.batchId || '—'}</p>
               <p><span className="text-slate-400">Meetings in storage:</span> {totalMeetingsInStorage} total, {totalActiveInStorage} active</p>
             </div>
@@ -560,17 +560,17 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
         </div>
       )}
 
-      {/* Active (LIVE NOW) meetings */}
       {sortedActive.length > 0 && (
         <div className="space-y-4">
           {sortedActive.map((m) => {
             const elapsed = now - m.startedAt;
+            const forMyClass = !isAdmin && student ? isMeetingForStudent(m, student) : true;
             return (
               <div
                 key={m.id}
                 className={`bg-white border-2 rounded-2xl p-5 ${
-                  isAdmin ? 'border-red-200' : 'border-red-300'
-                } ring-4 ring-red-50`}
+                  isAdmin ? 'border-red-200' : forMyClass ? 'border-red-300' : 'border-slate-200'
+                } ring-4 ${forMyClass ? 'ring-red-50' : 'ring-slate-50'}`}
               >
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
@@ -584,6 +584,17 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
                       <span className="text-xs text-slate-500 font-semibold">
                         · {meetingAudienceLabel(m)}
                       </span>
+                      {!isAdmin && student && (
+                        forMyClass ? (
+                          <span className="flex items-center gap-1 px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-black rounded-full uppercase tracking-wider">
+                            <CheckCircle2 className="w-3 h-3" /> For Your Class
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 bg-slate-100 text-slate-500 text-[10px] font-bold rounded-full uppercase tracking-wider">
+                            Other Class
+                          </span>
+                        )
+                      )}
                     </div>
                     <h3 className="text-lg font-black text-slate-900 leading-tight">
                       {m.title}
@@ -601,10 +612,12 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
                       </span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap justify-end">
                     <button
                       onClick={() => handleJoin(m)}
-                      className="px-5 py-2.5 bg-red-500 hover:bg-red-600 text-white font-bold text-sm rounded-xl flex items-center gap-2 transition-colors shadow-sm"
+                      className={`px-5 py-2.5 text-white font-bold text-sm rounded-xl flex items-center gap-2 transition-colors shadow-sm ${
+                        forMyClass ? 'bg-red-500 hover:bg-red-600' : 'bg-slate-700 hover:bg-slate-800'
+                      }`}
                     >
                       <Play className="w-4 h-4" /> Join Now
                     </button>
@@ -616,6 +629,13 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
                           className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
                         >
                           <Copy className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleCopyRoomCode(m)}
+                          title="Copy room code (share with student for 'Join by Code')"
+                          className="p-2.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-700 transition-colors"
+                        >
+                          <KeyRound className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => handleEndMeeting(m.id)}
@@ -637,7 +657,7 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
                     </p>
                   ) : (
                     <p className="text-xs text-slate-400 flex items-center gap-1.5">
-                      <ExternalLink className="w-3.5 h-3.5" /> Meeting opens in a new tab
+                      <ExternalLink className="w-3.5 h-3.5" /> Meeting opens in a new tab · 🔑 = copy room code
                     </p>
                   )}
                   <p className="text-[11px] text-slate-400">
@@ -650,7 +670,6 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
         </div>
       )}
 
-      {/* Past meetings (admin only) */}
       {isAdmin && sortedEnded.length > 0 && (
         <div>
           <h2 className="text-sm font-black text-slate-400 uppercase tracking-wider mb-3">
@@ -687,7 +706,6 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
         </div>
       )}
 
-      {/* Start meeting modal */}
       {showStart && (
         <div
           className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4"
@@ -822,6 +840,8 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
                   The meeting opens in a <strong>new browser tab</strong> using Jitsi Meet
                   (free, no time limit, no signup). Please allow camera &amp; microphone access
                   when prompted. Students click <strong>Join Now</strong> on their end to enter.
+                  Use the <strong>🔑 button</strong> to copy the room code if a student
+                  can&apos;t see the meeting.
                 </p>
               </div>
             </div>
@@ -845,7 +865,6 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
         </div>
       )}
 
-      {/* Manual join modal (student fallback) */}
       {showManualJoin && (
         <div
           className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4"
@@ -896,7 +915,6 @@ export const LiveClasses: React.FC<LiveClassesProps> = ({ role, student }) => {
         </div>
       )}
 
-      {/* Popup-blocked fallback modal */}
       {popupBlockedUrl && (
         <div
           className="fixed inset-0 z-[60] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4"
