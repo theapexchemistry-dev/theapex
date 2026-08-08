@@ -1,14 +1,18 @@
 /**
  * ============================================================================
- *  LiveClasses.tsx — REAL-TIME SYNC via Firebase Firestore
+ *  LiveClasses.tsx — Self-contained real-time live classes
  * ----------------------------------------------------------------------------
- *  Paste this file at:  src/components/LiveClasses.tsx  (in your Vite project)
+ *  Paste this ONE file at:  src/components/LiveClasses.tsx
  *
- *  WHAT'S NEW IN THIS VERSION:
- *    1. When admin clicks "Start live class", the Jitsi Meet tab opens
- *       AUTOMATICALLY in a new tab — no need to click "Join" afterwards.
- *    2. Ended meetings are NOT deleted. They move into a "Recent classes"
- *       history section at the bottom (admin + student both see it).
+ *  It only depends on:  src/lib/firebase.ts  (which exports `db`)
+ *  You do NOT need to change firebaseSync.ts or any other file.
+ *
+ *  Features:
+ *    1. Admin clicks "Start live class" → Jitsi tab opens AUTOMATICALLY
+ *       (no need to click Join afterwards).
+ *    2. Ended meetings move to a "Recent classes" history section
+ *       (NOT deleted). Only the trash button permanently deletes.
+ *    3. Real-time sync across all devices via Firestore onSnapshot.
  * ============================================================================
  */
 
@@ -31,30 +35,52 @@ import {
   History,
 } from "lucide-react";
 
-// ---- Firebase sync utilities (from src/lib/firebaseSync.ts) ----
+// ---- Firebase ----
 import {
-  subscribeToAllMeetings,
-  startMeeting as fbStartMeeting,
-  endMeeting as fbEndMeeting,
-  deleteMeeting as fbDeleteMeeting,
-  type LiveMeeting,
-} from "../lib/firebaseSync";
+  collection,
+  doc,
+  setDoc,
+  deleteDoc,
+  onSnapshot,
+  query,
+  serverTimestamp,
+} from "firebase/firestore";
+import { db } from "../lib/firebase";
 
 // ---------- Types ----------
 export type Role = "admin" | "student";
 
 export interface Student {
-  id: string;
+  id?: string;
   name: string;
-  className: string;
+  className?: string;
   batchId?: string;
   batchTitle?: string;
 }
 
+interface LiveMeeting {
+  id: string;
+  title: string;
+  scope: "batch" | "class" | "all";
+  batchId?: string | null;
+  batchTitle?: string | null;
+  className?: string | null;
+  teacherName: string;
+  roomName: string;
+  startedAt: number;
+  durationMins: number;
+  active: boolean;
+  endedAt?: number | null;
+  createdAt: number;
+}
+
 interface LiveClassesProps {
   role: Role;
-  student?: Student;
+  student?: Student | null;
 }
+
+// ---------- Constants ----------
+const COLLECTION = "liveMeetings";
 
 // ---------- Jitsi helper ----------
 function buildJitsiUrl(roomName: string, displayName: string): string {
@@ -100,6 +126,59 @@ function formatDuration(startedAt: number, endedAt: number | null | undefined): 
 }
 
 // ============================================================================
+//  Firestore helpers (inline — no dependency on firebaseSync.ts)
+// ============================================================================
+
+// Subscribe to ALL meetings (active + ended). Returns an unsubscribe fn.
+function subscribeToAllMeetings(
+  onUpdate: (meetings: LiveMeeting[]) => void,
+  onError?: (err: Error) => void
+) {
+  const q = query(collection(db as any, COLLECTION));
+  return onSnapshot(
+    q as any,
+    (snap: any) => {
+      const meetings: LiveMeeting[] = [];
+      snap.forEach((d: any) => {
+        const data = d.data() as LiveMeeting;
+        meetings.push({ ...data, id: d.id });
+      });
+      meetings.sort((a, b) => b.startedAt - a.startedAt);
+      onUpdate(meetings);
+    },
+    (err: Error) => {
+      console.error("[LiveClasses] onSnapshot error:", err);
+      onError?.(err);
+    }
+  );
+}
+
+async function startMeeting(meeting: LiveMeeting): Promise<void> {
+  const ref = doc(db as any, COLLECTION, meeting.id);
+  await setDoc(ref as any, {
+    ...meeting,
+    active: true,
+    endedAt: null,
+    createdAt: Date.now(),
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+}
+
+async function endMeeting(id: string): Promise<void> {
+  const ref = doc(db as any, COLLECTION, id);
+  await setDoc(ref as any, {
+    active: false,
+    endedAt: Date.now(),
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+}
+
+async function deleteMeeting(id: string): Promise<void> {
+  const ref = doc(db as any, COLLECTION, id);
+  await deleteDoc(ref as any);
+}
+
+// ============================================================================
 //  Component
 // ============================================================================
 export function LiveClasses({ role, student }: LiveClassesProps) {
@@ -123,7 +202,6 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
         setSyncError(err.message || "Failed to sync with Firestore.");
       }
     );
-
     return () => unsub();
   }, []);
 
@@ -134,7 +212,7 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
   const [duration, setDuration] = useState(60);
   const [starting, setStarting] = useState(false);
 
-  // ---- Join / started-meeting confirmation modal (used by admin + student) ----
+  // ---- Join / started-meeting confirmation modal ----
   const [joinMeeting, setJoinMeeting] = useState<LiveMeeting | null>(null);
 
   const handleStartMeeting = useCallback(async () => {
@@ -160,8 +238,7 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
 
       // ✅ Open the Jitsi tab IMMEDIATELY — synchronously, within the user's
       // click gesture. This is critical: if we wait for the Firestore write
-      // to finish, the browser will treat the window.open() as a popup and
-      // block it. Opening it now means popup blockers allow it.
+      // to finish, the browser treats window.open() as a popup and blocks it.
       const joinUrl = buildJitsiUrl(roomName, teacherName.trim() || "Apex Chemistry");
       let opened = false;
       try {
@@ -171,19 +248,18 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
         opened = false;
       }
 
-      // Write to Firestore (async). The onSnapshot listener will add the
-      // meeting card to the list automatically — no manual refresh needed.
-      await fbStartMeeting(meeting);
+      // Write to Firestore (async). onSnapshot will add the card automatically.
+      await startMeeting(meeting);
 
-      // Show a confirmation modal as a fallback in case the popup was blocked.
+      // Fallback modal if the popup was blocked.
       if (!opened) {
         setJoinMeeting(meeting);
       }
 
       setTitle("");
-    } catch (err: any) {
+    } catch (err) {
       console.error("[LiveClasses] startMeeting failed:", err);
-      setSyncError(err?.message || "Failed to start meeting.");
+      setSyncError(err instanceof Error ? err.message : "Failed to start meeting.");
     } finally {
       setStarting(false);
     }
@@ -191,18 +267,18 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
 
   const handleEndMeeting = useCallback(async (id: string) => {
     try {
-      // This only sets active=false + endedAt=now. The meeting stays in
-      // Firestore and moves to the "Recent classes" history section.
-      await fbEndMeeting(id);
-    } catch (err: any) {
+      // Only sets active=false + endedAt=now. Does NOT delete the doc,
+      // so the meeting moves to the "Recent classes" history section.
+      await endMeeting(id);
+    } catch (err) {
       console.error("[LiveClasses] endMeeting failed:", err);
     }
   }, []);
 
   const handleDeleteMeeting = useCallback(async (id: string) => {
     try {
-      await fbDeleteMeeting(id);
-    } catch (err: any) {
+      await deleteMeeting(id);
+    } catch (err) {
       console.error("[LiveClasses] deleteMeeting failed:", err);
     }
   }, []);
@@ -251,7 +327,6 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
   if (!isStudent) {
     return (
       <div className="space-y-6">
-        {/* Sync status */}
         <SyncStatusBar connected={connected} error={syncError} count={activeMeetings.length} />
 
         {/* Start meeting form */}
@@ -296,7 +371,7 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
               </label>
               <select
                 value={scope}
-                onChange={(e) => setScope(e.target.value as any)}
+                onChange={(e) => setScope(e.target.value as "batch" | "class" | "all")}
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
               >
                 <option value="all">All students</option>
@@ -397,7 +472,6 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
           </div>
         )}
 
-        {/* Started-meeting / rejoin confirmation modal */}
         {joinMeeting && (
           <JoinModal
             meeting={joinMeeting}
@@ -414,10 +488,8 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
   // ========================================================================
   return (
     <div className="space-y-6">
-      {/* Sync status */}
       <SyncStatusBar connected={connected} error={syncError} count={visibleActive.length} />
 
-      {/* Greeting */}
       <div className="rounded-xl border border-slate-200 bg-gradient-to-br from-amber-50 to-white p-5">
         <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
           {student?.className || "Student"}
@@ -432,7 +504,6 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
         </p>
       </div>
 
-      {/* Active meetings */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-bold text-slate-900">
@@ -466,7 +537,6 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
         )}
       </div>
 
-      {/* Recent classes (history) */}
       {visiblePast.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center gap-2">
@@ -483,7 +553,6 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
         </div>
       )}
 
-      {/* Join confirmation modal */}
       {joinMeeting && (
         <JoinModal
           meeting={joinMeeting}
@@ -715,8 +784,6 @@ function JoinModal({
 }) {
   const joinUrl = buildJitsiUrl(meeting.roomName, displayName);
 
-  // Try to open the Jitsi tab automatically when the modal appears.
-  // (If admin's popup was blocked during startMeeting, this is the fallback.)
   useEffect(() => {
     try {
       window.open(joinUrl, "_blank", "noopener,noreferrer");
