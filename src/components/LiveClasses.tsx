@@ -2,8 +2,8 @@
  * ============================================================================
  *  LiveClasses.tsx — REAL-TIME SYNC via your existing firebaseSync.ts
  * ----------------------------------------------------------------------------
- *  This uses your EXISTING firebaseSync.ts (which already syncs the
- *  liveMeetings collection to Firestore + localStorage). No new files needed.
+ *  Uses your EXISTING firebaseSync.ts (which already syncs the liveMeetings
+ *  and batches collections to Firestore + localStorage).
  *
  *  HOW IT WORKS:
  *    Admin clicks "Start live class"
@@ -18,7 +18,7 @@
  *        ↓
  *    Meeting card appears on student's screen instantly
  *
- *  No link sharing. No codes. No new files. Real-time auto-sync.
+ *  No link sharing. No codes. Real-time auto-sync.
  * ============================================================================
  */
 
@@ -74,6 +74,7 @@ interface LiveClassesProps {
 // ⚠️ This MUST match the key firebaseSync.ts uses.
 // firebaseSync.ts uses: `apex_${key}_v2` where key = 'liveMeetings'
 const STORAGE_KEY = "apex_liveMeetings_v2";
+const BATCHES_KEY = "apex_batches_v2";
 
 // ---------- Helpers ----------
 function sanitizeRoomName(input: string): string {
@@ -103,6 +104,34 @@ function getMeetings(): LiveMeeting[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? (parsed as LiveMeeting[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+// Batches in your DB might use different field names for the title.
+// This picks the first non-empty one so the dropdown always shows something useful.
+function getBatchTitle(batch: any): string {
+  if (!batch) return "Untitled batch";
+  return (
+    batch.title ||
+    batch.name ||
+    batch.batchName ||
+    batch.batchTitle ||
+    batch.className ||
+    batch.id ||
+    "Untitled batch"
+  );
+}
+
+// Load batches from localStorage (firebaseSync.ts keeps them at this key)
+function getBatches(): any[] {
+  try {
+    if (typeof window === "undefined") return [];
+    const raw = localStorage.getItem(BATCHES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }
@@ -151,12 +180,17 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
 
   const [meetings, setMeetings] = useState<LiveMeeting[]>([]);
   const [connected, setConnected] = useState(false);
+  const [batches, setBatches] = useState<any[]>([]);
+  const [selectedBatchId, setSelectedBatchId] = useState<string>("all");
 
   // ---- Load from localStorage + listen for real-time updates ----
   // firebaseSync.ts dispatches "apex_storage_updated" whenever Firestore
   // pushes a new snapshot. We re-read localStorage on every such event.
   useEffect(() => {
-    const handler = () => setMeetings(getMeetings());
+    const handler = () => {
+      setMeetings(getMeetings());
+      setBatches(getBatches());
+    };
     handler();
     setConnected(true);
     window.addEventListener("apex_storage_updated", handler);
@@ -170,21 +204,24 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
   // ---- Admin form state ----
   const [title, setTitle] = useState("");
   const [teacherName, setTeacherName] = useState("Apex Chemistry");
-  const [scope, setScope] = useState<"batch" | "class" | "all">("all");
   const [duration, setDuration] = useState(60);
   const [starting, setStarting] = useState(false);
+
+  // scope is derived from selectedBatchId: "all" → all students, else → batch
+  const scope: "batch" | "class" | "all" = selectedBatchId === "all" ? "all" : "batch";
 
   const handleStartMeeting = useCallback(async () => {
     if (!title.trim()) return;
     setStarting(true);
     try {
+      const selectedBatch = batches.find((b) => b.id === selectedBatchId);
       const meeting: LiveMeeting = {
         id: `m_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         title: title.trim(),
         scope,
-        batchId: scope === "batch" ? student?.batchId || "b-1" : null,
-        batchTitle: scope === "batch" ? student?.batchTitle || "JEE Advanced" : null,
-        className: scope === "class" ? student?.className || "Class 12" : null,
+        batchId: scope === "batch" ? selectedBatchId : null,
+        batchTitle: scope === "batch" ? getBatchTitle(selectedBatch) : null,
+        className: null,
         teacherName: teacherName.trim() || "Apex Chemistry",
         roomName: generateRoomName(title),
         startedAt: Date.now(),
@@ -206,7 +243,7 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
     } finally {
       setStarting(false);
     }
-  }, [title, teacherName, scope, duration, student]);
+  }, [title, teacherName, scope, selectedBatchId, duration, batches, student]);
 
   const handleEndMeeting = useCallback(async (id: string) => {
     const current = getMeetings();
@@ -279,12 +316,26 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
             </div>
             <div className="space-y-2">
               <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Audience</label>
-              <select value={scope} onChange={(e) => setScope(e.target.value as any)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-200">
+              <select
+                value={selectedBatchId}
+                onChange={(e) => setSelectedBatchId(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
+              >
                 <option value="all">All students</option>
-                <option value="class">Class 12 only</option>
-                <option value="batch">JEE Advanced batch only</option>
+                {batches.length === 0 && (
+                  <option value="_loading" disabled>Loading batches…</option>
+                )}
+                {batches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {getBatchTitle(b)}
+                  </option>
+                ))}
               </select>
+              {batches.length === 0 && (
+                <p className="text-[11px] text-amber-600">
+                  No batches found. Make sure batches are synced in your admin panel.
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Duration (minutes)</label>
