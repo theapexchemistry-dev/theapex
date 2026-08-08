@@ -136,13 +136,14 @@ export default function App() {
             )}
             {role === 'student' && currentStudent && (
               <>
-                {activeTab === 'dashboard' && (
-                  <StudentDashboard
-                    student={currentStudent}
-                    onNavigate={setActiveTab}
-                    onPayFees={() => setActiveTab('fees')}
-                  />
-                )}
+              {activeTab === 'dashboard' && (
+                <AdminDashboard
+                  onTabChange={setActiveTab}
+                  onAddStudent={() => setActiveTab('students')}
+                  onAddBatch={() => setActiveTab('batches')}
+                  onUploadNotes={() => setActiveTab('notes')}
+                />
+              )}
                 {activeTab === 'fees' && <StudentFees student={currentStudent} />}
                 {activeTab === 'notes' && <StudentNotes student={currentStudent} />}
                 {activeTab === 'tests' && <StudentTests student={currentStudent} />}
