@@ -21,6 +21,12 @@
  *        - startMeeting(meeting)
  *        - endMeeting(id)        → marks inactive (keeps history)
  *        - deleteMeeting(id)     → permanently deletes
+ *
+ *  IMPORTANT (DATA SAFETY):
+ *    The listeners NEVER wipe local data. If a Firestore collection is empty,
+ *    we treat that as "cloud has nothing yet" and push local data UP instead
+ *    of overwriting localStorage with an empty array. This prevents the fees
+ *    tab (and every other tab) from losing data when Firestore is stale/empty.
  * ============================================================================
  */
 
@@ -57,7 +63,6 @@ export interface LiveMeeting {
 }
 
 // Collections that get synced between devices via Firestore.
-// Each entry maps a Firestore collection name → its localStorage key.
 const SYNCED_COLLECTIONS: Record<string, string> = {
   batches: "apex_batches_v2",
   students: "apex_students_v2",
@@ -72,10 +77,6 @@ const SYNCED_COLLECTIONS: Record<string, string> = {
 //  (A) GENERIC SYNC HELPERS
 // ============================================================================
 
-/**
- * Sync a whole array of items to a Firestore collection.
- * Each item must have an `id` field — it becomes the document ID.
- */
 export async function syncArrayToFirestore(
   collectionName: string,
   items: any[]
@@ -94,9 +95,6 @@ export async function syncArrayToFirestore(
   }
 }
 
-/**
- * Sync a single document to a Firestore collection.
- */
 export async function syncDocToFirestore(
   collectionName: string,
   docId: string,
@@ -111,9 +109,6 @@ export async function syncDocToFirestore(
   }
 }
 
-/**
- * Delete a single document from a Firestore collection.
- */
 export async function deleteFromFirestore(
   collectionName: string,
   docId: string
@@ -128,14 +123,9 @@ export async function deleteFromFirestore(
 }
 
 // ============================================================================
-//  (B) BOOTSTRAP + LISTENERS
+//  (B) BOOTSTRAP + LISTENERS  (DATA-SAFE — never wipes local data)
 // ============================================================================
 
-/**
- * Pull every synced collection from Firestore into localStorage, then attach
- * real-time listeners so future changes propagate automatically.
- * Safe to call on app start — silently no-ops if Firebase isn't configured.
- */
 export async function loadInitialDataFromFirestore(): Promise<void> {
   try {
     if (!db) return;
@@ -148,7 +138,8 @@ export async function loadInitialDataFromFirestore(): Promise<void> {
 
 /**
  * Manually pull every synced collection from Firestore into localStorage.
- * Called by AdminDashboard "Sync now" button.
+ * DATA-SAFE: if a Firestore collection is empty, we do NOT overwrite localStorage.
+ * Instead we push the local data up to Firestore (so the cloud gets seeded).
  */
 export async function fetchDataFromFirestore(): Promise<void> {
   try {
@@ -159,10 +150,24 @@ export async function fetchDataFromFirestore(): Promise<void> {
       entries.map(async ([colName, storageKey]) => {
         try {
           const snap = await getDocs(collection(db as any, colName));
+          if (snap.empty) {
+            // Cloud is empty — seed it with local data so other devices can see it.
+            const localRaw = localStorage.getItem(storageKey);
+            if (localRaw) {
+              const localItems = JSON.parse(localRaw);
+              if (Array.isArray(localItems) && localItems.length > 0) {
+                await syncArrayToFirestore(colName, localItems);
+              }
+            }
+            return;
+          }
+          // Cloud has data — update localStorage.
           const items: any[] = [];
           snap.forEach((d: any) => items.push({ ...d.data(), id: d.id }));
-          localStorage.setItem(storageKey, JSON.stringify(items));
-          window.dispatchEvent(new Event("apex_storage_updated"));
+          if (items.length > 0) {
+            localStorage.setItem(storageKey, JSON.stringify(items));
+            window.dispatchEvent(new Event("apex_storage_updated"));
+          }
         } catch (e) {
           console.debug(`[firebaseSync] fetch ${colName} failed:`, e);
         }
@@ -175,9 +180,10 @@ export async function fetchDataFromFirestore(): Promise<void> {
 
 /**
  * Attach real-time onSnapshot listeners to every synced collection.
- * When any doc changes in Firestore, this updates localStorage and fires
- * an "apex_storage_updated" event so the UI re-renders.
- * Returns an unsubscribe function that tears down all listeners.
+ * DATA-SAFE: When a Firestore snapshot is EMPTY, we do NOT wipe localStorage.
+ * We treat empty snapshots as "cloud has nothing yet" and seed the cloud with
+ * local data. This prevents the fees tab (and every other tab) from losing
+ * data when Firestore is stale or empty.
  */
 export function setupFirestoreListeners(): () => void {
   if (!db) return () => {};
@@ -189,6 +195,23 @@ export function setupFirestoreListeners(): () => void {
       const unsub = onSnapshot(
         q as any,
         (snap: any) => {
+          // ── DATA SAFETY ──────────────────────────────────────────────
+          // If the snapshot is empty, do NOT overwrite localStorage.
+          // Instead, seed Firestore with local data (if any).
+          if (snap.empty) {
+            const localRaw = localStorage.getItem(storageKey);
+            if (localRaw) {
+              try {
+                const localItems = JSON.parse(localRaw);
+                if (Array.isArray(localItems) && localItems.length > 0) {
+                  syncArrayToFirestore(colName, localItems);
+                }
+              } catch { /* bad local data — ignore */ }
+            }
+            return;
+          }
+
+          // Snapshot has data — update localStorage.
           const items: any[] = [];
           snap.forEach((d: any) => items.push({ ...d.data(), id: d.id }));
           localStorage.setItem(storageKey, JSON.stringify(items));
@@ -214,16 +237,11 @@ export function setupFirestoreListeners(): () => void {
 // ============================================================================
 const MEETINGS_COLLECTION = "liveMeetings";
 
-/**
- * Subscribe to ALL meetings (active + ended) in real-time.
- * Use this so you can show a "Recent classes" history section.
- */
 export function subscribeToAllMeetings(
   onUpdate: (meetings: LiveMeeting[]) => void,
   onError?: (err: Error) => void
 ): Unsubscribe {
   const q = query(collection(db as any, MEETINGS_COLLECTION));
-
   return onSnapshot(
     q as any,
     (snap: any) => {
@@ -242,15 +260,11 @@ export function subscribeToAllMeetings(
   );
 }
 
-/**
- * Subscribe to ACTIVE meetings only (backwards-compat).
- */
 export function subscribeToActiveMeetings(
   onUpdate: (meetings: LiveMeeting[]) => void,
   onError?: (err: Error) => void
 ): Unsubscribe {
   const q = query(collection(db as any, MEETINGS_COLLECTION), where("active", "==", true));
-
   return onSnapshot(
     q as any,
     (snap: any) => {
@@ -269,9 +283,6 @@ export function subscribeToActiveMeetings(
   );
 }
 
-/**
- * Admin starts a meeting.
- */
 export async function startMeeting(meeting: LiveMeeting): Promise<void> {
   const ref = doc(db as any, MEETINGS_COLLECTION, meeting.id);
   await setDoc(ref, {
@@ -283,10 +294,6 @@ export async function startMeeting(meeting: LiveMeeting): Promise<void> {
   }, { merge: true });
 }
 
-/**
- * Admin ends a meeting — marks inactive + records end time.
- * Does NOT delete, so it appears in history.
- */
 export async function endMeeting(id: string): Promise<void> {
   const ref = doc(db as any, MEETINGS_COLLECTION, id);
   await setDoc(ref, {
@@ -296,9 +303,6 @@ export async function endMeeting(id: string): Promise<void> {
   }, { merge: true });
 }
 
-/**
- * Admin permanently deletes a meeting record.
- */
 export async function deleteMeeting(id: string): Promise<void> {
   const ref = doc(db as any, MEETINGS_COLLECTION, id);
   await deleteDoc(ref);
