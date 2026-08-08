@@ -2,7 +2,7 @@ import { googleSignIn } from '../../lib/auth';
 import React, { useState, useMemo, useEffect } from 'react';
 import { StorageService } from '../../lib/storage';
 import { runMonthlyFeeReminderTask } from '../../lib/scheduledTasks';
-import { syncDocToFirestore, dedupeFeeRecords } from '../../lib/firebaseSync';
+import { syncDocToFirestore, dedupeFeeRecords, deleteFromFirestore } from '../../lib/firebaseSync';
 import { Student, Batch, FeeRecord } from '../../types';
 import { ChunkedImage } from '../ChunkedImage';
 import {
@@ -39,6 +39,80 @@ export const AdminFees: React.FC = () => {
       window.removeEventListener('apex_storage_updated', refreshData);
       window.removeEventListener('storage', refreshData);
     };
+  }, []);
+
+  // ─── ONE-TIME FIRESTORE DUPLICATE CLEANUP ──────────────────────────────
+  // The dedupe in StorageService.getFeeRecords() hides duplicates from the
+  // UI, but the orphaned duplicate DOCUMENTS still exist in Firestore and
+  // keep getting pulled back on every fresh load. This effect runs once
+  // when the admin opens the Fees tab: it finds duplicate fee docs (same
+  // studentId + month, different id) and deletes the losers from Firestore
+  // so the duplicates stop coming back.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = JSON.parse(localStorage.getItem('apex_fees_v2') || '[]');
+        if (!Array.isArray(raw) || raw.length === 0) return;
+
+        // Group by (studentId + month) — normalized the same way as dedupeFeeRecords
+        const normalize = (s: unknown) =>
+          String(s ?? '').trim().toLowerCase().replace(/[.,;:]+/g, ' ').replace(/\s+/g, ' ').trim();
+        const groups = new Map<string, FeeRecord[]>();
+        for (const r of raw) {
+          if (!r || !r.studentId || !r.month) continue;
+          const key = `${normalize(r.studentId)}__${normalize(r.month)}`;
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key)!.push(r);
+        }
+
+        const statusRank: Record<string, number> = {
+          paid: 3,
+          pending_verification: 2,
+          unpaid: 1
+        };
+
+        // For each group with more than one record, find the winner and
+        // delete the losers from Firestore.
+        const deletionPromises: Promise<void>[] = [];
+        for (const [, recs] of groups) {
+          if (recs.length <= 1) continue;
+          // Pick winner: highest status rank, then most recent paidDate
+          const winner = recs.reduce((best, r) => {
+            if (!best) return r;
+            const br = statusRank[best.status] || 0;
+            const rr = statusRank[r.status] || 0;
+            if (rr > br) return r;
+            if (rr < br) return best;
+            // same rank — keep the one with a paidDate or screenshot
+            if (!best.paidDate && r.paidDate) return r;
+            return best;
+          }, null as FeeRecord | null);
+          // Delete the losers
+          for (const r of recs) {
+            if (r.id !== winner?.id) {
+              deletionPromises.push(
+                deleteFromFirestore('feeRecords', r.id).catch(() => {})
+              );
+            }
+          }
+        }
+
+        if (deletionPromises.length > 0 && !cancelled) {
+          await Promise.all(deletionPromises);
+          // Re-save the deduped list to localStorage so the UI is clean
+          const deduped = dedupeFeeRecords(raw);
+          localStorage.setItem('apex_fees_v2', JSON.stringify(deduped));
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new Event('apex_storage_updated'));
+          }
+          console.log(`[FeeCleanup] Removed ${deletionPromises.length} duplicate fee record(s) from Firestore.`);
+        }
+      } catch (e) {
+        console.debug('[FeeCleanup] Cleanup skipped:', e);
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   // Search filter options
@@ -145,8 +219,6 @@ The Apex Chemistry`;
   const handleMarkPaidManually = (student: Student) => {
     const currentMonth = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
 
-    // FIX: addFeeRecord() now dedupes — if a record for this student+month
-    // already exists, it updates it instead of creating a duplicate.
     let record = feeRecords.find(
       f => f.studentId === student.id && f.month === currentMonth
     );
@@ -212,7 +284,6 @@ The Apex Chemistry`;
       let workingRecords = StorageService.getFeeRecords();
 
       for (const month of selectedMonths) {
-        // FIX: find existing record for this student+month (deduped)
         const existingIdx = workingRecords.findIndex(
           r => r.studentId === customPayStudent.id && r.month === month
         );
@@ -231,7 +302,6 @@ The Apex Chemistry`;
             console.warn('Firestore sync failed for', workingRecords[existingIdx].id, e);
           }
         } else {
-          // Create a new record and mark it paid
           const newRecord = StorageService.addFeeRecord({
             studentId: customPayStudent.id,
             studentName: customPayStudent.name,
@@ -435,23 +505,9 @@ The Apex Chemistry`;
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {filteredStudents.map(student => {
-                // ── DEFENSIVE DEDUPE (UI-LEVEL GUARANTEE) ─────────────────────
-                // Even if StorageService.getFeeRecords() returns duplicate
-                // records for the same (student + month) — which happens when
-                // the deployed app is running an older version of storage.ts,
-                // OR when a Firestore sync race creates two records with
-                // different IDs for the same month — we collapse them HERE so
-                // the Fee Ledger NEVER shows contradictory badges (e.g.
-                // "August: Paid" + "August: Unpaid") for the same month.
-                //
-                // Best status wins: paid > pending_verification > unpaid.
-                // The screenshot bug (Tirtharaj with 2× "July: Paid" + an
-                // "August: Paid" + "August: Unpaid"; Aditya with 3× July
-                // badges) is impossible after this line.
                 const sRecords = dedupeFeeRecords(
                   feeRecords.filter(f => f.studentId === student.id)
                 ).sort((a, b) => {
-                  // Sort chronologically (newest first)
                   const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
                   const [mA, yA] = a.month.split(' ');
                   const [mB, yB] = b.month.split(' ');
