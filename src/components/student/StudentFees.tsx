@@ -1,9 +1,9 @@
-// src/components/student/StudentFees.tsx
 import React, { useState, useEffect } from 'react';
 import { Student, FeeRecord } from '../../types';
 import { StorageService } from '../../lib/storage';
+import { dedupeFeeRecords } from '../../lib/firebaseSync';
 import { PayFeesModal } from '../PayFeesModal';
-import { CheckCircle2, Clock, AlertCircle, QrCode, Download } from 'lucide-react';
+import { IndianRupee, CheckCircle2, Clock, AlertCircle, QrCode, Download, FileText } from 'lucide-react';
 import { generateFeeReceiptPDF } from '../../lib/pdfGenerator';
 
 interface StudentFeesProps {
@@ -12,14 +12,22 @@ interface StudentFeesProps {
 
 export const StudentFees: React.FC<StudentFeesProps> = ({ student }) => {
   const [feeRecords, setFeeRecords] = useState<FeeRecord[]>(() =>
-    StorageService.getFeeRecords().filter(f => f.studentId === student.id)
+    dedupeFeeRecords(
+      StorageService.getFeeRecords().filter(f => f.studentId === student.id)
+    )
   );
 
   const [selectedFeeForPay, setSelectedFeeForPay] = useState<FeeRecord | null>(null);
   const [isPayModalOpen, setIsPayModalOpen] = useState(false);
 
   const refreshFees = () => {
-    setFeeRecords(StorageService.getFeeRecords().filter(f => f.studentId === student.id));
+    // DEFENSIVE DEDUPE: same reason as AdminFees — never let duplicate
+    // records for the same (student + month) reach the student's table.
+    setFeeRecords(
+      dedupeFeeRecords(
+        StorageService.getFeeRecords().filter(f => f.studentId === student.id)
+      )
+    );
   };
 
   // FIX: Listen for storage updates so the student's fee table refreshes
