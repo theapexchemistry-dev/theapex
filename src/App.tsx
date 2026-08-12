@@ -13,6 +13,7 @@ import { AdminNotes } from './components/admin/AdminNotes';
 import { AdminDoubts } from './components/admin/AdminDoubts';
 import { AdminTests } from './components/admin/AdminTests';
 import { AdminSettings } from './components/admin/AdminSettings';
+import { AdminSupport } from './components/admin/AdminSupport';
 import { StudentDashboard } from './components/student/StudentDashboard';
 import { StudentFees } from './components/student/StudentFees';
 import { StudentNotes } from './components/student/StudentNotes';
@@ -113,14 +114,14 @@ export default function App() {
         ) : (
           <div className="max-w-7xl mx-auto px-3.5 sm:px-6 lg:px-8 py-4 sm:py-8">
             {activeTab !== 'dashboard' && (
-              <button 
-                onClick={() => setActiveTab('dashboard')} 
+              <button
+                onClick={() => setActiveTab('dashboard')}
                 className="mb-6 flex items-center gap-1.5 text-sm font-bold text-slate-500 hover:text-slate-900 transition-colors bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm w-fit"
               >
                 <ArrowLeft className="w-4 h-4" /> Back to Dashboard
               </button>
             )}
-            
+
             {role === 'admin' && (
               <>
                 {activeTab === 'dashboard' && (
@@ -138,6 +139,7 @@ export default function App() {
                 {activeTab === 'doubts' && <AdminDoubts />}
                 {activeTab === 'tests' && <AdminTests />}
                 {activeTab === 'live' && <LiveClasses role="admin" />}
+                {activeTab === 'support' && <AdminSupport />}
                 {activeTab === 'settings' && <AdminSettings />}
               </>
             )}
