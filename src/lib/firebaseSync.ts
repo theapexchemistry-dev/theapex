@@ -232,7 +232,7 @@ export function setupFirestoreListeners() {
     { key: 'batches', col: 'batches' },
     { key: 'tests', col: 'tests' },
     { key: 'liveMeetings', col: 'liveMeetings' },
-    { key: 'supportRequests', col: 'supportRequests' },
+    { key: 'support_requests', col: 'supportRequests' },
     { key: 'siteSettings', col: 'siteSettings' }
   ];
 
@@ -283,7 +283,7 @@ export async function fetchDataFromFirestore(): Promise<boolean> {
     { key: 'tests',      col: 'tests' },
     { key: 'notifications', col: 'notifications' },
     { key: 'liveMeetings', col: 'liveMeetings' },
-    { key: 'supportRequests', col: 'supportRequests' }
+    { key: 'support_requests', col: 'supportRequests' }
   ];
 
   let hasData = false;
