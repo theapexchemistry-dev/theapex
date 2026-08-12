@@ -1,22 +1,69 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { StorageService } from '../../lib/storage';
 import { SupportRequest } from '../../types';
-import { HelpCircle, CheckCircle2, MessageSquare, Clock, Filter, Search } from 'lucide-react';
+import { subscribeToSupportRequests, fetchDataFromFirestore } from '../../lib/firebaseSync';
+import { HelpCircle, CheckCircle2, MessageSquare, Clock, Filter, Search, RefreshCw, AlertTriangle } from 'lucide-react';
 
 export const AdminSupport: React.FC = () => {
   const [requests, setRequests] = useState<SupportRequest[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'resolved'>('all');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    const loadRequests = () => setRequests(StorageService.getSupportRequests());
-    loadRequests();
-    window.addEventListener('apex_storage_updated', loadRequests);
-    return () => window.removeEventListener('apex_storage_updated', loadRequests);
+    mountedRef.current = true;
+
+    // Subscribe DIRECTLY to Firestore supportRequests collection.
+    // This bypasses the localStorage/merge layer and gives real-time updates.
+    // If Firestore fails (e.g. permission denied), we fall back to localStorage.
+    const unsub = subscribeToSupportRequests(
+      (allRequests) => {
+        if (!mountedRef.current) return;
+        setRequests(allRequests as SupportRequest[]);
+        setSyncError(null);
+      },
+      (err) => {
+        if (!mountedRef.current) return;
+        console.debug('AdminSupport: Firestore subscription failed, using localStorage only:', err);
+        setRequests(StorageService.getSupportRequests());
+        setSyncError('Live sync unavailable — showing locally cached tickets. Click Refresh to retry.');
+      }
+    );
+
+    // Also listen for localStorage updates (same-device tickets from student)
+    const onStorageUpdate = () => {
+      if (!mountedRef.current) return;
+      setRequests(StorageService.getSupportRequests());
+    };
+    window.addEventListener('apex_storage_updated', onStorageUpdate);
+    window.addEventListener('storage', onStorageUpdate);
+
+    return () => {
+      mountedRef.current = false;
+      unsub();
+      window.removeEventListener('apex_storage_updated', onStorageUpdate);
+      window.removeEventListener('storage', onStorageUpdate);
+    };
   }, []);
 
   const handleResolve = (id: string) => {
     StorageService.resolveSupportRequest(id);
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await fetchDataFromFirestore();
+      setRequests(StorageService.getSupportRequests());
+      setSyncError(null);
+    } catch (err) {
+      console.error('Refresh failed:', err);
+      setSyncError('Refresh failed. Check your connection and try again.');
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const filteredRequests = requests
@@ -28,6 +75,7 @@ export const AdminSupport: React.FC = () => {
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   const pendingCount = requests.filter(r => r.status === 'pending').length;
+  const totalCount = requests.length;
 
   return (
     <div className="space-y-6">
@@ -40,11 +88,39 @@ export const AdminSupport: React.FC = () => {
             </h2>
             <p className="text-sm text-slate-500 mt-1">Manage and resolve issues reported by students</p>
           </div>
-          <div className="px-4 py-2 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2">
-            <Clock className="w-5 h-5 text-amber-600" />
-            <span className="text-amber-800 font-bold text-sm">{pendingCount} Pending</span>
+          <div className="flex items-center gap-3">
+            <div className="px-4 py-2 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2">
+              <Clock className="w-5 h-5 text-amber-600" />
+              <span className="text-amber-800 font-bold text-sm">{pendingCount} Pending</span>
+            </div>
+            <button
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-xl transition-colors disabled:opacity-60"
+              title="Force-fetch latest tickets from server"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              {isRefreshing ? 'Syncing...' : 'Refresh'}
+            </button>
           </div>
         </div>
+      </div>
+
+      {syncError && (
+        <div className="p-4 bg-amber-50 border border-amber-300 text-amber-900 font-semibold text-xs rounded-2xl flex items-center gap-2">
+          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+          <span>{syncError}</span>
+        </div>
+      )}
+
+      <div className="flex items-center gap-4 text-xs font-bold text-slate-500">
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+          Live sync active
+        </span>
+        <span>{totalCount} total ticket{totalCount !== 1 ? 's' : ''}</span>
+        <span>{pendingCount} pending</span>
+        <span>{totalCount - pendingCount} resolved</span>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-4">
@@ -77,7 +153,11 @@ export const AdminSupport: React.FC = () => {
           <div className="text-center py-12 bg-white rounded-2xl border border-slate-200 border-dashed">
             <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto mb-3" />
             <h3 className="text-lg font-bold text-slate-900">All Caught Up!</h3>
-            <p className="text-slate-500 text-sm">No support requests match your filters.</p>
+            <p className="text-slate-500 text-sm">
+              {totalCount === 0
+                ? 'No support requests yet. When a student submits a ticket, it will appear here instantly.'
+                : 'No support requests match your filters.'}
+            </p>
           </div>
         ) : (
           filteredRequests.map(req => (
