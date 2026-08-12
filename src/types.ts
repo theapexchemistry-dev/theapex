@@ -147,3 +147,13 @@ export interface SupportRequest {
   createdAt: string;
   resolvedAt?: string;
 }
+
+export interface Announcement {
+  id: string;
+  title: string;
+  message: string;
+  targetAudience: 'all' | string; // 'all' or specific batchId
+  createdAt: string;
+  sentVia: 'portal' | 'email' | 'whatsapp';
+}
+
