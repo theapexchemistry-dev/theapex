@@ -808,17 +808,19 @@ export class StorageService {
       if (typeof window !== 'undefined') window.dispatchEvent(new Event('apex_storage_updated'));
       syncDocToFirestore('supportRequests', requestId, request);
     }
-    getAnnouncements(): Announcement[] {
-       const data = localStorage.getItem('apex_announcements');
-       return data ? JSON.parse(data) : [];
-    }
+  }
 
-    addAnnouncement(announcement: Announcement) {
-      const current = this.getAnnouncements();
-      // Add new announcement to the beginning of the array
-      const updated = [announcement, ...current];
-      localStorage.setItem('apex_announcements', JSON.stringify(updated));
-  
-      // If you use Firebase sync, you would also push this to Firestore here
-    }
+  getAnnouncements(): Announcement[] {
+    const data = localStorage.getItem('apex_announcements');
+    return data ? JSON.parse(data) : [];
+  }
+
+  addAnnouncement(announcement: Announcement) {
+    const current = this.getAnnouncements();
+    // Add new announcement to the beginning of the array
+    const updated = [announcement, ...current];
+    localStorage.setItem('apex_announcements', JSON.stringify(updated));
+
+    // If you use Firebase sync, you would also push this to Firestore here
+  }
 }
