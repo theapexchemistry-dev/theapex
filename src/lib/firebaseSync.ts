@@ -14,9 +14,28 @@
 //      ...) no longer make setDoc() throw "Unsupported field value: undefined".
 //      syncArrayToFirestore() also isolates per-item failures so ONE bad record
 //      can no longer abort the loop and drop a brand-new student doubt.
-import { collection, doc, setDoc, getDoc, getDocs, deleteDoc, onSnapshot } from 'firebase/firestore';
+import { collection, doc, setDoc, updateDoc, getDoc, getDocs, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { db } from './firebase';
 import { FeeRecord } from '../types';
+
+// ── LiveMeeting type ───────────────────────────────────────────────────────
+// Consumed by src/components/LiveClasses.tsx. Kept here (next to the helpers
+// below) so the component has a single import surface for live-class sync.
+export interface LiveMeeting {
+  id: string;
+  title: string;
+  scope: "batch" | "class" | "all";
+  batchId: string | null;
+  batchTitle: string | null;
+  className: string | null;
+  teacherName: string;
+  roomName: string;
+  startedAt: number;
+  durationMins: number;
+  active: boolean;
+  endedAt: number | null;
+  createdAt: number;
+}
 
 // ── stripUndefined ──────────────────────────────────────────────────────────
 // Recursively removes any property whose value is `undefined` (from nested
@@ -319,4 +338,176 @@ export async function loadInitialDataFromFirestore() {
   const hasData = await fetchDataFromFirestore();
   setupFirestoreListeners();
   return hasData;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  LIVE CLASSES — real-time sync helpers consumed by LiveClasses.tsx
+// ─────────────────────────────────────────────────────────────────────────────
+//  These wrap the EXISTING Firestore + localStorage infrastructure that this
+//  file already provides (the `liveMeetings` collection is already wired into
+//  setupFirestoreListeners() and fetchDataFromFirestore(), and mergeAndStore()
+//  already unions local + remote meetings into localStorage key
+//  `apex_liveMeetings_v2`). The helpers below give LiveClasses.tsx a clean,
+//  typed API so it doesn't have to touch Firestore / localStorage directly.
+//
+//  Flow:
+//    Admin startMeeting(m) → optimistic localStorage write + syncDocToFirestore
+//                          → Firestore onSnapshot fires on EVERY device
+//                          → mergeAndStore() merges into localStorage
+//                          → "apex_storage_updated" event → UI re-renders
+//    subscribeToAllMeetings(cb) → emits current localStorage list immediately
+//                          (optimistic), then subscribes to the `liveMeetings`
+//                          collection and re-emits on every snapshot.
+//    endMeeting(id)      → marks active:false, endedAt:now (local + Firestore)
+//    deleteMeeting(id)   → removes the doc (local + Firestore)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const LIVE_MEETINGS_LS_KEY = 'apex_liveMeetings_v2';
+
+function readLocalMeetings(): LiveMeeting[] {
+  try {
+    const raw = localStorage.getItem(LIVE_MEETINGS_LS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? (parsed as LiveMeeting[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalMeetings(meetings: LiveMeeting[]): void {
+  try {
+    localStorage.setItem(LIVE_MEETINGS_LS_KEY, JSON.stringify(meetings));
+  } catch (e) {
+    console.debug('Error writing liveMeetings to localStorage:', e);
+  }
+}
+
+function dispatchStorageUpdate(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('apex_storage_updated'));
+  }
+}
+
+/**
+ * Subscribe to ALL live meetings (active + ended history).
+ * Calls `onNext` immediately with the current localStorage list (optimistic),
+ * then again whenever the `liveMeetings` Firestore collection changes.
+ * Returns an unsubscribe function.
+ */
+export function subscribeToAllMeetings(
+  onNext: (meetings: LiveMeeting[]) => void,
+  onError?: (err: Error) => void
+): () => void {
+  // 1) Optimistic: emit whatever we already have in localStorage right away
+  //    so the UI paints instantly (offline-first).
+  try {
+    onNext(readLocalMeetings());
+  } catch (e) {
+    console.debug('subscribeToAllMeetings initial emit failed:', e);
+  }
+
+  // 2) Subscribe to the Firestore `liveMeetings` collection for real-time
+  //    cross-device updates. Each snapshot is merged with localStorage via
+  //    mergeAndStore() (union by ID — never wipes local data) and re-emitted.
+  let unsub: () => void = () => {};
+  try {
+    unsub = onSnapshot(
+      collection(db, 'liveMeetings'),
+      (snapshot) => {
+        const remote: LiveMeeting[] = snapshot.empty
+          ? []
+          : (snapshot.docs.map((d) => d.data() as LiveMeeting));
+        // mergeAndStore unions local + remote by ID and writes back to
+        // `apex_liveMeetings_v2`, returning the merged array.
+        const merged = mergeAndStore('liveMeetings', 'liveMeetings', remote) as LiveMeeting[];
+        onNext(Array.isArray(merged) ? merged : remote);
+        dispatchStorageUpdate();
+      },
+      (err) => {
+        console.debug('subscribeToAllMeetings snapshot error:', err);
+        onError?.(err as Error);
+      }
+    );
+  } catch (e) {
+    console.debug('subscribeToAllMeetings attach failed:', e);
+    onError?.(e as Error);
+  }
+
+  return () => {
+    try {
+      unsub();
+    } catch {
+      /* noop */
+    }
+  };
+}
+
+/**
+ * Create / start a live meeting. Writes optimistically to localStorage first
+ * (so the admin's UI updates instantly), then persists to Firestore so every
+ * other device receives it via onSnapshot.
+ */
+export async function startMeeting(meeting: LiveMeeting): Promise<void> {
+  // Optimistic local write
+  try {
+    const arr = readLocalMeetings();
+    const idx = arr.findIndex((m) => m.id === meeting.id);
+    if (idx >= 0) arr[idx] = meeting;
+    else arr.unshift(meeting);
+    writeLocalMeetings(arr);
+  } catch (e) {
+    console.debug('startMeeting local write failed:', e);
+  }
+
+  // Persist to Firestore (stripUndefined guarantees no `undefined` fields throw)
+  await syncDocToFirestore('liveMeetings', meeting.id, meeting);
+
+  dispatchStorageUpdate();
+}
+
+/**
+ * Mark a live meeting as ENDED (active:false, endedAt:now). The meeting stays
+ * in the list so it shows up in "Recent classes" history — it is NOT deleted.
+ */
+export async function endMeeting(id: string): Promise<void> {
+  const endedAt = Date.now();
+
+  // Optimistic local update
+  try {
+    const arr = readLocalMeetings();
+    const idx = arr.findIndex((m) => m.id === id);
+    if (idx >= 0) {
+      arr[idx] = { ...arr[idx], active: false, endedAt };
+      writeLocalMeetings(arr);
+    }
+  } catch (e) {
+    console.debug('endMeeting local update failed:', e);
+  }
+
+  // Persist to Firestore
+  try {
+    await updateDoc(doc(db, 'liveMeetings', id), { active: false, endedAt });
+  } catch (err) {
+    console.debug(`Firestore endMeeting failed for ${id}:`, err);
+  }
+
+  dispatchStorageUpdate();
+}
+
+/**
+ * Permanently delete a live meeting record (local + Firestore).
+ */
+export async function deleteMeeting(id: string): Promise<void> {
+  // Optimistic local delete
+  try {
+    const arr = readLocalMeetings();
+    writeLocalMeetings(arr.filter((m) => m.id !== id));
+  } catch (e) {
+    console.debug('deleteMeeting local delete failed:', e);
+  }
+
+  // Delete from Firestore
+  await deleteFromFirestore('liveMeetings', id);
+
+  dispatchStorageUpdate();
 }
