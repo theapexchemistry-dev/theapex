@@ -513,3 +513,103 @@ export async function deleteMeeting(id: string): Promise<void> {
 
   dispatchStorageUpdate();
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  SUPPORT REQUESTS — real-time sync helper consumed by AdminSupport.tsx
+// ─────────────────────────────────────────────────────────────────────────────
+//  This gives AdminSupport.tsx a DIRECT real-time subscription to the
+//  Firestore `supportRequests` collection, bypassing the localStorage/merge
+//  layer. This is more robust than relying solely on the `apex_storage_updated`
+//  event because:
+//    1. It emits localStorage data immediately (optimistic, offline-first).
+//    2. It subscribes directly to Firestore and re-emits on every change.
+//    3. If Firestore rules block the read, the onError callback fires so the
+//       UI can show a visible error (instead of silently failing).
+//
+//  Flow:
+//    Student saves ticket → localStorage + syncDocToFirestore
+//                        → Firestore onSnapshot fires on admin's device
+//                        → onNext(merged) → AdminSupport re-renders
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SUPPORT_REQUESTS_LS_KEY = 'apex_support_requests_v2';
+
+function readLocalSupportRequests(): any[] {
+  try {
+    const raw = localStorage.getItem(SUPPORT_REQUESTS_LS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalSupportRequests(arr: any[]): void {
+  try {
+    localStorage.setItem(SUPPORT_REQUESTS_LS_KEY, JSON.stringify(arr));
+  } catch (e) {
+    console.debug('writeLocalSupportRequests failed:', e);
+  }
+}
+
+/**
+ * Subscribe to ALL support requests (local + Firestore) in real time.
+ *
+ * @param onNext  Called immediately with localStorage data, then again
+ *                whenever Firestore updates. Receives the MERGED list.
+ * @param onError Called if the Firestore subscription fails (e.g. permission
+ *                denied). The caller can fall back to localStorage-only mode.
+ * @returns Unsubscribe function.
+ */
+export function subscribeToSupportRequests(
+  onNext: (requests: any[]) => void,
+  onError?: (err: Error) => void
+): () => void {
+  // 1) Optimistic: emit whatever we already have in localStorage right away
+  //    so the UI paints instantly (offline-first). This ensures same-device
+  //    tickets (student → logout → admin login) show even if Firestore is
+  //    broken or not configured.
+  try {
+    onNext(readLocalSupportRequests());
+  } catch (e) {
+    console.debug('subscribeToSupportRequests initial emit failed:', e);
+  }
+
+  // 2) Subscribe to the Firestore `supportRequests` collection for real-time
+  //    cross-device updates.
+  let unsub: () => void = () => {};
+  try {
+    unsub = onSnapshot(
+      collection(db, 'supportRequests'),
+      (snapshot) => {
+        const remote: any[] = snapshot.empty
+          ? []
+          : snapshot.docs.map((d) => d.data());
+        // Merge local + remote by ID (union — never wipes local data)
+        const local = readLocalSupportRequests();
+        const map = new Map<string, any>();
+        for (const item of local) {
+          if (item && item.id) map.set(item.id, item);
+        }
+        for (const item of remote) {
+          if (item && item.id) map.set(item.id, item); // remote wins
+        }
+        const merged = Array.from(map.values());
+        writeLocalSupportRequests(merged);
+        onNext(merged);
+        dispatchStorageUpdate();
+      },
+      (err) => {
+        console.debug('subscribeToSupportRequests snapshot error:', err);
+        onError?.(err as Error);
+      }
+    );
+  } catch (e) {
+    console.debug('subscribeToSupportRequests attach failed:', e);
+    onError?.(e as Error);
+  }
+
+  return () => {
+    try { unsub(); } catch (e) { /* ignore */ }
+  };
+}
