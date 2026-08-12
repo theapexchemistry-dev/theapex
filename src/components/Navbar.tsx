@@ -115,9 +115,9 @@ export const Navbar: React.FC<NavbarProps> = ({
           <Logo size="md" variant="dark" />
         </div>
 
+        {/* REDUCED PADDING & FONT SIZE TO FIT 11 TABS */}
         {navItems.length > 0 && (
-          {/* REDUCED PADDING & FONT SIZE TO FIT 11 TABS */}
-          <nav className="hidden lg:flex items-center gap-0.5 bg-slate-900/90 p-1 rounded-xl border border-slate-800 shrink-0 overflow-x-auto max-w-[700px]">
+          <nav className="hidden lg:flex items-center gap-0.5 bg-slate-900/90 p-1 rounded-xl border border-slate-800 shrink-0">
             {navItems.map(item => (
               <button
                 key={item.id}
