@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Student } from '../../types';
-import { MessageSquare, Phone, Send, CheckCircle2, FlaskConical, HelpCircle } from 'lucide-react';
+import { MessageSquare, Phone, Send, CheckCircle2, HelpCircle } from 'lucide-react';
+import { StorageService } from '../../lib/storage';
 
 interface StudentHelpProps {
   student: Student;
@@ -14,6 +15,17 @@ export const StudentHelp: React.FC<StudentHelpProps> = ({ student }) => {
   const handleSendIssue = (e: React.FormEvent) => {
     e.preventDefault();
     if (!message.trim()) return;
+
+    StorageService.saveSupportRequest({
+      id: `SR-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      studentId: student.id,
+      studentName: student.name,
+      studentClass: student.className,
+      issueType,
+      message,
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    });
 
     setSent(true);
     setTimeout(() => setSent(false), 4000);
