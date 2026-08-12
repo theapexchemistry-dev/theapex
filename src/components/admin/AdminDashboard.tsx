@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { StorageService } from '../../lib/storage';
-import { Student, Batch, NotificationItem, FeeRecord, Doubt, Note } from '../../types';
+import { Student, Batch, NotificationItem, FeeRecord, Doubt, Note, SupportRequest } from '../../types';
 import {
   Users,
   Layers,
@@ -40,6 +40,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [fees, setFees] = useState<FeeRecord[]>(() => StorageService.getFeeRecords());
   const [doubts, setDoubts] = useState<Doubt[]>(() => StorageService.getDoubts());
   const [notes, setNotes] = useState<Note[]>(() => StorageService.getNotes());
+  const [supportRequests, setSupportRequests] = useState<SupportRequest[]>(() => StorageService.getSupportRequests());
   const [allNotifications, setAllNotifications] = useState<NotificationItem[]>(() =>
     StorageService.getNotifications()
   );
@@ -55,6 +56,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setDoubts(StorageService.getDoubts());
       setNotes(StorageService.getNotes());
       setAllNotifications(StorageService.getNotifications());
+      setSupportRequests(StorageService.getSupportRequests());
     };
     window.addEventListener('apex_storage_updated', refresh);
     window.addEventListener('storage', refresh);
@@ -102,6 +104,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setDoubts(StorageService.getDoubts());
       setNotes(StorageService.getNotes());
       setAllNotifications(StorageService.getNotifications());
+      setSupportRequests(StorageService.getSupportRequests());
     } catch (err) {
       console.error('Refresh failed:', err);
     } finally {
@@ -116,6 +119,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   console.log("Students with pending fees:", pendingFees);
   const pendingFeesAmount = pendingFees.reduce((sum, f) => sum + f.amount, 0);
   const pendingDoubts = doubts.filter(d => d.status === 'pending');
+  const pendingSupport = supportRequests.filter(s => s.status === 'pending');
   const totalNotes = notes.length;
 
   // Monthly fee collection chart data (last 6 months)
@@ -186,6 +190,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     { label: 'PENDING FEES', value: `₹${pendingFeesAmount.toLocaleString('en-IN')}`, sub: `${pendingFees.length} pending payments`, icon: IndianRupee, color: 'text-red-600', bg: 'bg-red-50' },
     { label: 'TOTAL DOUBTS', value: doubts.length, sub: `${pendingDoubts.length} pending answers`, icon: HelpCircle, color: 'text-amber-600', bg: 'bg-amber-50' },
     { label: 'TOTAL NOTES', value: totalNotes, sub: 'Uploaded notes', icon: FileText, color: 'text-emerald-600', bg: 'bg-emerald-50' }
+    { label: 'SUPPORT TICKETS', value: supportRequests.length, sub: `${pendingSupport.length} pending`, icon: AlertCircle, color: 'text-rose-600', bg: 'bg-rose-50', onClick: () => onTabChange('support') }
   ];
 
   return (
