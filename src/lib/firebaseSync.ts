@@ -9,28 +9,68 @@
 //      best status: paid > pending_verification > unpaid.
 //   3. The merge prefers "terminal" states — e.g., a record marked 'paid' or
 //      'ended' always wins over an 'unpaid' / 'active' duplicate.
+//   4. DOUBT-SYNC FIX: every Firestore write now goes through stripUndefined()
+//      so optional `undefined` fields (aiAnswer, aiAnsweredAt, targetStudentId,
+//      ...) no longer make setDoc() throw "Unsupported field value: undefined".
+//      syncArrayToFirestore() also isolates per-item failures so ONE bad record
+//      can no longer abort the loop and drop a brand-new student doubt.
 import { collection, doc, setDoc, getDoc, getDocs, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { db } from './firebase';
 import { FeeRecord } from '../types';
 
+// ── stripUndefined ──────────────────────────────────────────────────────────
+// Recursively removes any property whose value is `undefined` (from nested
+// objects and arrays too). Firestore's setDoc()/updateDoc() THROW on
+// `undefined` field values by default — "Unsupported field value: undefined" —
+// which silently broke doubt + notification sync (their TypeScript types
+// legitimately mark fields like aiAnswer / aiAnsweredAt / targetStudentId as
+// optional, so they are `undefined` whenever unused).
+//
+// firebase.ts also enables `ignoreUndefinedProperties: true` as the primary
+// defence; this sanitizer is the belt-and-suspenders guarantee that writes
+// still succeed even if that flag couldn't be applied (e.g. HMR fallback).
+function stripUndefined<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((v) => stripUndefined(v)) as unknown as T;
+  }
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(value as Record<string, unknown>)) {
+      const v = (value as Record<string, unknown>)[key];
+      if (v === undefined) continue;
+      out[key] = stripUndefined(v);
+    }
+    return out as unknown as T;
+  }
+  return value;
+}
+
 export async function syncDocToFirestore(collectionName: string, id: string, data: any) {
   try {
-    await setDoc(doc(db, collectionName, id), data, { merge: true });
+    await setDoc(doc(db, collectionName, id), stripUndefined(data), { merge: true });
   } catch (err) {
     console.debug(`Firestore syncDoc failed for ${collectionName}/${id}:`, err);
   }
 }
 
 export async function syncArrayToFirestore(collectionName: string, items: any[]) {
-  try {
-    for (const item of items) {
-      if (item.id) {
-        const cleanItem = JSON.parse(JSON.stringify(item));
-        await setDoc(doc(db, collectionName, item.id), cleanItem);
-      }
+  // Write each item INDEPENDENTLY. Previously a single try/catch wrapped the
+  // whole loop, so if ONE item failed (e.g. an oversized image attachment, a
+  // stale record with an unsupported field, or an `undefined` that slipped
+  // through) the loop ABORTED and every remaining item — including a
+  // brand-new student doubt sitting later in the array — was never written.
+  // Now a bad record only loses its own sync; the rest still go through.
+  for (const item of items) {
+    if (!item || !item.id) continue;
+    try {
+      // JSON round-trip drops functions/Symbol and converts NaN→null; then
+      // stripUndefined() removes any `undefined` that JSON.stringify leaves
+      // behind on nested objects it couldn't enumerate.
+      const cleanItem = stripUndefined(JSON.parse(JSON.stringify(item)));
+      await setDoc(doc(db, collectionName, item.id), cleanItem);
+    } catch (err) {
+      console.debug(`Error syncing item ${item.id} to ${collectionName}:`, err);
     }
-  } catch (err) {
-    console.debug(`Error syncing ${collectionName} to Firestore:`, err);
   }
 }
 
