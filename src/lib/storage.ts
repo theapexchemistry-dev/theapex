@@ -18,7 +18,8 @@ import {
   TestResult,
   NotificationItem,
   SupabaseConfig,
-  SupportRequest
+  SupportRequest,
+  Announcement // <-- ADDED IMPORT HERE
 } from '../types';
 import {
   INITIAL_BATCHES,
@@ -39,6 +40,7 @@ const KEYS = {
   TESTS: 'apex_tests_v2',
   NOTIFICATIONS: 'apex_notifications_v2',
   SUPPORT_REQUESTS: 'apex_support_requests_v2',
+  ANNOUNCEMENTS: 'apex_announcements_v2', // <-- ADDED KEY HERE
   SUPABASE_CONFIG: 'apex_supabase_config_v2',
   SITE_LOGO: 'apex_site_logo',
   SITE_NAME: 'apex_site_name',
@@ -827,17 +829,23 @@ export class StorageService {
     }
   }
 
-  getAnnouncements(): Announcement[] {
-    const data = localStorage.getItem('apex_announcements');
-    return data ? JSON.parse(data) : [];
+  // -------- Announcements --------
+  static getAnnouncements(): Announcement[] {
+    return getItem<Announcement[]>(KEYS.ANNOUNCEMENTS, []);
   }
 
-  addAnnouncement(announcement: Announcement) {
-    const current = this.getAnnouncements();
-    // Add new announcement to the beginning of the array
-    const updated = [announcement, ...current];
-    localStorage.setItem('apex_announcements', JSON.stringify(updated));
+  static saveAnnouncements(announcements: Announcement[]): void {
+    setItem(KEYS.ANNOUNCEMENTS, announcements);
+    syncArrayToFirestore('announcements', announcements);
+  }
 
-    // If you use Firebase sync, you would also push this to Firestore here
+  static addAnnouncement(announcement: Announcement): void {
+    const current = this.getAnnouncements();
+    const updated = [announcement, ...current];
+    this.saveAnnouncements(updated);
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('apex_storage_updated'));
+    }
   }
 }
