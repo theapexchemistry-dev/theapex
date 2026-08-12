@@ -85,7 +85,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           { id: 'students', label: 'Students' },
           { id: 'batches', label: 'Batches' },
           { id: 'fees', label: 'Fees' },
-          { id: 'announcements', label: 'Announcements' }, // <--- ADDED HERE
+          { id: 'announcements', label: 'Announce' }, // Shortened label to save space
           { id: 'notes', label: 'Notes' },
           { id: 'doubts', label: 'Doubts' },
           { id: 'tests', label: 'Tests' },
@@ -108,7 +108,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <header className="sticky top-0 z-40 bg-[#0B132B] text-white border-b border-slate-800/80 shadow-lg">
-      <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
+      <div className="max-w-[1400px] mx-auto px-2.5 sm:px-4 lg:px-6 h-16 flex items-center justify-between gap-2">
         <div
           onClick={() => onTabChange(role === 'guest' ? 'home' : 'dashboard')}
           className="cursor-pointer group min-w-0 flex-1 lg:flex-none"
@@ -117,12 +117,13 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         {navItems.length > 0 && (
-          <nav className="hidden lg:flex items-center gap-1 bg-slate-900/90 p-1 rounded-xl border border-slate-800 shrink-0">
+          {/* REDUCED PADDING & FONT SIZE TO FIT 11 TABS */}
+          <nav className="hidden lg:flex items-center gap-0.5 bg-slate-900/90 p-1 rounded-xl border border-slate-800 shrink-0 overflow-x-auto max-w-[700px]">
             {navItems.map(item => (
               <button
                 key={item.id}
                 onClick={() => onTabChange(item.id)}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all whitespace-nowrap ${
                   activeTab === item.id
                     ? 'bg-amber-400 text-slate-950 shadow-sm font-extrabold'
                     : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
@@ -218,7 +219,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <div className="w-7 h-7 rounded-lg bg-amber-400/20 text-amber-400 flex items-center justify-center font-bold text-xs">
                     <ShieldCheck className="w-4 h-4" />
                   </div>
-                  <div className="hidden md:block text-left">
+                  <div className="hidden xl:block text-left">
                     <p className="text-xs font-bold text-white leading-tight">Admin</p>
                     <p className="text-[10px] text-amber-400 font-medium">Mr. Subhamoy Mondal</p>
                   </div>
