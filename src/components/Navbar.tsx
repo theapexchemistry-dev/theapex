@@ -89,6 +89,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           { id: 'doubts', label: 'Doubts' },
           { id: 'tests', label: 'Tests' },
           { id: 'live', label: 'Live' },
+          { id: 'support', label: 'Support' },
           { id: 'settings', label: 'Settings' }
         ]
       : role === 'student'
