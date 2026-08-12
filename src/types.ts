@@ -129,3 +129,21 @@ export interface Meeting {
   startedBy: string;
   endedAt?: string;
 }
+
+// ── Support Desk — tickets raised by students from the Help tab ─────────────
+// A student submits a ticket from StudentHelp.tsx via
+// StorageService.saveSupportRequest(...). It lands in the admin's
+// AdminSupport.tsx tab ("Support Tickets") where the admin can mark it
+// resolved. Tickets sync to the Firestore `supportRequests` collection so
+// they appear on the admin's device in real time.
+export interface SupportRequest {
+  id: string;
+  studentId: string;
+  studentName: string;
+  studentClass: string;
+  issueType: string;
+  message: string;
+  status: 'pending' | 'resolved';
+  createdAt: string;
+  resolvedAt?: string;
+}
