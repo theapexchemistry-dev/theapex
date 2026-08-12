@@ -24,6 +24,7 @@ import { StudentHelp } from './components/student/StudentHelp';
 import { LiveClasses } from './components/LiveClasses';
 import { StorageService } from './lib/storage';
 import { runMonthlyFeeReminderTask } from './lib/scheduledTasks';
+import { AnnouncementsPanel } from './components/admin/AnnouncementsPanel'; // adjust path if needed
 
 export default function App() {
   const [role, setRole] = useState<Role>(() => {
@@ -159,6 +160,10 @@ export default function App() {
                 {activeTab === 'live' && <LiveClasses role="student" student={currentStudent} />}
                 {activeTab === 'profile' && <StudentProfile student={currentStudent} />}
                 {activeTab === 'help' && <StudentHelp student={currentStudent} />}
+                {activeTab === 'dashboard' && <AdminDashboard onTabChange={setActiveTab} ... />}
+                {activeTab === 'students' && <StudentsPanel ... />}
+                {activeTab === 'fees' && <FeesPanel ... />}
+                {activeTab === 'notes' && <NotesPanel ... />}
               </>
             )}
           </div>
