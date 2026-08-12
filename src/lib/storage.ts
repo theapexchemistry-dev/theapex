@@ -319,7 +319,12 @@ export class StorageService {
   static deleteStudent(id: string): void {
     this.addDeletedStudentId(id);
 
+    // Delete the student's fee records from Firestore individually so they
+    // don't get pushed back into localStorage by the onSnapshot listener as
+    // "ghost" fees (which would inflate the dashboard's pending count).
     const allFees = this.getFeeRecords();
+    const studentFees = allFees.filter(f => f.studentId === id);
+    studentFees.forEach(f => deleteFromFirestore('feeRecords', f.id));
     const remainingFees = allFees.filter(f => f.studentId !== id);
     this.saveFeeRecords(remainingFees);
 
@@ -332,9 +337,21 @@ export class StorageService {
   // FIX: getFeeRecords() now returns DEDUPED records — one per (studentId + month).
   // This eliminates the duplicate "Paid" + "Unpaid" badges for the same month
   // and fixes the inflated due-amount calculation.
+  //
+  // FIX 2: Also filters out fee records belonging to DELETED students.
+  // When a student is deleted, their fee records are removed from localStorage
+  // but can survive in Firestore. The Firestore listener pushes them back into
+  // localStorage on every sync. Since the Fee Ledger tab only shows fees for
+  // current students, these "ghost" fees were invisible but still counted in
+  // the dashboard's pending total. This filter ensures they never affect the
+  // pending count or any other fee calculation.
   static getFeeRecords(): FeeRecord[] {
     const raw = getItem<FeeRecord[]>(KEYS.FEES, INITIAL_FEES);
-    return dedupeFeeRecords(raw);
+    const deduped = dedupeFeeRecords(raw);
+    const deletedIds = this.getDeletedStudentIds();
+    if (deletedIds.length === 0) return deduped;
+    const deletedSet = new Set(deletedIds);
+    return deduped.filter(f => !deletedSet.has(f.studentId));
   }
 
   static saveFeeRecords(fees: FeeRecord[]): void {
