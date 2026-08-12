@@ -85,7 +85,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           { id: 'students', label: 'Students' },
           { id: 'batches', label: 'Batches' },
           { id: 'fees', label: 'Fees' },
-          { id: 'announcements', label: 'Announce' }, // Shortened label to save space
           { id: 'notes', label: 'Notes' },
           { id: 'doubts', label: 'Doubts' },
           { id: 'tests', label: 'Tests' },
