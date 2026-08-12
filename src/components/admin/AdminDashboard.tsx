@@ -189,7 +189,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     { label: 'TOTAL BATCHES', value: totalBatches, sub: 'Active schedule', icon: Layers, color: 'text-purple-600', bg: 'bg-purple-50' },
     { label: 'PENDING FEES', value: `₹${pendingFeesAmount.toLocaleString('en-IN')}`, sub: `${pendingFees.length} pending payments`, icon: IndianRupee, color: 'text-red-600', bg: 'bg-red-50' },
     { label: 'TOTAL DOUBTS', value: doubts.length, sub: `${pendingDoubts.length} pending answers`, icon: HelpCircle, color: 'text-amber-600', bg: 'bg-amber-50' },
-    { label: 'TOTAL NOTES', value: totalNotes, sub: 'Uploaded notes', icon: FileText, color: 'text-emerald-600', bg: 'bg-emerald-50' }
+    { label: 'TOTAL NOTES', value: totalNotes, sub: 'Uploaded notes', icon: FileText, color: 'text-emerald-600', bg: 'bg-emerald-50' },
     { label: 'SUPPORT TICKETS', value: supportRequests.length, sub: `${pendingSupport.length} pending`, icon: AlertCircle, color: 'text-rose-600', bg: 'bg-rose-50', onClick: () => onTabChange('support') }
   ];
 
