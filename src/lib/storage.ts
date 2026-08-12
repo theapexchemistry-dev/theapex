@@ -17,7 +17,8 @@ import {
   Test,
   TestResult,
   NotificationItem,
-  SupabaseConfig
+  SupabaseConfig,
+  SupportRequest
 } from '../types';
 import {
   INITIAL_BATCHES,
@@ -37,6 +38,7 @@ const KEYS = {
   DOUBTS: 'apex_doubts_v2',
   TESTS: 'apex_tests_v2',
   NOTIFICATIONS: 'apex_notifications_v2',
+  SUPPORT_REQUESTS: 'apex_support_requests_v2',
   SUPABASE_CONFIG: 'apex_supabase_config_v2',
   SITE_LOGO: 'apex_site_logo',
   SITE_NAME: 'apex_site_name',
@@ -772,6 +774,39 @@ export class StorageService {
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('apex_storage_updated'));
       }
+    }
+  }
+
+  // -------- Support Requests (Student Support Desk) --------
+  // A student submits a ticket from StudentHelp.tsx → saveSupportRequest()
+  // writes it to localStorage + Firestore → the admin's AdminSupport.tsx tab
+  // receives it in real time via the onSnapshot('supportRequests') listener.
+  static getSupportRequests(): SupportRequest[] {
+    return getItem<SupportRequest[]>(KEYS.SUPPORT_REQUESTS, []);
+  }
+
+  static saveSupportRequest(request: SupportRequest): void {
+    const requests = this.getSupportRequests();
+    const index = requests.findIndex(r => r.id === request.id);
+    if (index >= 0) {
+      requests[index] = request;
+    } else {
+      requests.unshift(request);
+    }
+    setItem(KEYS.SUPPORT_REQUESTS, requests);
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('apex_storage_updated'));
+    syncDocToFirestore('supportRequests', request.id, request);
+  }
+
+  static resolveSupportRequest(requestId: string): void {
+    const requests = this.getSupportRequests();
+    const request = requests.find(r => r.id === requestId);
+    if (request) {
+      request.status = 'resolved';
+      request.resolvedAt = new Date().toISOString();
+      setItem(KEYS.SUPPORT_REQUESTS, requests);
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('apex_storage_updated'));
+      syncDocToFirestore('supportRequests', requestId, request);
     }
   }
 }
