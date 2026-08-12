@@ -113,6 +113,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const totalStudents = students.length;
   const totalBatches = batches.length;
   const pendingFees = fees.filter(f => f.status === 'unpaid' || f.status === 'pending_verification');
+  console.log("Students with pending fees:", pendingFees);
   const pendingFeesAmount = pendingFees.reduce((sum, f) => sum + f.amount, 0);
   const pendingDoubts = doubts.filter(d => d.status === 'pending');
   const totalNotes = notes.length;
