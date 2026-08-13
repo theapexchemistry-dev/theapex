@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ShieldCheck, UserCheck, Lock, User, LogIn, ArrowLeft, Sparkles, Key, CheckCircle2, HelpCircle, XCircle, Mail, AlertCircle } from 'lucide-react';
 import { Role, Student } from '../types';
 import { StorageService } from '../lib/storage';
-import { auth, signInWithEmailAndPassword, sendPasswordResetEmail } from '../lib/firebase';
 import { auth, signInWithEmailAndPassword, sendPasswordResetEmail, db, collection, getDocs } from '../lib/firebase';
 import { Logo } from './Logo';
 
@@ -144,6 +143,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         }
       }
     }
+  };
+
   return (
     <div className="min-h-[85vh] flex items-center justify-center bg-slate-950 p-4 relative overflow-hidden">
       {/* Animated Ambient Background Glow Orbs */}
