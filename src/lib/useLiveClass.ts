@@ -24,6 +24,7 @@ export interface LiveMeeting {
   recordingUrl?: string | null;
   isScheduled?: boolean;
   scheduledAt?: number | null;
+  teacherJoined?: boolean;
 }
 
 export interface Participant {

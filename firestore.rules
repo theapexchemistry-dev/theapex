@@ -76,5 +76,11 @@ service cloud.firestore {
       allow read: if true;
       allow write: if isAdmin();
     }
+
+    // Live Meetings Collection
+    match /liveMeetings/{meetingId} {
+      allow read: if true;
+      allow write: if true; // Allows teacher to initialize/update, and student/socket interactions if needed
+    }
   }
 }

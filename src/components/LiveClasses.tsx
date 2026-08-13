@@ -490,19 +490,22 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
           </div>
         )}
 
-        {showWebRTCModal && (
-          <MeetingDialog
-            meeting={showWebRTCModal}
-            role="admin"
-            displayName={teacherName || "Mr. Subhamoy Mondal"}
-            meetingActive={showWebRTCModal.active || (showWebRTCModal.isScheduled && showWebRTCModal.scheduledAt && Date.now() >= showWebRTCModal.scheduledAt)}
-            onClose={() => setShowWebRTCModal(null)}
-            onEndMeeting={(id) => {
-              handleEndMeeting(id);
-              setShowWebRTCModal(null);
-            }}
-          />
-        )}
+        {showWebRTCModal && (() => {
+          const currentMeeting = meetings.find((m) => m.id === showWebRTCModal.id) || showWebRTCModal;
+          return (
+            <MeetingDialog
+              meeting={currentMeeting}
+              role="admin"
+              displayName={teacherName || "Mr. Subhamoy Mondal"}
+              meetingActive={currentMeeting.active || (currentMeeting.isScheduled && currentMeeting.scheduledAt && Date.now() >= currentMeeting.scheduledAt)}
+              onClose={() => setShowWebRTCModal(null)}
+              onEndMeeting={(id) => {
+                handleEndMeeting(id);
+                setShowWebRTCModal(null);
+              }}
+            />
+          );
+        })()}
       </div>
     );
   }
@@ -598,16 +601,19 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
         </div>
       )}
 
-      {showWebRTCModal && (
-        <MeetingDialog
-          meeting={showWebRTCModal}
-          role="student"
-          displayName={studentRegisteredName}
-          meetingActive={showWebRTCModal.active || (showWebRTCModal.isScheduled && showWebRTCModal.scheduledAt && Date.now() >= showWebRTCModal.scheduledAt)}
-          onClose={() => setShowWebRTCModal(null)}
-          onEndMeeting={() => setShowWebRTCModal(null)}
-        />
-      )}
+      {showWebRTCModal && (() => {
+        const currentMeeting = meetings.find((m) => m.id === showWebRTCModal.id) || showWebRTCModal;
+        return (
+          <MeetingDialog
+            meeting={currentMeeting}
+            role="student"
+            displayName={studentRegisteredName}
+            meetingActive={currentMeeting.active || (currentMeeting.isScheduled && currentMeeting.scheduledAt && Date.now() >= currentMeeting.scheduledAt)}
+            onClose={() => setShowWebRTCModal(null)}
+            onEndMeeting={() => setShowWebRTCModal(null)}
+          />
+        );
+      })()}
     </div>
   );
 }

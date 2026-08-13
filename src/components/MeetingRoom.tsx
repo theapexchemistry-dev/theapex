@@ -18,6 +18,7 @@ import {
   type LiveMeeting,
   type Participant,
 } from "../lib/useLiveClass";
+import { updateMeeting } from "../lib/firebaseSync";
 
 // Tiny className joiner (no external dep)
 function cn(...classes: (string | false | undefined | null)[]): string {
@@ -66,6 +67,19 @@ export function MeetingDialog({
 
   const ended = !isAdmin && !meetingActive;
 
+  // Set teacherJoined: true in Firestore when the teacher joins
+  useEffect(() => {
+    if (isAdmin && meeting.id && !meeting.teacherJoined) {
+      updateMeeting({
+        ...meeting,
+        teacherJoined: true,
+        active: true,
+      }).catch((err) => {
+        console.error("Failed to update teacherJoined in Firestore:", err);
+      });
+    }
+  }, [isAdmin, meeting.id, meeting.teacherJoined]);
+
   useEffect(() => {
     if (!ended) return;
     const t = setTimeout(onClose, 2500);
@@ -85,6 +99,14 @@ export function MeetingDialog({
 
   const handleLeave = () => {
     room.leave();
+    if (isAdmin && meeting.id) {
+      updateMeeting({
+        ...meeting,
+        teacherJoined: false,
+      }).catch((err) => {
+        console.error("Failed to update teacherJoined on leave:", err);
+      });
+    }
     onClose();
   };
 
@@ -185,12 +207,18 @@ export function MeetingDialog({
                 <Video className="h-7 w-7 text-amber-400" />
               </div>
               <p className="text-sm font-bold text-white">
-                {isAdmin ? "Setting Up Live Classroom…" : "Waiting for the teacher…"}
+                {isAdmin 
+                  ? "Setting Up Live Classroom…" 
+                  : meeting.teacherJoined 
+                    ? "Connecting to Teacher's Stream…" 
+                    : "Teacher is yet to join…"}
               </p>
               <p className="mt-2 text-xs text-slate-400 leading-relaxed">
                 {isAdmin
                   ? "Allow camera and microphone access to start your video stream. If prompted by your browser, please choose 'Allow'."
-                  : "The live stream will begin as soon as the teacher goes online."}
+                  : meeting.teacherJoined
+                    ? "Teacher is online! Establishing secure peer connection, please wait."
+                    : "The live stream will begin as soon as the teacher goes online."}
               </p>
 
               {/* IFrame Sandbox Warning */}

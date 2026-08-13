@@ -25,15 +25,15 @@ export interface LiveMeeting {
   id: string;
   title: string;
   scope: "batch" | "class" | "all";
-  batchId: string | null;
-  batchTitle: string | null;
-  className: string | null;
+  batchId?: string | null;
+  batchTitle?: string | null;
+  className?: string | null;
   teacherName: string;
   roomName: string;
   startedAt: number;
-  durationMins: number;
+  durationMins?: number;
   active: boolean;
-  endedAt: number | null;
+  endedAt?: number | null;
   createdAt: number;
   platform?: "webrtc";
   meetUrl?: string | null;
@@ -41,6 +41,7 @@ export interface LiveMeeting {
   recordingUrl?: string | null;
   isScheduled?: boolean;
   scheduledAt?: number | null;
+  teacherJoined?: boolean;
 }
 
 // ── stripUndefined ──────────────────────────────────────────────────────────
