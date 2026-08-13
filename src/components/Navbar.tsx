@@ -37,8 +37,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [allNotifications, setAllNotifications] = useState<NotificationItem[]>(() => StorageService.getNotifications());
 
   // ── Dark mode state ───────────────────────────────────────────────────
-  // Persists in localStorage. Toggles a `dark` class on <html> and overrides
-  // the page background so the whole app feels dark, not just the navbar.
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     try {
       return localStorage.getItem('apex_dark_mode') === 'true';
@@ -52,7 +50,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     const body = document.body;
     if (darkMode) {
       root.classList.add('dark');
-      body.style.backgroundColor = '#0B132B';
+      body.style.backgroundColor = '#000000';
       body.style.transition = 'background-color 0.3s ease';
     } else {
       root.classList.remove('dark');
@@ -155,24 +153,23 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <header className="sticky top-0 z-40 px-3 sm:px-4 lg:px-6 pt-3 pb-2 transition-colors duration-300">
-      {/* ───────────────────────────────────────────────────────────────
-          GLASS NAVBAR — frosted glass with heavy blur, ultra-round
-          corners, soft floating shadow, subtle border.
-          Zoom-on-hover for nav items.
-         ─────────────────────────────────────────────────────────────── */}
       <div className="max-w-[1400px] mx-auto">
         <div className={`border rounded-[32px] ${glassBar} transition-colors duration-300`}>
-          <div className="px-3 sm:px-4 lg:px-5 h-16 flex items-center justify-between gap-2">
+          {/* ── Row: [Logo]  [spacer]  [dark mode | bell | user | hamburger] ── */}
+          <div className="px-3 sm:px-4 lg:px-5 h-16 flex items-center gap-2 sm:gap-3">
 
-            {/* Logo — adapts to dark/light */}
+            {/* Logo — COMPACT (icon only) on mobile, full on sm+ */}
             <div
               onClick={() => onTabChange(role === 'guest' ? 'home' : 'dashboard')}
-              className="cursor-pointer group min-w-0 flex-1 lg:flex-none transition-transform duration-200 hover:scale-[1.03]"
+              className="cursor-pointer group shrink-0 transition-transform duration-200 hover:scale-[1.03]"
             >
-              <Logo size="md" variant={darkMode ? 'dark' : 'light'} />
+              <Logo size="md" variant={darkMode ? 'dark' : 'light'} compact={false} />
             </div>
 
-            {/* Desktop nav — glass pill inside the glass bar, with zoom hover */}
+            {/* Spacer to push the right cluster to the end */}
+            <div className="flex-1" />
+
+            {/* Desktop nav — hidden on mobile */}
             {navItems.length > 0 && (
               <nav className={`hidden lg:flex items-center gap-1 p-1.5 rounded-[28px] border ${innerPill} shrink-0 transition-colors duration-300`}>
                 {navItems.map(item => (
@@ -193,12 +190,13 @@ export const Navbar: React.FC<NavbarProps> = ({
               </nav>
             )}
 
-            <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+            {/* Right-side action cluster — fixed compact gap on mobile */}
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
               {/* ── Dark mode toggle ─────────────────────────────────── */}
               <button
                 onClick={() => setDarkMode(d => !d)}
                 title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-                className={`p-2 rounded-2xl ${iconColor} ${iconHover} ${hoverBg} relative transition-all duration-300 hover:scale-110 active:scale-90`}
+                className={`p-2 rounded-2xl ${iconColor} ${iconHover} ${hoverBg} transition-all duration-300 hover:scale-110 active:scale-90`}
               >
                 {darkMode ? (
                   <Sun className="w-5 h-5 text-amber-400" />
@@ -285,12 +283,13 @@ export const Navbar: React.FC<NavbarProps> = ({
               {role === 'guest' ? (
                 <button
                   onClick={onLoginClick}
-                  className="px-5 py-2 bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs rounded-2xl shadow-md transition-all duration-200 hover:scale-105 active:scale-95 flex items-center gap-1.5"
+                  className="px-4 sm:px-5 py-2 bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs rounded-2xl shadow-md transition-all duration-200 hover:scale-105 active:scale-95 flex items-center gap-1.5"
                 >
-                  <User className="w-4 h-4" /> Portal Login
+                  <User className="w-4 h-4" /> <span className="hidden sm:inline">Portal Login</span><span className="sm:hidden">Login</span>
                 </button>
               ) : (
-                <div className={`flex items-center gap-2 px-2 sm:px-3 py-1.5 rounded-2xl border ${innerPill} transition-colors duration-300`}>
+                /* User badge — avatar only on mobile, full on md+ */
+                <div className={`flex items-center gap-1 sm:gap-2 px-1.5 sm:px-3 py-1.5 rounded-2xl border ${innerPill} transition-colors duration-300`}>
                   {role === 'admin' ? (
                     <div className="flex items-center gap-2">
                       <div className="w-7 h-7 rounded-xl bg-amber-400/30 text-amber-600 flex items-center justify-center font-bold text-xs">
@@ -316,7 +315,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <button
                     onClick={onLogout}
                     title="Logout"
-                    className={`ml-1 p-1.5 rounded-xl transition-all duration-200 hover:scale-110 active:scale-90 ${
+                    className={`p-1.5 rounded-xl transition-all duration-200 hover:scale-110 active:scale-90 ${
                       darkMode ? 'text-slate-400 hover:text-red-400' : 'text-slate-500 hover:text-red-500'
                     }`}
                   >
