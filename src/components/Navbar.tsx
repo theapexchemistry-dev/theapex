@@ -10,7 +10,8 @@ import {
   ShieldCheck,
   BookOpen,
   Menu,
-  X
+  X,
+  Clock
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -55,7 +56,23 @@ export const Navbar: React.FC<NavbarProps> = ({
     }
     return false;
   });
-  const unreadCount = notifications.filter(n => !n.read).length;
+
+  // Sort notifications newest first using ID (base-36 timestamp) and date parsing
+  const sortedNotifications = [...notifications].sort((a, b) => {
+    const idA = a.id && a.id.startsWith('n-') ? parseInt(a.id.substring(2), 36) : 0;
+    const idB = b.id && b.id.startsWith('n-') ? parseInt(b.id.substring(2), 36) : 0;
+    if (idA && idB && !isNaN(idA) && !isNaN(idB)) {
+      return idB - idA;
+    }
+    const parseTime = (ts: string) => {
+      if (!ts || ts === 'Just now') return Date.now();
+      const parsed = Date.parse(ts);
+      return isNaN(parsed) ? 0 : parsed;
+    };
+    return parseTime(b.timestamp) - parseTime(a.timestamp);
+  });
+
+  const unreadCount = sortedNotifications.filter(n => !n.read).length;
 
   const handleMarkNotificationsRead = () => {
     StorageService.markNotificationsRead(role === 'admin' ? 'admin' : 'student', currentStudent?.id);
@@ -138,8 +155,9 @@ export const Navbar: React.FC<NavbarProps> = ({
           {role !== 'guest' && (
             <div className="relative">
               <button
+                id="notification-bell-btn"
                 onClick={() => setShowNotifications(!showNotifications)}
-                className="p-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 transition-colors relative"
+                className="p-2.5 rounded-xl text-slate-300 hover:text-amber-400 hover:bg-slate-800/80 transition-all active:scale-95 duration-200 relative focus:outline-none focus:ring-2 focus:ring-amber-400/40"
               >
                 <Bell className="w-5 h-5" />
                 {unreadCount > 0 && (
@@ -166,10 +184,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </div>
 
                   <div className="max-h-72 overflow-y-auto space-y-2 text-xs">
-                    {notifications.length === 0 ? (
+                    {sortedNotifications.length === 0 ? (
                       <p className="text-slate-400 text-center py-4 font-medium">No notifications yet.</p>
                     ) : (
-                      notifications.slice(0, 5).map(n => (
+                      sortedNotifications.slice(0, 5).map(n => (
                         <div
                           key={n.id}
                           onClick={() => handleNotificationClick(n)}
@@ -186,16 +204,18 @@ export const Navbar: React.FC<NavbarProps> = ({
                             )}
                           </div>
                           <p className="text-slate-600 mt-0.5 text-[11px] leading-relaxed">{n.message}</p>
-                          <span className="text-[10px] text-slate-400 mt-1 block font-mono">{n.timestamp}</span>
+                          <span className="text-[10px] text-slate-400 mt-1.5 flex items-center gap-1 font-medium font-sans">
+                            <Clock className="w-3 h-3 text-slate-400 shrink-0" /> {n.timestamp}
+                          </span>
                         </div>
                       ))
                     )}
                   </div>
 
-                  {notifications.length > 5 && (
+                  {sortedNotifications.length > 5 && (
                     <div className="mt-2 pt-2 border-t border-slate-100 text-center">
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                        Showing top 5 of {notifications.length} notifications
+                        Showing top 5 of {sortedNotifications.length} notifications
                       </span>
                     </div>
                   )}

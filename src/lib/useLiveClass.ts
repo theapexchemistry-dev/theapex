@@ -7,16 +7,23 @@ import { io, type Socket } from "socket.io-client";
 export interface LiveMeeting {
   id: string;
   title: string;
-  scope: "batch" | "all";
+  scope: "batch" | "class" | "all";
   batchId?: string | null;
   batchTitle?: string | null;
   className?: string | null;
   teacherName: string;
   roomName: string;
   startedAt: number;
+  durationMins?: number;
   active: boolean;
   endedAt?: number | null;
   createdAt: number;
+  platform?: "webrtc";
+  meetUrl?: string | null;
+  autoNameConfig?: boolean;
+  recordingUrl?: string | null;
+  isScheduled?: boolean;
+  scheduledAt?: number | null;
 }
 
 export interface Participant {
@@ -32,8 +39,7 @@ export interface Participant {
 // ============================================================================
 //  Socket config
 // ============================================================================
-const SOCKET_URL =
-  (import.meta as any).env?.VITE_LIVE_SYNC_URL || "http://localhost:3001";
+const SOCKET_URL = "/";
 
 const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
@@ -351,7 +357,7 @@ export function useMeetingRoom({
               createAdminPC(sid);
             }
           });
-          for (const peerId of Array.from(pcsRef.current.keys())) {
+          for (const peerId of Array.from(pcsRef.current.keys()) as string[]) {
             if (!studentIds.includes(peerId)) {
               const pc = pcsRef.current.get(peerId)!;
               try {
@@ -365,7 +371,7 @@ export function useMeetingRoom({
         } else {
           const adminP = data.participants.find((p) => p.role === "admin");
           if (!adminP) {
-            for (const pc of Array.from(pcsRef.current.values())) {
+            for (const pc of Array.from(pcsRef.current.values()) as RTCPeerConnection[]) {
               try {
                 pc.close();
               } catch {
@@ -450,7 +456,7 @@ export function useMeetingRoom({
 
     return () => {
       mounted = false;
-      for (const pc of Array.from(pcsRef.current.values())) {
+      for (const pc of Array.from(pcsRef.current.values()) as RTCPeerConnection[]) {
         try {
           pc.close();
         } catch {
@@ -515,7 +521,7 @@ export function useMeetingRoom({
     const ss = screenStreamRef.current;
     if (!ss) return;
     const screenTrack = ss.getVideoTracks()[0];
-    for (const pc of Array.from(pcsRef.current.values())) {
+    for (const pc of Array.from(pcsRef.current.values()) as RTCPeerConnection[]) {
       try {
         const senders = pc.getSenders();
         const screenSender = senders.find(
@@ -549,7 +555,7 @@ export function useMeetingRoom({
       setScreenStream(stream);
       setScreenSharing(true);
 
-      for (const pc of Array.from(pcsRef.current.values())) {
+      for (const pc of Array.from(pcsRef.current.values()) as RTCPeerConnection[]) {
         try {
           pc.addTrack(track, stream);
         } catch (err) {

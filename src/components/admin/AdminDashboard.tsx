@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { StorageService } from '../../lib/storage';
+import { subscribeToSupportRequests } from '../../lib/firebaseSync';
 import { Student, Batch, NotificationItem, FeeRecord, Doubt, Note } from '../../types';
 import {
   Users,
@@ -48,7 +49,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [showAllNotificationsModal, setShowAllNotificationsModal] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Listen for storage updates
+  // Listen for storage updates and subscribe to support requests
   useEffect(() => {
     const refresh = () => {
       setStudents(StorageService.getStudents());
@@ -61,9 +62,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     };
     window.addEventListener('apex_storage_updated', refresh);
     window.addEventListener('storage', refresh);
+
+    let unsubSupport = () => {};
+    try {
+      unsubSupport = subscribeToSupportRequests((allRequests) => {
+        setSupportRequests(allRequests);
+      });
+    } catch (e) {
+      console.debug('Dashboard support subscription skipped', e);
+    }
+
     return () => {
       window.removeEventListener('apex_storage_updated', refresh);
       window.removeEventListener('storage', refresh);
+      unsubSupport();
     };
   }, []);
 
@@ -182,7 +194,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setAllNotifications(StorageService.getNotifications());
   };
 
-  // 4 main stats cards matching the screenshot
+  // 6 main stats cards
   const stats = [
     {
       label: 'Total Students',
@@ -227,13 +239,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       bg: 'bg-purple-50',
       ring: 'ring-purple-100',
       onClick: () => onTabChange('doubts')
+    },
+    {
+      label: 'Total Notes',
+      value: totalNotes,
+      sub: 'Uploaded documents',
+      icon: FileText,
+      color: 'text-indigo-600',
+      bg: 'bg-indigo-50',
+      ring: 'ring-indigo-100',
+      onClick: () => onTabChange('notes')
+    },
+    {
+      label: 'Support Tickets',
+      value: supportRequests.length,
+      sub: `${pendingSupport.length} pending requests`,
+      icon: AlertCircle,
+      color: 'text-rose-600',
+      bg: 'bg-rose-50',
+      ring: 'ring-rose-100',
+      onClick: () => onTabChange('support')
     }
-  ];
-
-  // Extra quick stats (smaller, below the main 4)
-  const extraStats = [
-    { label: 'Notes', value: totalNotes, icon: FileText, color: 'text-emerald-600', onClick: () => onTabChange('notes') },
-    { label: 'Support', value: supportRequests.length, sub: `${pendingSupport.length} pending`, icon: AlertCircle, color: 'text-rose-600', onClick: () => onTabChange('support') }
   ];
 
   return (
@@ -244,38 +270,38 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <h2 className="text-2xl font-black text-slate-900 tracking-tight">Dashboard</h2>
           <p className="text-sm text-slate-500 mt-0.5">Welcome back, Mr. Subhamoy Mondal! Here's your institute overview.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 w-full md:w-auto">
           <button
             onClick={handleRefreshDatabase}
             disabled={isRefreshing}
-            className="px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-60 border border-slate-200 shadow-sm"
+            className="px-3.5 py-2.5 sm:py-2 bg-white hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-60 border border-slate-200 shadow-sm w-full sm:w-auto"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
             {isRefreshing ? 'Refreshing...' : 'Refresh'}
           </button>
           <button
             onClick={onAddStudent}
-            className="px-3.5 py-2 bg-[#0B132B] hover:bg-slate-900 text-amber-400 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm"
+            className="px-3.5 py-2.5 sm:py-2 bg-[#0B132B] hover:bg-slate-900 text-amber-400 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-sm w-full sm:w-auto"
           >
             <UserPlus className="w-3.5 h-3.5" /> Add Student
           </button>
           <button
             onClick={onAddBatch}
-            className="px-3.5 py-2 bg-amber-400 hover:bg-amber-500 text-slate-950 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm"
+            className="px-3.5 py-2.5 sm:py-2 bg-amber-400 hover:bg-amber-500 text-slate-950 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-sm w-full sm:w-auto"
           >
             <Plus className="w-3.5 h-3.5" /> New Batch
           </button>
           <button
             onClick={onUploadNotes}
-            className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm"
+            className="px-3.5 py-2.5 sm:py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-sm w-full sm:w-auto"
           >
             <Upload className="w-3.5 h-3.5" /> Upload Notes
           </button>
         </div>
       </div>
 
-      {/* Stats Cards — 4 main cards matching the screenshot */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Stats Cards — fully responsive grid up to 6 columns */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {stats.map((stat, idx) => {
           const Icon = stat.icon;
           return (

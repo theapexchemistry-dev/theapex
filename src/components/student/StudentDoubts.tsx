@@ -434,11 +434,48 @@ export const StudentDoubts: React.FC<StudentDoubtsProps> = ({ student }) => {
                   )}
 
                   {d.answerText && (
-                    <div className="bg-slate-900 text-white p-4 rounded-xl border border-slate-800 space-y-1 text-xs">
+                    <div className="bg-slate-900 text-white p-4 rounded-xl border border-slate-800 space-y-2 text-xs">
                       <p className="text-amber-300 font-bold flex items-center gap-1 text-[11px] uppercase tracking-wider">
                         <MessageCircle className="w-3.5 h-3.5" /> Faculty Solution • Mr. Subhamoy Mondal
                       </p>
-                      <p className="text-slate-200 leading-relaxed font-medium">{d.answerText}</p>
+                      <p className="text-slate-200 leading-relaxed font-medium whitespace-pre-wrap">{d.answerText}</p>
+                      {d.answerImageUrl && (
+                        <div className="pt-1">
+                          <p className="text-[10px] font-bold text-slate-400 mb-1 flex items-center justify-between">
+                            <span>Attached Solution Picture:</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedImage(d.answerImageUrl!);
+                                setImageModalOpen(true);
+                              }}
+                              className="text-amber-300 hover:text-amber-400 flex items-center gap-1 bg-slate-800 px-2 py-0.5 rounded"
+                            >
+                              <Eye className="w-3 h-3" /> View Full
+                            </button>
+                          </p>
+                          {d.answerImageUrl.startsWith('chunked:') ? (
+                            <ChunkedImage
+                              fileId={d.answerImageUrl.split(':')[1]}
+                              className="w-full max-h-48 object-cover rounded-xl border border-slate-700 shadow-sm cursor-pointer hover:opacity-90 transition-opacity"
+                              onClick={() => {
+                                setSelectedImage(d.answerImageUrl!);
+                                setImageModalOpen(true);
+                              }}
+                            />
+                          ) : (
+                            <img
+                              src={d.answerImageUrl}
+                              alt="Solution Attachment"
+                              className="w-full max-h-48 object-cover rounded-xl border border-slate-700 shadow-sm cursor-pointer hover:opacity-90 transition-opacity"
+                              onClick={() => {
+                                setSelectedImage(d.answerImageUrl!);
+                                setImageModalOpen(true);
+                              }}
+                            />
+                          )}
+                        </div>
+                      )}
                       <span className="text-[10px] text-slate-400 font-mono block pt-1">{d.answeredAt}</span>
                     </div>
                   )}

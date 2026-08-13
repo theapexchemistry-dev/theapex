@@ -35,6 +35,12 @@ export interface LiveMeeting {
   active: boolean;
   endedAt: number | null;
   createdAt: number;
+  platform?: "webrtc";
+  meetUrl?: string | null;
+  autoNameConfig?: boolean;
+  recordingUrl?: string | null;
+  isScheduled?: boolean;
+  scheduledAt?: number | null;
 }
 
 // ── stripUndefined ──────────────────────────────────────────────────────────
@@ -612,4 +618,12 @@ export function subscribeToSupportRequests(
   return () => {
     try { unsub(); } catch (e) { /* ignore */ }
   };
+}
+
+export async function updateMeeting(meeting: LiveMeeting): Promise<void> {
+  const arr = readLocalMeetings();
+  const updated = arr.map((m) => (m.id === meeting.id ? meeting : m));
+  writeLocalMeetings(updated);
+  window.dispatchEvent(new Event("apex_live_meetings_updated"));
+  await syncDocToFirestore('liveMeetings', meeting.id, meeting);
 }

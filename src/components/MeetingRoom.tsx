@@ -369,7 +369,7 @@ function ControlButton({
   );
 }
 
-function ParticipantRow({ p }: { p: Participant }) {
+function ParticipantRow({ p }: { p: Participant; key?: React.Key }) {
   const initial = (p.displayName || "?").trim().charAt(0).toUpperCase();
   const isHost = p.role === "admin";
   return (

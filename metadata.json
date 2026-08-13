@@ -1,6 +1,12 @@
 {
   "name": "The Apex Chemistry",
   "description": "Institute management & student portal for The Apex Chemistry with Admin and Student panels, batch scheduling, notes, doubts, tests & automated ranks, fee reminders, and UPI QR payments.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "display-capture"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

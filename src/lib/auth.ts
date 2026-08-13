@@ -172,7 +172,7 @@ export const googleSignInWithPopup = async (): Promise<{
       'Popup sign-in — could not extract access token. Result keys:',
       Object.keys(result || {}),
       'Token response keys:',
-      Object.keys(result?._tokenResponse || {})
+      Object.keys((result as any)?._tokenResponse || {})
     );
     throw new Error(
       'Gmail access token could not be retrieved. Please disconnect any existing Google sign-in and try again.'

@@ -63,6 +63,7 @@ export interface Doubt {
   imageUrl?: string;
   status: 'pending' | 'answered' | 'ai_answered' | 'escalated';
   answerText?: string;
+  answerImageUrl?: string;
   answeredAt?: string;
   aiAnswer?: string;
   aiConfidence?: 'high' | 'medium' | 'low' | 'unknown';
@@ -94,7 +95,7 @@ export interface NotificationItem {
   id: string;
   title: string;
   message: string;
-  type: 'doubt' | 'fee_reminder' | 'note' | 'test' | 'payment_received';
+  type: 'doubt' | 'fee_reminder' | 'note' | 'test' | 'payment_received' | 'announcement';
   timestamp: string;
   targetRole: 'admin' | 'student';
   targetStudentId?: string;

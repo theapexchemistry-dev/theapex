@@ -476,6 +476,9 @@ export class StorageService {
   static saveNotes(notes: Note[]): void {
     setItem(KEYS.NOTES, notes);
     syncArrayToFirestore('notes', notes);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('apex_storage_updated'));
+    }
   }
 
   static addNote(noteData: Omit<Note, 'id' | 'createdAt'> & { id?: string }): Note {
@@ -577,7 +580,7 @@ export class StorageService {
     return newDoubt;
   }
 
-  static answerDoubt(id: string, answerText: string): void {
+  static answerDoubt(id: string, answerText: string, answerImageUrl?: string): void {
     const doubts = this.getDoubts();
     const now = new Date();
     const formattedDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
@@ -594,6 +597,7 @@ export class StorageService {
           ...d,
           status: 'answered' as const,
           answerText,
+          answerImageUrl,
           answeredAt: formattedDate
         };
         return answeredDoubtDoc;

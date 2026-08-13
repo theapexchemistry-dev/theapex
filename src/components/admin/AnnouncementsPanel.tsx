@@ -41,11 +41,11 @@ export const AnnouncementsPanel: React.FC = () => {
 
     targetStudents.forEach(student => {
       StorageService.addNotification({
-        id: 'n-' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
-        userId: student.id,
         title: `Announcement: ${title}`,
         message: message,
         type: 'announcement',
+        targetRole: 'student',
+        targetStudentId: student.id,
         timestamp: 'Just now',
         read: false
       });

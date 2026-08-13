@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { StorageService } from '../../lib/storage';
 import { Doubt, Batch } from '../../types';
-import { HelpCircle, CheckCircle2, Clock, MessageSquare, Send, Image as ImageIcon, Eye, XCircle, Bot, AlertTriangle } from 'lucide-react';
+import { HelpCircle, CheckCircle2, Clock, MessageSquare, Send, Image as ImageIcon, Eye, XCircle, Bot, AlertTriangle, Loader2 } from 'lucide-react';
 import { ChunkedImage } from '../ChunkedImage';
+import { uploadFileChunks } from '../../lib/fileChunks';
 
 export const AdminDoubts: React.FC = () => {
   const [batches] = useState<Batch[]>(() => StorageService.getBatches());
@@ -15,6 +16,9 @@ export const AdminDoubts: React.FC = () => {
 
   const [activeDoubt, setActiveDoubt] = useState<Doubt | null>(null);
   const [answerText, setAnswerText] = useState('');
+  const [answerImageUrl, setAnswerImageUrl] = useState('');
+  const [answerImageName, setAnswerImageName] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [imageModalOpen, setImageModalOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState('');
 
@@ -34,14 +38,54 @@ export const AdminDoubts: React.FC = () => {
     };
   }, []);
 
-  const handleAnswerSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeDoubt || !answerText.trim()) return;
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setAnswerImageName(file.name);
+      try {
+        const { default: imageCompression } = await import('browser-image-compression');
+        const options = { maxSizeMB: 0.5, maxWidthOrHeight: 1024, useWebWorker: true };
+        const compressedFile = await imageCompression(file, options);
+        const base64Data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.readAsDataURL(compressedFile);
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = error => reject(error);
+        });
+        setAnswerImageUrl(base64Data);
+      } catch (err) {
+        console.error('Error compressing image:', err);
+        alert('Failed to process image. Please try again.');
+      }
+    }
+  };
 
-    StorageService.answerDoubt(activeDoubt.id, answerText);
-    refreshDoubts();
-    setActiveDoubt(null);
-    setAnswerText('');
+  const handleAnswerSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeDoubt || !answerText.trim() || isSubmitting) return;
+
+    setIsSubmitting(true);
+    try {
+      let finalAnswerImageUrl = answerImageUrl;
+
+      if (answerImageUrl && !answerImageUrl.startsWith('chunked:') && !answerImageUrl.startsWith('http')) {
+        const fileId = `answer-${Date.now()}`;
+        await uploadFileChunks(fileId, answerImageUrl);
+        finalAnswerImageUrl = `chunked:${fileId}`;
+      }
+
+      StorageService.answerDoubt(activeDoubt.id, answerText, finalAnswerImageUrl || undefined);
+      refreshDoubts();
+      setActiveDoubt(null);
+      setAnswerText('');
+      setAnswerImageUrl('');
+      setAnswerImageName('');
+    } catch (err) {
+      console.error('Error submitting faculty answer:', err);
+      alert('Failed to send answer. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleDeleteDoubt = () => {
@@ -50,6 +94,8 @@ export const AdminDoubts: React.FC = () => {
     refreshDoubts();
     setActiveDoubt(null);
     setAnswerText('');
+    setAnswerImageUrl('');
+    setAnswerImageName('');
   };
 
   // ─── PATCH B: filter matcher extended with AI_ANSWERED + ESCALATED ──────
@@ -119,6 +165,8 @@ export const AdminDoubts: React.FC = () => {
                 onClick={() => {
                   setActiveDoubt(d);
                   setAnswerText(d.answerText || '');
+                  setAnswerImageUrl(d.answerImageUrl || '');
+                  setAnswerImageName(d.answerImageUrl ? 'Attached image' : '');
                 }}
                 className={`bg-white p-5 rounded-2xl border transition-all cursor-pointer shadow-sm ${
                   activeDoubt?.id === d.id
@@ -267,17 +315,46 @@ export const AdminDoubts: React.FC = () => {
                 />
               </div>
 
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Attach Faculty Explanation Picture (Optional)</label>
+                {answerImageUrl ? (
+                  <div className="relative rounded-xl overflow-hidden border border-slate-200">
+                    {answerImageUrl.startsWith('chunked:') ? (
+                      <ChunkedImage fileId={answerImageUrl.split(':')[1]} className="w-full max-h-48 object-cover cursor-pointer" onClick={() => { setSelectedImage(answerImageUrl); setImageModalOpen(true); }} />
+                    ) : (
+                      <img src={answerImageUrl} alt="Faculty Preview" className="w-full max-h-48 object-cover cursor-pointer" onClick={() => { setSelectedImage(answerImageUrl); setImageModalOpen(true); }} />
+                    )}
+                    <button type="button" onClick={() => { setAnswerImageUrl(''); setAnswerImageName(''); }}
+                      className="absolute top-2 right-2 p-1.5 bg-black/60 text-white rounded-full hover:bg-black/80 backdrop-blur-sm">
+                      <XCircle className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="relative border-2 border-dashed border-indigo-200 bg-indigo-50/30 hover:bg-indigo-50/60 rounded-xl p-4 text-center transition-colors">
+                    <input type="file" accept="image/*" onChange={handleImageUpload} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
+                    <div className="space-y-1">
+                      <ImageIcon className="w-5 h-5 text-indigo-600 mx-auto" />
+                      <p className="text-xs font-bold text-slate-800">Click or capture solution picture</p>
+                      <p className="text-[10px] text-slate-400">JPG, PNG up to 10MB</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="flex gap-3">
                 <button
                   type="submit"
-                  className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5"
+                  disabled={isSubmitting}
+                  className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-extrabold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5"
                 >
-                  <Send className="w-4 h-4" /> Send Solution & Notify Student
+                  {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  {isSubmitting ? 'Uploading image...' : 'Send Solution & Notify Student'}
                 </button>
                 <button
                   type="button"
                   onClick={handleDeleteDoubt}
-                  className="py-3 px-4 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 font-extrabold text-xs rounded-xl transition-all"
+                  disabled={isSubmitting}
+                  className="py-3 px-4 bg-red-50 hover:bg-red-100 disabled:opacity-50 text-red-600 border border-red-200 font-extrabold text-xs rounded-xl transition-all"
                 >
                   Delete
                 </button>

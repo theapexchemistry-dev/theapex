@@ -138,7 +138,7 @@ export default function App() {
   }, [role, currentStudent]);
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-amber-400 selection:text-slate-950">
+    <div className="min-h-screen overflow-x-hidden transition-colors duration-200 flex flex-col font-sans selection:bg-amber-400 selection:text-slate-950 bg-slate-50 text-slate-900">
       {/* Top Navbar */}
       <Navbar
         role={role}
@@ -168,7 +168,7 @@ export default function App() {
             {activeTab !== 'dashboard' && (
               <button 
                 onClick={() => setActiveTab('dashboard')} 
-                className="mb-6 flex items-center gap-1.5 text-sm font-bold text-slate-500 hover:text-slate-900 transition-colors bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm w-fit"
+                className="mb-6 flex items-center gap-1.5 text-sm font-bold transition-colors px-4 py-2 rounded-xl border shadow-sm w-fit bg-white border-slate-200 text-slate-500 hover:text-slate-900"
               >
                 <ArrowLeft className="w-4 h-4" /> Back to Dashboard
               </button>
