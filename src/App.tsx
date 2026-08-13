@@ -190,7 +190,7 @@ export default function App() {
                 {activeTab === 'notes' && <AdminNotes />}
                 {activeTab === 'doubts' && <AdminDoubts />}
                 {activeTab === 'tests' && <AdminTests />}
-                {activeTab === 'videocall' && <AdminVideoCall />}
+                {(activeTab === 'videocall' || activeTab === 'live') && <AdminVideoCall />}
                 {activeTab === 'settings' && <AdminSettings />}
                 {activeTab === 'support' && <AdminSupport />}
               </>
@@ -208,7 +208,7 @@ export default function App() {
                 {activeTab === 'notes' && <StudentNotes student={currentStudent} />}
                 {activeTab === 'tests' && <StudentTests student={currentStudent} />}
                 {activeTab === 'doubts' && <StudentDoubts student={currentStudent} />}
-                {activeTab === 'videocall' && <StudentVideoCall student={currentStudent} />}
+                {(activeTab === 'videocall' || activeTab === 'live') && <StudentVideoCall student={currentStudent} />}
                 {activeTab === 'profile' && <StudentProfile student={currentStudent} />}
                 {activeTab === 'help' && <StudentHelp student={currentStudent} />}
               </>
