@@ -10,7 +10,9 @@ import {
   ShieldCheck,
   BookOpen,
   Menu,
-  X
+  X,
+  Sun,
+  Moon
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -33,6 +35,36 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [showNotifications, setShowNotifications] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [allNotifications, setAllNotifications] = useState<NotificationItem[]>(() => StorageService.getNotifications());
+
+  // ── Dark mode state ───────────────────────────────────────────────────
+  // Persists in localStorage. Toggles a `dark` class on <html> and overrides
+  // the page background so the whole app feels dark, not just the navbar.
+  const [darkMode, setDarkMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('apex_dark_mode') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const body = document.body;
+    if (darkMode) {
+      root.classList.add('dark');
+      body.style.backgroundColor = '#0B132B';
+      body.style.transition = 'background-color 0.3s ease';
+    } else {
+      root.classList.remove('dark');
+      body.style.backgroundColor = '';
+      body.style.transition = 'background-color 0.3s ease';
+    }
+    try {
+      localStorage.setItem('apex_dark_mode', String(darkMode));
+    } catch {
+      /* ignore */
+    }
+  }, [darkMode]);
 
   useEffect(() => {
     const refreshNotifs = () => setAllNotifications(StorageService.getNotifications());
@@ -105,35 +137,54 @@ export const Navbar: React.FC<NavbarProps> = ({
         ]
       : [];
 
+  // ── Glass styling tokens (light vs dark) ─────────────────────────────
+  const glassBar = darkMode
+    ? 'bg-slate-900/60 backdrop-blur-xl backdrop-saturate-150 border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.4)] ring-1 ring-white/5'
+    : 'bg-white/65 backdrop-blur-xl backdrop-saturate-150 border-white/60 shadow-[0_8px_32px_rgba(0,0,0,0.08)] ring-1 ring-black/[0.03]';
+
+  const innerPill = darkMode
+    ? 'bg-white/5 backdrop-blur-md border-white/10'
+    : 'bg-white/40 backdrop-blur-md border-white/50';
+
+  const txtPrimary = darkMode ? 'text-white' : 'text-slate-900';
+  const txtSecondary = darkMode ? 'text-slate-300' : 'text-slate-600';
+  const txtMuted = darkMode ? 'text-slate-400' : 'text-slate-500';
+  const hoverBg = darkMode ? 'hover:bg-white/10' : 'hover:bg-white/70';
+  const iconColor = darkMode ? 'text-slate-300' : 'text-slate-700';
+  const iconHover = darkMode ? 'hover:text-white' : 'hover:text-slate-950';
+
   return (
-    <header className="sticky top-0 z-40 px-3 sm:px-4 lg:px-6 pt-3 pb-2">
+    <header className="sticky top-0 z-40 px-3 sm:px-4 lg:px-6 pt-3 pb-2 transition-colors duration-300">
       {/* ───────────────────────────────────────────────────────────────
-          GLASS NAVBAR — frosted glass with heavy blur, very rounded
-          corners, soft floating shadow, subtle white border.
+          GLASS NAVBAR — frosted glass with heavy blur, ultra-round
+          corners, soft floating shadow, subtle border.
+          Zoom-on-hover for nav items.
          ─────────────────────────────────────────────────────────────── */}
       <div className="max-w-[1400px] mx-auto">
-        <div className="bg-white/65 backdrop-blur-xl backdrop-saturate-150 rounded-[24px] border border-white/60 shadow-[0_8px_32px_rgba(0,0,0,0.08)] ring-1 ring-black/[0.03]">
+        <div className={`border rounded-[32px] ${glassBar} transition-colors duration-300`}>
           <div className="px-3 sm:px-4 lg:px-5 h-16 flex items-center justify-between gap-2">
 
-            {/* Logo — light variant for light glass background */}
+            {/* Logo — adapts to dark/light */}
             <div
               onClick={() => onTabChange(role === 'guest' ? 'home' : 'dashboard')}
-              className="cursor-pointer group min-w-0 flex-1 lg:flex-none"
+              className="cursor-pointer group min-w-0 flex-1 lg:flex-none transition-transform duration-200 hover:scale-[1.03]"
             >
-              <Logo size="md" variant="light" />
+              <Logo size="md" variant={darkMode ? 'dark' : 'light'} />
             </div>
 
-            {/* Desktop nav — glass pill inside the glass bar */}
+            {/* Desktop nav — glass pill inside the glass bar, with zoom hover */}
             {navItems.length > 0 && (
-              <nav className="hidden lg:flex items-center gap-0.5 bg-white/40 backdrop-blur-md p-1 rounded-2xl border border-white/50 shrink-0">
+              <nav className={`hidden lg:flex items-center gap-1 p-1.5 rounded-[28px] border ${innerPill} shrink-0 transition-colors duration-300`}>
                 {navItems.map(item => (
                   <button
                     key={item.id}
                     onClick={() => onTabChange(item.id)}
-                    className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition-all whitespace-nowrap ${
+                    className={`px-3 py-1.5 rounded-2xl text-[11px] font-bold transition-all duration-200 whitespace-nowrap hover:scale-110 active:scale-95 ${
                       activeTab === item.id
-                        ? 'bg-amber-400 text-slate-950 shadow-sm font-extrabold'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                        ? 'bg-amber-400 text-slate-950 shadow-md font-extrabold scale-105'
+                        : darkMode
+                          ? `${txtSecondary} hover:text-white hover:bg-white/10`
+                          : 'text-slate-600 hover:text-slate-950 hover:bg-white/70'
                     }`}
                   >
                     {item.label}
@@ -143,11 +194,24 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
 
             <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+              {/* ── Dark mode toggle ─────────────────────────────────── */}
+              <button
+                onClick={() => setDarkMode(d => !d)}
+                title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+                className={`p-2 rounded-2xl ${iconColor} ${iconHover} ${hoverBg} relative transition-all duration-300 hover:scale-110 active:scale-90`}
+              >
+                {darkMode ? (
+                  <Sun className="w-5 h-5 text-amber-400" />
+                ) : (
+                  <Moon className="w-5 h-5" />
+                )}
+              </button>
+
               {role !== 'guest' && (
                 <div className="relative">
                   <button
                     onClick={() => setShowNotifications(!showNotifications)}
-                    className="p-2 rounded-xl text-slate-700 hover:text-slate-950 hover:bg-white/70 transition-colors relative"
+                    className={`p-2 rounded-2xl ${iconColor} ${iconHover} ${hoverBg} transition-all duration-200 hover:scale-110 active:scale-90 relative`}
                   >
                     <Bell className="w-5 h-5" />
                     {unreadCount > 0 && (
@@ -158,15 +222,19 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </button>
 
                   {showNotifications && (
-                    <div className="fixed top-20 left-4 right-4 sm:absolute sm:top-auto sm:left-auto sm:right-0 mt-2 sm:w-80 max-w-sm bg-white/85 backdrop-blur-xl text-slate-900 rounded-3xl shadow-[0_8px_32px_rgba(0,0,0,0.12)] border border-white/60 p-4 z-50 animate-in fade-in zoom-in-95 mx-auto">
-                      <div className="flex justify-between items-center pb-2 border-b border-slate-200/60 mb-2">
-                        <h4 className="font-bold text-sm text-slate-800 flex items-center gap-1.5">
+                    <div className={`fixed top-20 left-4 right-4 sm:absolute sm:top-auto sm:left-auto sm:right-0 mt-2 sm:w-80 max-w-sm rounded-[28px] p-4 z-50 animate-in fade-in zoom-in-95 mx-auto transition-colors duration-300 ${
+                      darkMode
+                        ? 'bg-slate-900/85 backdrop-blur-xl text-white border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)]'
+                        : 'bg-white/85 backdrop-blur-xl text-slate-900 border border-white/60 shadow-[0_8px_32px_rgba(0,0,0,0.12)]'
+                    }`}>
+                      <div className={`flex justify-between items-center pb-2 mb-2 border-b ${darkMode ? 'border-white/10' : 'border-slate-200/60'}`}>
+                        <h4 className={`font-bold text-sm flex items-center gap-1.5 ${txtPrimary}`}>
                           <Bell className="w-4 h-4 text-amber-500" /> Notifications
                         </h4>
                         {unreadCount > 0 && (
                           <button
                             onClick={handleMarkNotificationsRead}
-                            className="text-[11px] text-amber-600 hover:underline font-semibold"
+                            className="text-[11px] text-amber-500 hover:underline font-semibold"
                           >
                             Mark read
                           </button>
@@ -175,34 +243,36 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                       <div className="max-h-72 overflow-y-auto space-y-2 text-xs">
                         {notifications.length === 0 ? (
-                          <p className="text-slate-400 text-center py-4 font-medium">No notifications yet.</p>
+                          <p className={`text-center py-4 font-medium ${txtMuted}`}>No notifications yet.</p>
                         ) : (
                           notifications.slice(0, 5).map(n => (
                             <div
                               key={n.id}
                               onClick={() => handleNotificationClick(n)}
-                              className={`p-2.5 rounded-2xl border text-left cursor-pointer transition-all hover:shadow-sm ${
+                              className={`p-2.5 rounded-2xl border text-left cursor-pointer transition-all hover:shadow-sm hover:scale-[1.02] ${
                                 n.read
-                                  ? 'bg-white/50 border-slate-200/60 hover:bg-white/80'
+                                  ? darkMode
+                                    ? 'bg-white/5 border-white/10 hover:bg-white/10'
+                                    : 'bg-white/50 border-slate-200/60 hover:bg-white/80'
                                   : 'bg-amber-50/80 border-amber-200/80 hover:bg-amber-100/80 shadow-xs'
                               }`}
                             >
                               <div className="flex items-start justify-between gap-1.5">
-                                <p className="font-bold text-slate-900 leading-snug">{n.title}</p>
+                                <p className={`font-bold leading-snug ${txtPrimary}`}>{n.title}</p>
                                 {!n.read && (
                                   <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0 mt-1" />
                                 )}
                               </div>
-                              <p className="text-slate-600 mt-0.5 text-[11px] leading-relaxed">{n.message}</p>
-                              <span className="text-[10px] text-slate-400 mt-1 block font-mono">{n.timestamp}</span>
+                              <p className={`mt-0.5 text-[11px] leading-relaxed ${txtSecondary}`}>{n.message}</p>
+                              <span className={`text-[10px] mt-1 block font-mono ${txtMuted}`}>{n.timestamp}</span>
                             </div>
                           ))
                         )}
                       </div>
 
                       {notifications.length > 5 && (
-                        <div className="mt-2 pt-2 border-t border-slate-200/60 text-center">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        <div className={`mt-2 pt-2 border-t text-center ${darkMode ? 'border-white/10' : 'border-slate-200/60'}`}>
+                          <span className={`text-[10px] font-bold uppercase tracking-wider ${txtMuted}`}>
                             Showing top 5 of {notifications.length} notifications
                           </span>
                         </div>
@@ -215,30 +285,30 @@ export const Navbar: React.FC<NavbarProps> = ({
               {role === 'guest' ? (
                 <button
                   onClick={onLoginClick}
-                  className="px-5 py-2 bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs rounded-2xl shadow-md transition-all hover:scale-[1.02] flex items-center gap-1.5"
+                  className="px-5 py-2 bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs rounded-2xl shadow-md transition-all duration-200 hover:scale-105 active:scale-95 flex items-center gap-1.5"
                 >
                   <User className="w-4 h-4" /> Portal Login
                 </button>
               ) : (
-                <div className="flex items-center gap-2 bg-white/40 backdrop-blur-md px-2 sm:px-3 py-1.5 rounded-2xl border border-white/60">
+                <div className={`flex items-center gap-2 px-2 sm:px-3 py-1.5 rounded-2xl border ${innerPill} transition-colors duration-300`}>
                   {role === 'admin' ? (
                     <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-xl bg-amber-400/30 text-amber-700 flex items-center justify-center font-bold text-xs">
+                      <div className="w-7 h-7 rounded-xl bg-amber-400/30 text-amber-600 flex items-center justify-center font-bold text-xs">
                         <ShieldCheck className="w-4 h-4" />
                       </div>
                       <div className="hidden xl:block text-left">
-                        <p className="text-xs font-bold text-slate-900 leading-tight">Admin</p>
-                        <p className="text-[10px] text-amber-700 font-medium">Mr. Subhamoy Mondal</p>
+                        <p className={`text-xs font-bold leading-tight ${txtPrimary}`}>Admin</p>
+                        <p className="text-[10px] text-amber-600 font-medium">Mr. Subhamoy Mondal</p>
                       </div>
                     </div>
                   ) : (
                     <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-xl bg-amber-400/30 text-amber-700 flex items-center justify-center font-bold text-xs">
+                      <div className="w-7 h-7 rounded-xl bg-amber-400/30 text-amber-600 flex items-center justify-center font-bold text-xs">
                         {currentStudent?.name?.charAt(0) || 'S'}
                       </div>
                       <div className="hidden md:block text-left">
-                        <p className="text-xs font-bold text-slate-900 leading-tight">{currentStudent?.name}</p>
-                        <p className="text-[10px] text-slate-500 font-medium">{currentStudent?.id}</p>
+                        <p className={`text-xs font-bold leading-tight ${txtPrimary}`}>{currentStudent?.name}</p>
+                        <p className={`text-[10px] font-medium ${txtMuted}`}>{currentStudent?.id}</p>
                       </div>
                     </div>
                   )}
@@ -246,7 +316,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <button
                     onClick={onLogout}
                     title="Logout"
-                    className="ml-1 p-1.5 text-slate-500 hover:text-red-500 transition-colors"
+                    className={`ml-1 p-1.5 rounded-xl transition-all duration-200 hover:scale-110 active:scale-90 ${
+                      darkMode ? 'text-slate-400 hover:text-red-400' : 'text-slate-500 hover:text-red-500'
+                    }`}
                   >
                     <LogOut className="w-4 h-4" />
                   </button>
@@ -256,7 +328,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               {role !== 'guest' && (
                 <button
                   onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                  className="lg:hidden p-2 text-slate-700 hover:text-slate-950 hover:bg-white/70 rounded-xl transition-colors"
+                  className={`lg:hidden p-2 rounded-2xl ${iconColor} ${iconHover} ${hoverBg} transition-all duration-200 hover:scale-110 active:scale-90`}
                   aria-label="Toggle menu"
                 >
                   {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -267,10 +339,14 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </div>
 
-      {/* Mobile menu — also glass styled */}
+      {/* Mobile menu — also glass styled, ultra-round */}
       {role !== 'guest' && mobileMenuOpen && (
         <div className="lg:hidden max-w-[1400px] mx-auto px-1 sm:px-2 mt-2">
-          <div className="bg-white/80 backdrop-blur-xl rounded-[24px] border border-white/60 shadow-[0_8px_32px_rgba(0,0,0,0.12)] px-4 py-4 pb-6 space-y-2">
+          <div className={`rounded-[28px] px-4 py-4 pb-6 space-y-2 transition-colors duration-300 ${
+            darkMode
+              ? 'bg-slate-900/80 backdrop-blur-xl border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)]'
+              : 'bg-white/80 backdrop-blur-xl border border-white/60 shadow-[0_8px_32px_rgba(0,0,0,0.12)]'
+          }`}>
             {navItems.map(item => (
               <button
                 key={item.id}
@@ -278,10 +354,12 @@ export const Navbar: React.FC<NavbarProps> = ({
                   onTabChange(item.id);
                   setMobileMenuOpen(false);
                 }}
-                className={`w-full text-left px-4 py-3.5 rounded-2xl text-base font-bold transition-all flex items-center gap-3 min-h-[48px] active:scale-[0.98] ${
+                className={`w-full text-left px-4 py-3.5 rounded-3xl text-base font-bold transition-all duration-200 flex items-center gap-3 min-h-[48px] hover:scale-[1.02] active:scale-[0.98] ${
                   activeTab === item.id
                     ? 'bg-amber-400 text-slate-950 shadow-md font-extrabold'
-                    : 'text-slate-700 hover:text-slate-950 hover:bg-white/70'
+                    : darkMode
+                      ? 'text-slate-200 hover:text-white hover:bg-white/10'
+                      : 'text-slate-700 hover:text-slate-950 hover:bg-white/70'
                 }`}
               >
                 {item.label}
@@ -292,7 +370,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 setMobileMenuOpen(false);
                 onLogout();
               }}
-              className="w-full text-left px-4 py-3.5 rounded-2xl text-base font-bold transition-all flex items-center gap-3 text-red-600 hover:bg-red-500/10 mt-4 border border-red-500/20 min-h-[48px] active:scale-[0.98]"
+              className="w-full text-left px-4 py-3.5 rounded-3xl text-base font-bold transition-all duration-200 flex items-center gap-3 text-red-500 hover:bg-red-500/10 mt-4 border border-red-500/20 min-h-[48px] hover:scale-[1.02] active:scale-[0.98]"
             >
               <LogOut className="w-5 h-5" /> Logout
             </button>
