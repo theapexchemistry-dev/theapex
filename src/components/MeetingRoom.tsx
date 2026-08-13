@@ -56,6 +56,7 @@ export function MeetingDialog({
   onEndMeeting,
 }: MeetingDialogProps) {
   const isAdmin = role === "admin";
+  const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
   const room = useMeetingRoom({
     active: true,
     roomName: meeting.roomName,
@@ -179,21 +180,60 @@ export function MeetingDialog({
               )}
             </>
           ) : (
-            <div className="text-center text-slate-400">
-              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-white/10">
-                <Video className="h-7 w-7" />
+            <div className="text-center text-slate-400 max-w-md p-6 bg-slate-900/60 rounded-2xl border border-white/5 shadow-xl">
+              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-white/10 animate-pulse">
+                <Video className="h-7 w-7 text-amber-400" />
               </div>
-              <p className="text-sm font-semibold">
-                {isAdmin ? "Starting your camera…" : "Waiting for the teacher…"}
+              <p className="text-sm font-bold text-white">
+                {isAdmin ? "Setting Up Live Classroom…" : "Waiting for the teacher…"}
               </p>
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-2 text-xs text-slate-400 leading-relaxed">
                 {isAdmin
-                  ? "Allow camera & microphone access when prompted."
-                  : "The video will appear here once the connection is ready."}
+                  ? "Allow camera and microphone access to start your video stream. If prompted by your browser, please choose 'Allow'."
+                  : "The live stream will begin as soon as the teacher goes online."}
               </p>
+
+              {/* IFrame Sandbox Warning */}
+              {isInIframe && isAdmin && (
+                <div className="mt-4 p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-xl text-left text-xs space-y-2">
+                  <p className="font-extrabold text-amber-300 flex items-center gap-1.5">
+                    ⚠️ Browser Sandbox Limitation
+                  </p>
+                  <p className="text-slate-300 leading-normal text-[11px]">
+                    You are currently viewing the portal inside an <strong>iframe preview panel</strong>. Browsers block video/mic hardware access inside sandboxed frames.
+                  </p>
+                  <a
+                    href={window.location.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex w-full items-center justify-center gap-1 bg-amber-500 hover:bg-amber-600 text-slate-950 px-3 py-2 rounded-lg font-black text-xs transition-colors"
+                  >
+                    Open Portal in New Tab ↗
+                  </a>
+                </div>
+              )}
+
+              {/* Retry & Manual Instructions */}
+              {isAdmin && (
+                <div className="mt-4 flex flex-col gap-2">
+                  <button
+                    onClick={() => room.requestMedia()}
+                    className="inline-flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition-all shadow-md"
+                  >
+                    Request Camera & Mic Permission Again
+                  </button>
+                  
+                  {!isInIframe && (
+                    <p className="text-[10px] text-slate-500 leading-normal">
+                      If the browser does not prompt you, click the lock icon (🔒) on the left of your browser address bar to manually enable <strong>Camera</strong> and <strong>Microphone</strong> access.
+                    </p>
+                  )}
+                </div>
+              )}
+
               {room.error && (
-                <p className="mt-3 inline-block rounded-lg bg-red-500/15 px-3 py-1.5 text-xs font-semibold text-red-300">
-                  {room.error}
+                <p className="mt-3 inline-block rounded-lg bg-red-500/15 px-3 py-1.5 text-xs font-semibold text-red-300 border border-red-500/20">
+                  Error: {room.error}
                 </p>
               )}
             </div>

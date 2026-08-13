@@ -280,6 +280,44 @@ export function useMeetingRoom({
     return pc;
   }, []);
 
+  const requestMedia = useCallback(async () => {
+    if (roleRef.current !== "admin") return false;
+    setError("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: true,
+      });
+      localStreamRef.current = stream;
+      setLocalStream(stream);
+      setMicOn(true);
+      setCamOn(true);
+      setError("");
+
+      pcsRef.current.forEach((pc) => {
+        stream.getTracks().forEach((t) => {
+          try {
+            pc.addTrack(t, stream);
+          } catch {
+            /* already added */
+          }
+        });
+      });
+
+      socketRef.current?.emit("update_media", {
+        micOn: true,
+        camOn: true,
+      });
+      return true;
+    } catch (err) {
+      console.error("[webrtc] requestMedia failed", err);
+      setError(
+        "Could not access camera/microphone. Please allow access and retry."
+      );
+      return false;
+    }
+  }, []);
+
   const flushPendingIce = useCallback((peerId: string) => {
     const pc = pcsRef.current.get(peerId);
     if (!pc) return;
@@ -307,25 +345,7 @@ export function useMeetingRoom({
       setConnected(true);
 
       if (roleRef.current === "admin") {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-            audio: true,
-          });
-          if (!mounted) {
-            stream.getTracks().forEach((t) => t.stop());
-            return;
-          }
-          localStreamRef.current = stream;
-          setLocalStream(stream);
-          setMicOn(true);
-          setCamOn(true);
-        } catch (err) {
-          console.error("[webrtc] getUserMedia failed", err);
-          setError(
-            "Could not access camera/microphone. Please allow access and retry."
-          );
-        }
+        await requestMedia();
       }
 
       socket.emit("join_room", {
@@ -611,6 +631,7 @@ export function useMeetingRoom({
     camOn,
     screenSharing,
     error,
+    requestMedia,
     toggleMic,
     toggleCam,
     toggleScreen,
