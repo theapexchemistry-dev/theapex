@@ -60,7 +60,7 @@ export function MeetingDialog({
   const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
   const room = useMeetingRoom({
     active: true,
-    roomName: meeting.roomName,
+    meetingId: meeting.id,
     displayName,
     role,
   });

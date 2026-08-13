@@ -1,31 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { io, type Socket } from "socket.io-client";
+import { 
+  collection, 
+  doc, 
+  setDoc, 
+  deleteDoc, 
+  onSnapshot, 
+  query, 
+  where, 
+  addDoc, 
+  serverTimestamp,
+  orderBy,
+  limit
+} from "firebase/firestore";
+import { db } from "./firebase";
+import { 
+  subscribeToAllMeetings, 
+  startMeeting as fsStartMeeting, 
+  endMeeting as fsEndMeeting, 
+  deleteMeeting as fsDeleteMeeting,
+  LiveMeeting 
+} from "./firebaseSync";
 
 // ============================================================================
 //  Types
 // ============================================================================
-export interface LiveMeeting {
-  id: string;
-  title: string;
-  scope: "batch" | "class" | "all";
-  batchId?: string | null;
-  batchTitle?: string | null;
-  className?: string | null;
-  teacherName: string;
-  roomName: string;
-  startedAt: number;
-  durationMins?: number;
-  active: boolean;
-  endedAt?: number | null;
-  createdAt: number;
-  platform?: "webrtc";
-  meetUrl?: string | null;
-  autoNameConfig?: boolean;
-  recordingUrl?: string | null;
-  isScheduled?: boolean;
-  scheduledAt?: number | null;
-  teacherJoined?: boolean;
-}
+export type { LiveMeeting };
 
 export interface Participant {
   id: string;
@@ -38,10 +37,8 @@ export interface Participant {
 }
 
 // ============================================================================
-//  Socket config
+//  WebRTC config
 // ============================================================================
-const SOCKET_URL = typeof window !== "undefined" ? window.location.origin : "";
-
 const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
@@ -49,88 +46,31 @@ const ICE_SERVERS: RTCConfiguration = {
   ],
 };
 
-function makeSocket(): Socket {
-  return io(SOCKET_URL, {
-    transports: ["polling", "websocket"],
-    forceNew: true,
-    reconnection: true,
-    reconnectionAttempts: 15,
-    reconnectionDelay: 1000,
-    timeout: 15000,
-  });
-}
-
 // ============================================================================
-//  Hook 1 — useMeetings: real-time meeting list sync
+//  Hook 1 — useMeetings: real-time meeting list sync using Firestore
 // ============================================================================
 export function useMeetings() {
   const [meetings, setMeetings] = useState<LiveMeeting[]>([]);
-  const [connected, setConnected] = useState(false);
+  const [connected, setConnected] = useState(true); // Firestore is always "connected" concept-wise
 
   useEffect(() => {
-    const socket = makeSocket();
-    let mounted = true;
-
-    const onConn = () => mounted && setConnected(true);
-    const onDisc = () => mounted && setConnected(false);
-    const onActive = (list: LiveMeeting[]) =>
-      mounted && setMeetings(Array.isArray(list) ? list : []);
-    const onStarted = (m: LiveMeeting) =>
-      mounted &&
-      setMeetings((prev) =>
-        prev.some((x) => x.id === m.id)
-          ? prev.map((x) => (x.id === m.id ? m : x))
-          : [m, ...prev]
-      );
-    const onEnded = (p: { id: string; endedAt: number }) =>
-      mounted &&
-      setMeetings((prev) =>
-        prev.map((x) =>
-          x.id === p.id ? { ...x, active: false, endedAt: p.endedAt } : x
-        )
-      );
-    const onDeleted = (id: string) =>
-      mounted && setMeetings((prev) => prev.filter((x) => x.id !== id));
-
-    socket.on("connect", onConn);
-    socket.on("disconnect", onDisc);
-    socket.on("active_meetings", onActive);
-    socket.on("meeting_started", onStarted);
-    socket.on("meeting_ended", onEnded);
-    socket.on("meeting_deleted", onDeleted);
-
-    return () => {
-      mounted = false;
-      socket.removeAllListeners();
-      socket.disconnect();
-    };
+    // Use the Firestore-backed subscription from firebaseSync.ts
+    const unsub = subscribeToAllMeetings((list) => {
+      setMeetings(list);
+    });
+    return unsub;
   }, []);
 
   const startMeeting = useCallback((meeting: LiveMeeting) => {
-    const s = makeSocket();
-    s.emit("start_meeting", meeting);
-    setMeetings((prev) =>
-      prev.some((x) => x.id === meeting.id) ? prev : [meeting, ...prev]
-    );
-    setTimeout(() => s.disconnect(), 500);
+    fsStartMeeting(meeting);
   }, []);
 
   const endMeeting = useCallback((id: string) => {
-    const s = makeSocket();
-    s.emit("end_meeting", { id, endedAt: Date.now() });
-    setMeetings((prev) =>
-      prev.map((x) =>
-        x.id === id ? { ...x, active: false, endedAt: Date.now() } : x
-      )
-    );
-    setTimeout(() => s.disconnect(), 500);
+    fsEndMeeting(id);
   }, []);
 
   const deleteMeeting = useCallback((id: string) => {
-    const s = makeSocket();
-    s.emit("delete_meeting", id);
-    setMeetings((prev) => prev.filter((x) => x.id !== id));
-    setTimeout(() => s.disconnect(), 500);
+    fsDeleteMeeting(id);
   }, []);
 
   const activeMeetings = meetings.filter((m) => m.active);
@@ -148,18 +88,18 @@ export function useMeetings() {
 }
 
 // ============================================================================
-//  Hook 2 — useMeetingRoom: WebRTC room + participant list
+//  Hook 2 — useMeetingRoom: WebRTC room + participant list via Firestore
 // ============================================================================
 interface UseMeetingRoomArgs {
   active: boolean;
-  roomName: string | null;
+  meetingId: string; // We use meeting.id as the root for collections
   displayName: string;
   role: "admin" | "student";
 }
 
 export function useMeetingRoom({
   active,
-  roomName,
+  meetingId,
   displayName,
   role,
 }: UseMeetingRoomArgs) {
@@ -174,7 +114,7 @@ export function useMeetingRoom({
   const [screenSharing, setScreenSharing] = useState(false);
   const [error, setError] = useState<string>("");
 
-  const socketRef = useRef<Socket | null>(null);
+  const participantIdRef = useRef<string>(Math.random().toString(36).substring(2, 15));
   const pcsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
@@ -182,7 +122,7 @@ export function useMeetingRoom({
   const pendingIceRef = useRef<Map<string, RTCIceCandidate[]>>(new Map());
   const roleRef = useRef(role);
   const displayRef = useRef(displayName);
-  const screenTrackIdRef = useRef<string | null>(null);
+  const meetingIdRef = useRef(meetingId);
 
   useEffect(() => {
     roleRef.current = role;
@@ -190,6 +130,26 @@ export function useMeetingRoom({
   useEffect(() => {
     displayRef.current = displayName;
   }, [displayName]);
+  useEffect(() => {
+    meetingIdRef.current = meetingId;
+  }, [meetingId]);
+
+  // --- Signaling Helpers ---
+  const sendSignal = useCallback(async (to: string, type: string, payload: any) => {
+    if (!meetingIdRef.current) return;
+    try {
+      const signalsCol = collection(db, "liveMeetings", meetingIdRef.current, "signals");
+      await addDoc(signalsCol, {
+        to,
+        from: participantIdRef.current,
+        type,
+        payload: JSON.parse(JSON.stringify(payload)), // Deep clone for Firestore safety
+        timestamp: serverTimestamp(),
+      });
+    } catch (err) {
+      console.error("[webrtc] sendSignal failed", err);
+    }
+  }, []);
 
   const createAdminPC = useCallback((peerId: string) => {
     if (pcsRef.current.has(peerId)) return pcsRef.current.get(peerId)!;
@@ -199,75 +159,47 @@ export function useMeetingRoom({
     const ls = localStreamRef.current;
     if (ls) {
       ls.getTracks().forEach((t) => {
-        try {
-          pc.addTrack(t, ls);
-        } catch {
-          /* already added */
-        }
+        try { pc.addTrack(t, ls); } catch { /* ignore */ }
       });
     }
     const ss = screenStreamRef.current;
     if (ss) {
       ss.getVideoTracks().forEach((t) => {
-        try {
-          pc.addTrack(t, ss);
-        } catch {
-          /* ignore */
-        }
+        try { pc.addTrack(t, ss); } catch { /* ignore */ }
       });
     }
 
     pc.onicecandidate = (e) => {
-      if (e.candidate && socketRef.current) {
-        socketRef.current.emit("webrtc_signal", {
-          to: peerId,
-          type: "ice",
-          payload: e.candidate,
-        });
+      if (e.candidate) {
+        sendSignal(peerId, "ice", e.candidate);
       }
     };
 
     pc.onnegotiationneeded = async () => {
       try {
         await pc.setLocalDescription(await pc.createOffer());
-        if (socketRef.current) {
-          socketRef.current.emit("webrtc_signal", {
-            to: peerId,
-            type: "offer",
-            payload: pc.localDescription,
-          });
-        }
+        sendSignal(peerId, "offer", pc.localDescription);
       } catch (err) {
         console.error("[webrtc] admin offer failed", err);
       }
     };
 
-    pc.ontrack = () => {
-      /* no-op */
-    };
-
-    // Guarantee offer trigger immediately if tracks are already present
+    // Trigger offer immediately if tracks are present
     if (ls || ss) {
       setTimeout(async () => {
         if (pc.signalingState === "stable") {
           try {
             await pc.setLocalDescription(await pc.createOffer());
-            if (socketRef.current) {
-              socketRef.current.emit("webrtc_signal", {
-                to: peerId,
-                type: "offer",
-                payload: pc.localDescription,
-              });
-            }
+            sendSignal(peerId, "offer", pc.localDescription);
           } catch (err) {
             console.error("[webrtc] admin manual offer failed", err);
           }
         }
-      }, 200);
+      }, 300);
     }
 
     return pc;
-  }, []);
+  }, [sendSignal]);
 
   const createStudentPC = useCallback((adminId: string) => {
     if (pcsRef.current.has(adminId)) return pcsRef.current.get(adminId)!;
@@ -275,12 +207,8 @@ export function useMeetingRoom({
     pcsRef.current.set(adminId, pc);
 
     pc.onicecandidate = (e) => {
-      if (e.candidate && socketRef.current) {
-        socketRef.current.emit("webrtc_signal", {
-          to: adminId,
-          type: "ice",
-          payload: e.candidate,
-        });
+      if (e.candidate) {
+        sendSignal(adminId, "ice", e.candidate);
       }
     };
 
@@ -292,13 +220,22 @@ export function useMeetingRoom({
         setAdminStream(stream);
       } else if (stream !== mainRemoteRef.current) {
         setRemoteScreen(stream);
-        e.track.onended = () => {
-          setRemoteScreen(null);
-        };
+        e.track.onended = () => { setRemoteScreen(null); };
       }
     };
 
     return pc;
+  }, [sendSignal]);
+
+  const flushPendingIce = useCallback((peerId: string) => {
+    const pc = pcsRef.current.get(peerId);
+    if (!pc) return;
+    const pending = pendingIceRef.current.get(peerId);
+    if (!pending) return;
+    pending.forEach(async (c) => {
+      try { await pc.addIceCandidate(c); } catch (err) { console.warn("[webrtc] ice failed", err); }
+    });
+    pendingIceRef.current.delete(peerId);
   }, []);
 
   const requestMedia = useCallback(async () => {
@@ -313,332 +250,227 @@ export function useMeetingRoom({
       setLocalStream(stream);
       setMicOn(true);
       setCamOn(true);
-      setError("");
 
       pcsRef.current.forEach((pc) => {
         stream.getTracks().forEach((t) => {
-          try {
-            pc.addTrack(t, stream);
-          } catch {
-            /* already added */
-          }
+          try { pc.addTrack(t, stream); } catch { /* ignore */ }
         });
       });
 
-      socketRef.current?.emit("update_media", {
-        micOn: true,
-        camOn: true,
-      });
+      // Update presence
+      const presenceDoc = doc(db, "liveMeetings", meetingIdRef.current, "participants", participantIdRef.current);
+      await setDoc(presenceDoc, { micOn: true, camOn: true }, { merge: true });
+
       return true;
     } catch (err) {
-      console.error("[webrtc] requestMedia failed", err);
-      setError(
-        "Could not access camera/microphone. Please allow access and retry."
-      );
+      console.error("[webrtc] media failed", err);
+      setError("Could not access camera/microphone.");
       return false;
     }
   }, []);
 
-  const flushPendingIce = useCallback((peerId: string) => {
-    const pc = pcsRef.current.get(peerId);
-    if (!pc) return;
-    const pending = pendingIceRef.current.get(peerId);
-    if (!pending) return;
-    pending.forEach(async (c) => {
-      try {
-        await pc.addIceCandidate(c);
-      } catch (err) {
-        console.warn("[webrtc] flush addIceCandidate failed", err);
-      }
-    });
-    pendingIceRef.current.delete(peerId);
-  }, []);
-
   useEffect(() => {
-    if (!active || !roomName) return;
+    if (!active || !meetingId) return;
     let mounted = true;
 
-    const socket = makeSocket();
-    socketRef.current = socket;
-
-    socket.on("connect", () => {
-      if (!mounted) return;
-      setConnected(true);
-
-      socket.emit("join_room", {
-        roomName,
-        displayName: displayRef.current,
-        role: roleRef.current,
-        micOn: roleRef.current === "admin",
-        camOn: roleRef.current === "admin",
-        screenSharing: false,
-      });
-
-      if (roleRef.current === "admin") {
-        requestMedia(); // Run asynchronously to prevent blocking the initial room presence join!
+    // 1. Join Room (Presence)
+    const presenceDoc = doc(db, "liveMeetings", meetingId, "participants", participantIdRef.current);
+    const joinRoom = async () => {
+      try {
+        await setDoc(presenceDoc, {
+          id: participantIdRef.current,
+          displayName: displayRef.current,
+          role: roleRef.current,
+          micOn: roleRef.current === "admin",
+          camOn: roleRef.current === "admin",
+          screenSharing: false,
+          joinedAt: Date.now(),
+          lastSeen: serverTimestamp(), // For cleanup
+        });
+        if (mounted) {
+          setConnected(true);
+          if (roleRef.current === "admin") requestMedia();
+        }
+      } catch (err) {
+        console.error("[webrtc] joinRoom failed", err);
       }
-    });
+    };
+    joinRoom();
 
-    socket.on("disconnect", () => {
-      if (mounted) setConnected(false);
-    });
+    // 2. Listen for Participants
+    const participantsCol = collection(db, "liveMeetings", meetingId, "participants");
+    const unsubParticipants = onSnapshot(participantsCol, (snap) => {
+      if (!mounted) return;
+      const list = snap.docs.map(d => d.data() as Participant);
+      setParticipants(list);
 
-    socket.on(
-      "participants",
-      (data: { roomName: string; participants: Participant[] }) => {
-        if (!mounted) return;
-        setParticipants(data.participants || []);
+      // WebRTC Logic
+      if (roleRef.current === "admin") {
+        const studentIds = list
+          .filter(p => p.role === "student" && p.id !== participantIdRef.current)
+          .map(p => p.id);
+        
+        studentIds.forEach(sid => {
+          if (!pcsRef.current.has(sid)) createAdminPC(sid);
+        });
 
-        if (roleRef.current === "admin") {
-          const studentIds = data.participants
-            .filter((p) => p.role === "student" && p.id !== socket.id)
-            .map((p) => p.id);
-          studentIds.forEach((sid) => {
-            if (!pcsRef.current.has(sid)) {
-              createAdminPC(sid);
-            }
-          });
-          for (const peerId of Array.from(pcsRef.current.keys()) as string[]) {
-            if (!studentIds.includes(peerId)) {
-              const pc = pcsRef.current.get(peerId)!;
-              try {
-                pc.close();
-              } catch {
-                /* ignore */
-              }
-              pcsRef.current.delete(peerId);
-            }
-          }
-        } else {
-          const adminP = data.participants.find((p) => p.role === "admin");
-          if (!adminP) {
-            for (const pc of Array.from(pcsRef.current.values()) as RTCPeerConnection[]) {
-              try {
-                pc.close();
-              } catch {
-                /* ignore */
-              }
-            }
-            pcsRef.current.clear();
-            mainRemoteRef.current = null;
-            setAdminStream(null);
-            setRemoteScreen(null);
-          } else if (!adminP.screenSharing) {
-            setRemoteScreen(null);
+        // Close stale
+        for (const peerId of Array.from(pcsRef.current.keys()) as string[]) {
+          if (!studentIds.includes(peerId)) {
+            pcsRef.current.get(peerId)?.close();
+            pcsRef.current.delete(peerId);
           }
         }
+      } else {
+        const adminP = list.find(p => p.role === "admin");
+        if (!adminP) {
+          pcsRef.current.forEach(pc => pc.close());
+          pcsRef.current.clear();
+          mainRemoteRef.current = null;
+          setAdminStream(null);
+          setRemoteScreen(null);
+        } else if (!adminP.screenSharing) {
+          setRemoteScreen(null);
+        }
       }
-    );
+    });
 
-    socket.on(
-      "webrtc_signal",
-      async (msg: { from: string; type: string; payload: any }) => {
-        if (!mounted || !msg) return;
-        const { from, type, payload } = msg;
+    // 3. Listen for Signals (Signaling Bridge)
+    const signalsCol = collection(db, "liveMeetings", meetingId, "signals");
+    const q = query(signalsCol, where("to", "==", participantIdRef.current), orderBy("timestamp", "asc"));
+    const unsubSignals = onSnapshot(q, (snap) => {
+      if (!mounted) return;
+      snap.docChanges().forEach(async (change) => {
+        if (change.type === "added") {
+          const msg = change.doc.data();
+          const { from, type, payload } = msg;
 
-        if (roleRef.current === "student") {
-          if (type === "offer") {
-            let pc = pcsRef.current.get(from);
-            if (!pc) pc = createStudentPC(from);
-            try {
-              await pc.setRemoteDescription(payload);
-              flushPendingIce(from);
-              const answer = await pc.createAnswer();
-              await pc.setLocalDescription(answer);
-              socket.emit("webrtc_signal", {
-                to: from,
-                type: "answer",
-                payload: answer,
-              });
-            } catch (err) {
-              console.error("[webrtc] student answer failed", err);
+          if (roleRef.current === "student") {
+            if (type === "offer") {
+              let pc = pcsRef.current.get(from);
+              if (!pc) pc = createStudentPC(from);
+              try {
+                await pc.setRemoteDescription(new RTCSessionDescription(payload));
+                flushPendingIce(from);
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                sendSignal(from, "answer", answer);
+              } catch (err) { console.error("[webrtc] offer fail", err); }
+            } else if (type === "ice") {
+              const pc = pcsRef.current.get(from);
+              if (!pc) return;
+              if (!pc.remoteDescription) {
+                const arr = pendingIceRef.current.get(from) || [];
+                arr.push(payload);
+                pendingIceRef.current.set(from, arr);
+              } else {
+                try { await pc.addIceCandidate(new RTCIceCandidate(payload)); } catch (e) { /* ignore */ }
+              }
             }
-          } else if (type === "ice") {
+          } else {
             const pc = pcsRef.current.get(from);
             if (!pc) return;
-            if (!pc.remoteDescription || !pc.remoteDescription.type) {
-              const arr = pendingIceRef.current.get(from) || [];
-              arr.push(payload as RTCIceCandidate);
-              pendingIceRef.current.set(from, arr);
-            } else {
+            if (type === "answer") {
               try {
-                await pc.addIceCandidate(payload);
-              } catch (err) {
-                console.warn("[webrtc] student addIceCandidate failed", err);
+                await pc.setRemoteDescription(new RTCSessionDescription(payload));
+                flushPendingIce(from);
+              } catch (e) { console.error("[webrtc] answer fail", e); }
+            } else if (type === "ice") {
+              if (!pc.remoteDescription) {
+                const arr = pendingIceRef.current.get(from) || [];
+                arr.push(payload);
+                pendingIceRef.current.set(from, arr);
+              } else {
+                try { await pc.addIceCandidate(new RTCIceCandidate(payload)); } catch (e) { /* ignore */ }
               }
             }
           }
-        } else {
-          const pc = pcsRef.current.get(from);
-          if (!pc) return;
-          if (type === "answer") {
-            try {
-              await pc.setRemoteDescription(payload);
-              flushPendingIce(from);
-            } catch (err) {
-              console.error("[webrtc] admin setRemoteDescription failed", err);
-            }
-          } else if (type === "ice") {
-            if (!pc.remoteDescription || !pc.remoteDescription.type) {
-              const arr = pendingIceRef.current.get(from) || [];
-              arr.push(payload as RTCIceCandidate);
-              pendingIceRef.current.set(from, arr);
-            } else {
-              try {
-                await pc.addIceCandidate(payload);
-              } catch (err) {
-                console.warn("[webrtc] admin addIceCandidate failed", err);
-              }
-            }
-          }
+          // Optional: delete signal doc after processing to keep collection clean
+          deleteDoc(change.doc.ref).catch(() => {});
         }
-      }
-    );
+      });
+    });
 
     return () => {
       mounted = false;
-      for (const pc of Array.from(pcsRef.current.values()) as RTCPeerConnection[]) {
-        try {
-          pc.close();
-        } catch {
-          /* ignore */
-        }
-      }
+      unsubParticipants();
+      unsubSignals();
+      deleteDoc(presenceDoc).catch(() => {});
+      
+      pcsRef.current.forEach(pc => pc.close());
       pcsRef.current.clear();
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach((t) => t.stop());
-        localStreamRef.current = null;
-      }
-      if (screenStreamRef.current) {
-        screenStreamRef.current.getTracks().forEach((t) => t.stop());
-        screenStreamRef.current = null;
-      }
-      mainRemoteRef.current = null;
-      screenTrackIdRef.current = null;
-      pendingIceRef.current.clear();
-      try {
-        socket.emit("leave_room");
-      } catch {
-        /* ignore */
-      }
-      socket.removeAllListeners();
-      socket.disconnect();
-      socketRef.current = null;
+      
+      if (localStreamRef.current) localStreamRef.current.getTracks().forEach(t => t.stop());
+      if (screenStreamRef.current) screenStreamRef.current.getTracks().forEach(t => t.stop());
+      
       setLocalStream(null);
-      setScreenStream(null);
       setAdminStream(null);
-      setRemoteScreen(null);
-      setParticipants([]);
       setConnected(false);
-      setMicOn(false);
-      setCamOn(false);
-      setScreenSharing(false);
+      setParticipants([]);
     };
-  }, [active, roomName, createAdminPC, createStudentPC, flushPendingIce]);
+  }, [active, meetingId, createAdminPC, createStudentPC, flushPendingIce, sendSignal, requestMedia]);
 
-  const toggleMic = useCallback(() => {
+  const toggleMic = useCallback(async () => {
     const ls = localStreamRef.current;
     if (!ls) return;
     const next = !micOn;
-    ls.getAudioTracks().forEach((t) => {
-      t.enabled = next;
-    });
+    ls.getAudioTracks().forEach(t => { t.enabled = next; });
     setMicOn(next);
-    socketRef.current?.emit("update_media", { micOn: next });
+    const presenceDoc = doc(db, "liveMeetings", meetingIdRef.current, "participants", participantIdRef.current);
+    await setDoc(presenceDoc, { micOn: next }, { merge: true });
   }, [micOn]);
 
-  const toggleCam = useCallback(() => {
+  const toggleCam = useCallback(async () => {
     const ls = localStreamRef.current;
     if (!ls) return;
     const next = !camOn;
-    ls.getVideoTracks().forEach((t) => {
-      t.enabled = next;
-    });
+    ls.getVideoTracks().forEach(t => { t.enabled = next; });
     setCamOn(next);
-    socketRef.current?.emit("update_media", { camOn: next });
+    const presenceDoc = doc(db, "liveMeetings", meetingIdRef.current, "participants", participantIdRef.current);
+    await setDoc(presenceDoc, { camOn: next }, { merge: true });
   }, [camOn]);
 
-  const stopScreenShare = useCallback(() => {
+  const stopScreenShare = useCallback(async () => {
     const ss = screenStreamRef.current;
     if (!ss) return;
-    const screenTrack = ss.getVideoTracks()[0];
-    for (const pc of Array.from(pcsRef.current.values()) as RTCPeerConnection[]) {
-      try {
-        const senders = pc.getSenders();
-        const screenSender = senders.find(
-          (s) => s.track && s.track.id === screenTrack?.id
-        );
-        if (screenSender) {
-          pc.removeTrack(screenSender);
-        }
-      } catch (err) {
-        console.warn("[webrtc] removeTrack(screen) failed", err);
-      }
-    }
-    ss.getTracks().forEach((t) => t.stop());
+    const track = ss.getVideoTracks()[0];
+    pcsRef.current.forEach(pc => {
+      const s = pc.getSenders().find(s => s.track?.id === track?.id);
+      if (s) try { pc.removeTrack(s); } catch { /* ignore */ }
+    });
+    ss.getTracks().forEach(t => t.stop());
     screenStreamRef.current = null;
-    screenTrackIdRef.current = null;
     setScreenStream(null);
     setScreenSharing(false);
-    socketRef.current?.emit("update_media", { screenSharing: false });
+    const presenceDoc = doc(db, "liveMeetings", meetingIdRef.current, "participants", participantIdRef.current);
+    await setDoc(presenceDoc, { screenSharing: false }, { merge: true });
   }, []);
 
   const startScreenShare = useCallback(async () => {
-    if (screenStreamRef.current) return;
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: false,
-      });
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
       screenStreamRef.current = stream;
       const track = stream.getVideoTracks()[0];
-      screenTrackIdRef.current = track?.id || null;
       setScreenStream(stream);
       setScreenSharing(true);
-
-      for (const pc of Array.from(pcsRef.current.values()) as RTCPeerConnection[]) {
-        try {
-          pc.addTrack(track, stream);
-        } catch (err) {
-          console.warn("[webrtc] addTrack(screen) failed", err);
-        }
-      }
-
-      track.onended = () => {
-        stopScreenShare();
-      };
-
-      socketRef.current?.emit("update_media", { screenSharing: true });
-    } catch (err) {
-      console.error("[webrtc] getDisplayMedia failed", err);
-      setError("Screen share was cancelled or could not be started.");
-    }
+      pcsRef.current.forEach(pc => {
+        try { pc.addTrack(track, stream); } catch { /* ignore */ }
+      });
+      track.onended = stopScreenShare;
+      const presenceDoc = doc(db, "liveMeetings", meetingIdRef.current, "participants", participantIdRef.current);
+      await setDoc(presenceDoc, { screenSharing: true }, { merge: true });
+    } catch { setError("Screen share failed."); }
   }, [stopScreenShare]);
 
   const toggleScreen = useCallback(() => {
-    if (screenSharing) {
-      stopScreenShare();
-    } else {
-      startScreenShare();
-    }
+    if (screenSharing) stopScreenShare();
+    else startScreenShare();
   }, [screenSharing, startScreenShare, stopScreenShare]);
 
   const leave = useCallback(() => {
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((t) => t.stop());
-    }
-    if (screenStreamRef.current) {
-      screenStreamRef.current.getTracks().forEach((t) => t.stop());
-    }
-    try {
-      socketRef.current?.emit("leave_room");
-    } catch {
-      /* ignore */
-    }
+    const presenceDoc = doc(db, "liveMeetings", meetingIdRef.current, "participants", participantIdRef.current);
+    deleteDoc(presenceDoc).catch(() => {});
   }, []);
-
-  const adminParticipant =
-    participants.find((p) => p.role === "admin") || null;
 
   return {
     connected,
@@ -647,7 +479,7 @@ export function useMeetingRoom({
     screenStream,
     adminStream,
     remoteScreen,
-    adminParticipant,
+    adminParticipant: participants.find(p => p.role === "admin") || null,
     micOn,
     camOn,
     screenSharing,
@@ -659,3 +491,4 @@ export function useMeetingRoom({
     leave,
   };
 }
+
