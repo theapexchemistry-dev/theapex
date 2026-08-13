@@ -150,20 +150,18 @@ export const Navbar: React.FC<NavbarProps> = ({
   const hoverBg = darkMode ? 'hover:bg-white/10' : 'hover:bg-white/70';
   const iconColor = darkMode ? 'text-slate-300' : 'text-slate-700';
   const iconHover = darkMode ? 'hover:text-white' : 'hover:text-slate-950';
-
-  // Logout button styles — shared
-  const logoutBtnClass = `p-2 rounded-2xl transition-all duration-200 hover:scale-110 active:scale-90 ${
-    darkMode ? 'text-slate-400 hover:text-red-400 hover:bg-white/10' : 'text-slate-500 hover:text-red-500 hover:bg-white/70'
-  }`;
+  const logoutColor = darkMode
+    ? 'text-slate-400 hover:text-red-400'
+    : 'text-slate-500 hover:text-red-500';
 
   return (
     <header className="sticky top-0 z-40 px-3 sm:px-4 lg:px-6 pt-3 pb-2 transition-colors duration-300">
       <div className="max-w-[1400px] mx-auto">
         <div className={`border rounded-[32px] ${glassBar} transition-colors duration-300`}>
-          {/* ── Row: [Logo] [spacer] [dark mode | bell | user cluster | hamburger] ── */}
+          {/* ── Row: [Logo] [spacer] [dark mode | bell | (logout|userbadge) | hamburger] ── */}
           <div className="px-3 sm:px-4 lg:px-5 h-16 flex items-center gap-1.5 sm:gap-3">
 
-            {/* Logo */}
+            {/* Logo — fixed width, never squeezed */}
             <div
               onClick={() => onTabChange(role === 'guest' ? 'home' : 'dashboard')}
               className="cursor-pointer group shrink-0 transition-transform duration-200 hover:scale-[1.03]"
@@ -171,7 +169,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <Logo size="md" variant={darkMode ? 'dark' : 'light'} compact={false} />
             </div>
 
-            {/* Spacer pushes right cluster to the end */}
+            {/* Spacer to push the right cluster to the end */}
             <div className="flex-1" />
 
             {/* Desktop nav — hidden on mobile */}
@@ -195,9 +193,8 @@ export const Navbar: React.FC<NavbarProps> = ({
               </nav>
             )}
 
-            {/* Right-side action cluster */}
-            <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-
+            {/* Right-side action cluster — tight gap on mobile, comfortable on sm+ */}
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
               {/* ── Dark mode toggle ─────────────────────────────────── */}
               <button
                 onClick={() => setDarkMode(d => !d)}
@@ -295,13 +292,17 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </button>
               ) : (
                 <>
-                  {/* ── MOBILE: avatar only (standalone, no pill) ─────── */}
-                  <div className="sm:hidden w-9 h-9 rounded-2xl bg-amber-400/30 text-amber-600 flex items-center justify-center font-bold text-xs shrink-0">
-                    {role === 'admin' ? <ShieldCheck className="w-4 h-4" /> : (currentStudent?.name?.charAt(0) || 'S')}
-                  </div>
+                  {/* ── MOBILE: standalone logout icon only (no avatar) ── */}
+                  <button
+                    onClick={onLogout}
+                    title="Logout"
+                    className={`md:hidden p-2 rounded-2xl ${logoutColor} ${hoverBg} transition-all duration-200 hover:scale-110 active:scale-90`}
+                  >
+                    <LogOut className="w-5 h-5" />
+                  </button>
 
-                  {/* ── DESKTOP (sm+): full pill badge with avatar + name + logout ── */}
-                  <div className={`hidden sm:flex items-center gap-2 px-2 lg:px-3 py-1.5 rounded-2xl border ${innerPill} transition-colors duration-300`}>
+                  {/* ── DESKTOP (md+): full user badge with avatar + name + logout ── */}
+                  <div className={`hidden md:flex items-center gap-2 px-2 sm:px-3 py-1.5 rounded-2xl border ${innerPill} transition-colors duration-300`}>
                     {role === 'admin' ? (
                       <div className="flex items-center gap-2">
                         <div className="w-7 h-7 rounded-xl bg-amber-400/30 text-amber-600 flex items-center justify-center font-bold text-xs">
@@ -317,7 +318,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                         <div className="w-7 h-7 rounded-xl bg-amber-400/30 text-amber-600 flex items-center justify-center font-bold text-xs">
                           {currentStudent?.name?.charAt(0) || 'S'}
                         </div>
-                        <div className="hidden lg:block text-left">
+                        <div className="hidden xl:block text-left">
                           <p className={`text-xs font-bold leading-tight ${txtPrimary}`}>{currentStudent?.name}</p>
                           <p className={`text-[10px] font-medium ${txtMuted}`}>{currentStudent?.id}</p>
                         </div>
@@ -327,22 +328,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <button
                       onClick={onLogout}
                       title="Logout"
-                      className={`p-1.5 rounded-xl transition-all duration-200 hover:scale-110 active:scale-90 ${
-                        darkMode ? 'text-slate-400 hover:text-red-400' : 'text-slate-500 hover:text-red-500'
-                      }`}
+                      className={`p-1.5 rounded-xl transition-all duration-200 hover:scale-110 active:scale-90 ${logoutColor}`}
                     >
                       <LogOut className="w-4 h-4" />
                     </button>
                   </div>
-
-                  {/* ── MOBILE: standalone logout icon (always visible, never overflows) ── */}
-                  <button
-                    onClick={onLogout}
-                    title="Logout"
-                    className={`sm:hidden ${logoutBtnClass}`}
-                  >
-                    <LogOut className="w-5 h-5" />
-                  </button>
                 </>
               )}
 
