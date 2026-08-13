@@ -76,13 +76,12 @@ export function MeetingDialog({
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const ended = !meetingActive;
-  const [countdown, setCountdown] = React.useState(5);
-
-  useEffect(() => {
-    if (sidebarTab === "chat") {
-      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [chat.messages.length, sidebarTab]);
+ 
+   useEffect(() => {
+     if (sidebarTab === "chat") {
+       chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+     }
+   }, [chat.messages.length, sidebarTab]);
 
   const handleSendChat = (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -106,17 +105,7 @@ export function MeetingDialog({
 
   useEffect(() => {
     if (!ended) return;
-    const timer = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          onClose();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
+    onClose();
   }, [ended, onClose]);
 
   const scopeLabel =
@@ -129,8 +118,8 @@ export function MeetingDialog({
       onEndMeeting(meeting.id);
     } else {
       room.leave();
-      onClose();
     }
+    onClose();
   };
 
   const handleLeave = () => {
@@ -230,7 +219,7 @@ export function MeetingDialog({
                 <CheckCircle2 className="h-7 w-7 text-slate-300" />
               </div>
               <p className="text-sm font-bold">The class has ended</p>
-              <p className="mt-1 text-xs text-slate-400">Closing automatically in {countdown}s…</p>
+              <p className="mt-1 text-xs text-slate-400">Closing…</p>
             </div>
           ) : mainStream ? (
             <>
