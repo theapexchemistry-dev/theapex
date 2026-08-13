@@ -4,6 +4,7 @@ import { ShieldCheck, UserCheck, Lock, User, LogIn, ArrowLeft, Sparkles, Key, Ch
 import { Role, Student } from '../types';
 import { StorageService } from '../lib/storage';
 import { auth, signInWithEmailAndPassword, sendPasswordResetEmail } from '../lib/firebase';
+import { auth, signInWithEmailAndPassword, sendPasswordResetEmail, db, collection, getDocs } from '../lib/firebase';
 import { Logo } from './Logo';
 
 interface LoginPageProps {
@@ -108,11 +109,41 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       if (match) {
         onLoginSuccess('student', match);
       } else {
-        setError('Invalid Student ID or Password! Default password for new students is "student123".');
+        // Fallback: query Firestore directly. On a fresh/other device the
+        // newly-created student may not have synced into localStorage yet,
+        // so we verify credentials against the live Firestore collection.
+        setLoading(true);
+        try {
+          const snap = await getDocs(collection(db, 'students'));
+          let firestoreMatch: Student | null = null;
+          snap.forEach(d => {
+            const s = d.data() as Student;
+            if (!firestoreMatch &&
+                s.id &&
+                s.id.toLowerCase() === username.trim().toLowerCase() &&
+                (s.password === password || (!s.password && password === 'student123'))) {
+              firestoreMatch = s;
+            }
+          });
+
+          if (firestoreMatch) {
+            // Persist to localStorage so future logins on this device are instant
+            const existing = StorageService.getStudents();
+            if (!existing.some(s => s.id === firestoreMatch!.id)) {
+              StorageService.saveStudents([firestoreMatch!, ...existing]);
+            }
+            onLoginSuccess('student', firestoreMatch as Student);
+          } else {
+            setError('Invalid Student ID or Password! Default password for new students is "student123".');
+          }
+        } catch (err) {
+          console.error('Firestore student login fallback failed:', err);
+          setError('Invalid Student ID or Password! Default password for new students is "student123".');
+        } finally {
+          setLoading(false);
+        }
       }
     }
-  };
-
   return (
     <div className="min-h-[85vh] flex items-center justify-center bg-slate-950 p-4 relative overflow-hidden">
       {/* Animated Ambient Background Glow Orbs */}
