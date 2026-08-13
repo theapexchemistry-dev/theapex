@@ -155,11 +155,12 @@ export const Navbar: React.FC<NavbarProps> = ({
     : 'text-slate-500 hover:text-red-500';
 
   return (
-    <header className="sticky top-0 z-40 px-3 sm:px-4 lg:px-6 pt-3 pb-2 transition-colors duration-300">
+    <header className="sticky top-0 z-40 px-2 sm:px-4 lg:px-6 pt-3 pb-2 transition-colors duration-300">
       <div className="max-w-[1400px] mx-auto">
-        <div className={`border rounded-[32px] ${glassBar} transition-colors duration-300`}>
-          {/* ── Row: [Logo] [spacer] [dark mode | bell | (logout|userbadge) | hamburger] ── */}
-          <div className="px-3 sm:px-4 lg:px-5 h-16 flex items-center gap-1.5 sm:gap-3">
+        <div className={`border rounded-[28px] sm:rounded-[32px] ${glassBar} transition-colors duration-300`}>
+          {/* ── Row: [Logo] [spacer] [dark mode | bell | logout | hamburger] ── */}
+          {/* Mobile: tighter padding (px-2), desktop: comfortable (px-5) */}
+          <div className="px-2 sm:px-4 lg:px-5 h-14 sm:h-16 flex items-center gap-1 sm:gap-3">
 
             {/* Logo — fixed width, never squeezed */}
             <div
@@ -193,18 +194,18 @@ export const Navbar: React.FC<NavbarProps> = ({
               </nav>
             )}
 
-            {/* Right-side action cluster — tight gap on mobile, comfortable on sm+ */}
-            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+            {/* Right-side action cluster — tighter gap on mobile */}
+            <div className="flex items-center gap-0.5 sm:gap-2 shrink-0">
               {/* ── Dark mode toggle ─────────────────────────────────── */}
               <button
                 onClick={() => setDarkMode(d => !d)}
                 title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-                className={`p-2 rounded-2xl ${iconColor} ${iconHover} ${hoverBg} transition-all duration-300 hover:scale-110 active:scale-90`}
+                className={`p-1.5 sm:p-2 rounded-xl sm:rounded-2xl ${iconColor} ${iconHover} ${hoverBg} transition-all duration-300 hover:scale-110 active:scale-90`}
               >
                 {darkMode ? (
-                  <Sun className="w-5 h-5 text-amber-400" />
+                  <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" />
                 ) : (
-                  <Moon className="w-5 h-5" />
+                  <Moon className="w-4 h-4 sm:w-5 sm:h-5" />
                 )}
               </button>
 
@@ -212,11 +213,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <div className="relative">
                   <button
                     onClick={() => setShowNotifications(!showNotifications)}
-                    className={`p-2 rounded-2xl ${iconColor} ${iconHover} ${hoverBg} transition-all duration-200 hover:scale-110 active:scale-90 relative`}
+                    className={`p-1.5 sm:p-2 rounded-xl sm:rounded-2xl ${iconColor} ${iconHover} ${hoverBg} transition-all duration-200 hover:scale-110 active:scale-90 relative`}
                   >
-                    <Bell className="w-5 h-5" />
+                    <Bell className="w-4 h-4 sm:w-5 sm:h-5" />
                     {unreadCount > 0 && (
-                      <span className="absolute top-1 right-1 w-4 h-4 bg-amber-400 text-slate-950 text-[10px] font-black rounded-full flex items-center justify-center animate-pulse">
+                      <span className="absolute top-0.5 right-0.5 sm:top-1 sm:right-1 w-3.5 h-3.5 sm:w-4 sm:h-4 bg-amber-400 text-slate-950 text-[9px] sm:text-[10px] font-black rounded-full flex items-center justify-center animate-pulse">
                         {unreadCount}
                       </span>
                     )}
@@ -286,19 +287,19 @@ export const Navbar: React.FC<NavbarProps> = ({
               {role === 'guest' ? (
                 <button
                   onClick={onLoginClick}
-                  className="px-4 sm:px-5 py-2 bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs rounded-2xl shadow-md transition-all duration-200 hover:scale-105 active:scale-95 flex items-center gap-1.5"
+                  className="px-3 sm:px-5 py-1.5 sm:py-2 bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-[11px] sm:text-xs rounded-xl sm:rounded-2xl shadow-md transition-all duration-200 hover:scale-105 active:scale-95 flex items-center gap-1.5"
                 >
                   <User className="w-4 h-4" /> <span className="hidden sm:inline">Portal Login</span><span className="sm:hidden">Login</span>
                 </button>
               ) : (
                 <>
-                  {/* ── MOBILE: standalone logout icon only (no avatar) ── */}
+                  {/* ── MOBILE: standalone logout icon (compact) ── */}
                   <button
                     onClick={onLogout}
                     title="Logout"
-                    className={`md:hidden p-2 rounded-2xl ${logoutColor} ${hoverBg} transition-all duration-200 hover:scale-110 active:scale-90`}
+                    className={`md:hidden p-1.5 rounded-xl ${logoutColor} ${hoverBg} transition-all duration-200 hover:scale-110 active:scale-90`}
                   >
-                    <LogOut className="w-5 h-5" />
+                    <LogOut className="w-4 h-4" />
                   </button>
 
                   {/* ── DESKTOP (md+): full user badge with avatar + name + logout ── */}
@@ -339,10 +340,10 @@ export const Navbar: React.FC<NavbarProps> = ({
               {role !== 'guest' && (
                 <button
                   onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                  className={`lg:hidden p-2 rounded-2xl ${iconColor} ${iconHover} ${hoverBg} transition-all duration-200 hover:scale-110 active:scale-90`}
+                  className={`lg:hidden p-1.5 sm:p-2 rounded-xl sm:rounded-2xl ${iconColor} ${iconHover} ${hoverBg} transition-all duration-200 hover:scale-110 active:scale-90`}
                   aria-label="Toggle menu"
                 >
-                  {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+                  {mobileMenuOpen ? <X className="w-5 h-5 sm:w-6 sm:h-6" /> : <Menu className="w-5 h-5 sm:w-6 sm:h-6" />}
                 </button>
               )}
             </div>
