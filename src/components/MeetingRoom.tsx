@@ -15,6 +15,8 @@ import {
   Hand,
   MessageSquare,
   Send,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import {
   useMeetingRoom,
@@ -74,6 +76,7 @@ export function MeetingDialog({
   const [sidebarTab, setSidebarTab] = React.useState<"participants" | "chat">("participants");
   const [chatInput, setChatInput] = React.useState("");
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
 
   const ended = !meetingActive;
  
@@ -120,6 +123,50 @@ export function MeetingDialog({
       room.leave();
     }
     onClose();
+  };
+
+  // Browser notification for hand raised
+  useEffect(() => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      if (Notification.permission === "default") {
+        Notification.requestPermission();
+      }
+    }
+  }, []);
+
+  const raisedRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const newlyRaised = room.participants.filter(
+      (p) =>
+        p.handRaised &&
+        !raisedRef.current.has(p.id) &&
+        p.id !== room.participantId
+    );
+
+    newlyRaised.forEach((p) => {
+      if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+        new Notification("Hand Raised", {
+          body: `${p.name} raised their hand.`,
+        });
+      }
+      raisedRef.current.add(p.id);
+    });
+
+    // Sync ref with participants
+    const currentlyRaisedIds = new Set(room.participants.filter(p => p.handRaised).map(p => p.id));
+    raisedRef.current = new Set([...raisedRef.current].filter(id => currentlyRaisedIds.has(id)));
+  }, [room.participants, room.participantId]);
+
+  const toggleFullscreen = () => {
+    if (!stageRef.current) return;
+    if (!document.fullscreenElement) {
+      stageRef.current.requestFullscreen().catch((err) => {
+        console.error(`Error attempting to enable full-screen mode: ${err.message}`);
+      });
+    } else {
+      document.exitFullscreen();
+    }
   };
 
   const handleLeave = () => {
@@ -212,7 +259,23 @@ export function MeetingDialog({
       {/* Body */}
       <div className="flex flex-1 flex-col overflow-hidden lg:flex-row">
         {/* Stage */}
-        <div className="relative flex flex-1 items-center justify-center bg-black p-3">
+        <div 
+          ref={stageRef}
+          className="relative flex flex-1 items-center justify-center bg-black p-3"
+        >
+          {/* Fullscreen toggle button */}
+          <button
+            onClick={toggleFullscreen}
+            className="absolute right-4 top-4 z-20 rounded-full bg-black/40 p-2 text-white/70 backdrop-blur-md transition hover:bg-black/60 hover:text-white"
+            title="Toggle Fullscreen"
+          >
+            {typeof document !== "undefined" && document.fullscreenElement ? (
+              <Minimize2 className="h-5 w-5" />
+            ) : (
+              <Maximize2 className="h-5 w-5" />
+            )}
+          </button>
+
           {ended ? (
             <div className="text-center">
               <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-white/10">
