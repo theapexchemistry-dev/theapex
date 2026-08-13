@@ -32,8 +32,17 @@ export interface Participant {
   role: "admin" | "student";
   micOn: boolean;
   camOn: boolean;
+  handRaised: boolean;
   screenSharing: boolean;
   joinedAt: number;
+}
+
+export interface ChatMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  text: string;
+  timestamp: any;
 }
 
 // ============================================================================
@@ -112,6 +121,8 @@ export function useMeetingRoom({
   const [micOn, setMicOn] = useState(role === "admin");
   const [camOn, setCamOn] = useState(role === "admin");
   const [screenSharing, setScreenSharing] = useState(false);
+  const [handRaised, setHandRaised] = useState(false);
+  const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
   const [error, setError] = useState<string>("");
 
   const participantIdRef = useRef<string>(Math.random().toString(36).substring(2, 15));
@@ -175,6 +186,17 @@ export function useMeetingRoom({
       }
     };
 
+    pc.ontrack = (e) => {
+      const stream = e.streams[0];
+      if (stream) {
+        setRemoteStreams(prev => {
+          const next = new Map(prev);
+          next.set(peerId, stream);
+          return next;
+        });
+      }
+    };
+
     pc.onnegotiationneeded = async () => {
       try {
         await pc.setLocalDescription(await pc.createOffer());
@@ -205,6 +227,13 @@ export function useMeetingRoom({
     if (pcsRef.current.has(adminId)) return pcsRef.current.get(adminId)!;
     const pc = new RTCPeerConnection(ICE_SERVERS);
     pcsRef.current.set(adminId, pc);
+
+    const ls = localStreamRef.current;
+    if (ls) {
+      ls.getTracks().forEach((t) => {
+        try { pc.addTrack(t, ls); } catch { /* ignore */ }
+      });
+    }
 
     pc.onicecandidate = (e) => {
       if (e.candidate) {
@@ -239,7 +268,6 @@ export function useMeetingRoom({
   }, []);
 
   const requestMedia = useCallback(async () => {
-    if (roleRef.current !== "admin") return false;
     setError("");
     console.log("[webrtc] requesting media...");
     try {
@@ -286,6 +314,7 @@ export function useMeetingRoom({
           role: roleRef.current,
           micOn: roleRef.current === "admin",
           camOn: roleRef.current === "admin",
+          handRaised: false,
           screenSharing: false,
           joinedAt: Date.now(),
           lastSeen: serverTimestamp(), // For cleanup
@@ -474,6 +503,13 @@ export function useMeetingRoom({
     else startScreenShare();
   }, [screenSharing, startScreenShare, stopScreenShare]);
 
+  const toggleHand = useCallback(async () => {
+    const next = !handRaised;
+    setHandRaised(next);
+    const presenceDoc = doc(db, "liveMeetings", meetingIdRef.current, "participants", participantIdRef.current);
+    await setDoc(presenceDoc, { handRaised: next }, { merge: true });
+  }, [handRaised]);
+
   const leave = useCallback(() => {
     const presenceDoc = doc(db, "liveMeetings", meetingIdRef.current, "participants", participantIdRef.current);
     deleteDoc(presenceDoc).catch(() => {});
@@ -486,16 +522,63 @@ export function useMeetingRoom({
     screenStream,
     adminStream,
     remoteScreen,
+    remoteStreams,
     adminParticipant: participants.find(p => p.role === "admin") || null,
+    participantId: participantIdRef.current,
     micOn,
     camOn,
+    handRaised,
     screenSharing,
     error,
     requestMedia,
     toggleMic,
     toggleCam,
     toggleScreen,
+    toggleHand,
     leave,
   };
+}
+
+// ============================================================================
+//  Hook 3 — useChat: Real-time chat sync
+// ============================================================================
+export function useChat(meetingId: string, userId: string, userName: string) {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+
+  useEffect(() => {
+    if (!meetingId) return;
+    const messagesCol = collection(db, "liveMeetings", meetingId, "messages");
+    const q = query(messagesCol, orderBy("timestamp", "asc"));
+
+    const unsub = onSnapshot(q, (snap) => {
+      const list = snap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      })) as ChatMessage[];
+      setMessages(list);
+    });
+
+    return unsub;
+  }, [meetingId]);
+
+  const sendMessage = useCallback(
+    async (text: string) => {
+      if (!meetingId || !text.trim()) return;
+      try {
+        const messagesCol = collection(db, "liveMeetings", meetingId, "messages");
+        await addDoc(messagesCol, {
+          senderId: userId,
+          senderName: userName,
+          text: text.trim(),
+          timestamp: serverTimestamp(),
+        });
+      } catch (err) {
+        console.error("[chat] sendMessage failed", err);
+      }
+    },
+    [meetingId, userId, userName]
+  );
+
+  return { messages, sendMessage };
 }
 
