@@ -99,9 +99,19 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         setLoading(false);
       }
     } else {
+      // ---------------- STUDENT LOGIN ----------------
+      const inputId = username.trim().toLowerCase();
+
+      // --- Suspension check (local): blocked if admin deleted this student ---
+      const deletedIds = StorageService.getDeletedStudentIds();
+      if (deletedIds.some(id => id.toLowerCase() === inputId)) {
+        setError('Your account has been suspended. Please contact administration.');
+        return;
+      }
+
       const students = StorageService.getStudents();
       const match = students.find(
-        s => s.id.toLowerCase() === username.trim().toLowerCase() && 
+        s => s.id.toLowerCase() === inputId &&
              (s.password === password || (!s.password && password === 'student123'))
       );
 
@@ -113,13 +123,35 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         // so we verify credentials against the live Firestore collection.
         setLoading(true);
         try {
+          // --- Authoritative suspension check from Firestore ---
+          // Covers the case where this device's local deletedStudentIds list
+          // is stale/empty (e.g. brand new browser) and the admin already
+          // deleted this student on another device.
+          try {
+            const settingsSnap = await getDocs(collection(db, 'siteSettings'));
+            let firestoreDeletedIds: string[] = [];
+            settingsSnap.forEach(d => {
+              const data = d.data();
+              if (d.id === 'deletedStudentIds' && Array.isArray(data.ids)) {
+                firestoreDeletedIds = data.ids as string[];
+              }
+            });
+            if (firestoreDeletedIds.some(id => id.toLowerCase() === inputId)) {
+              setError('Your account has been suspended. Please contact administration.');
+              return;
+            }
+          } catch (settingsErr) {
+            // If we can't reach siteSettings, continue to student lookup
+            console.debug('Could not verify suspension status from Firestore:', settingsErr);
+          }
+
           const snap = await getDocs(collection(db, 'students'));
           let firestoreMatch: Student | null = null;
           snap.forEach(d => {
             const s = d.data() as Student;
             if (!firestoreMatch &&
                 s.id &&
-                s.id.toLowerCase() === username.trim().toLowerCase() &&
+                s.id.toLowerCase() === inputId &&
                 (s.password === password || (!s.password && password === 'student123'))) {
               firestoreMatch = s;
             }
