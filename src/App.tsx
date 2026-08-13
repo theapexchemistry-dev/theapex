@@ -1,4 +1,3 @@
-// src/App.tsx
 import React, { useState, useEffect } from 'react';
 import { Role, Student } from './types';
 import { Navbar } from './components/Navbar';
@@ -21,9 +20,10 @@ import { StudentTests } from './components/student/StudentTests';
 import { StudentDoubts } from './components/student/StudentDoubts';
 import { StudentProfile } from './components/student/StudentProfile';
 import { StudentHelp } from './components/student/StudentHelp';
-import { LiveClasses } from './components/LiveClasses';
 import { StorageService } from './lib/storage';
 import { runMonthlyFeeReminderTask } from './lib/scheduledTasks';
+import { AdminVideoCall } from './components/admin/AdminVideoCall';
+import { StudentVideoCall } from './components/student/StudentVideoCall';
 
 export default function App() {
   const [role, setRole] = useState<Role>(() => {
@@ -87,8 +87,59 @@ export default function App() {
     localStorage.removeItem('apex_session_tab');
   };
 
+  // ---------------------------------------------------------------------
+  // Auto-logout for suspended (deleted) students.
+  //
+  // When an admin deletes a student, the student's ID is added to the
+  // `apex_deleted_student_ids` localStorage list (kept in sync across
+  // devices via the Firestore `siteSettings/deletedStudentIds` document
+  // and the onSnapshot listener in firebaseSync.ts). Every time that
+  // sync fires — or any other storage update happens — we re-check
+  // whether the currently-logged-in student has been suspended. If so,
+  // we forcibly log them out and show a suspension message.
+  // ---------------------------------------------------------------------
+  useEffect(() => {
+    if (role !== 'student' || !currentStudent) return;
+    const studentId = currentStudent.id;
+
+    const checkSuspended = () => {
+      try {
+        const deletedIds = StorageService.getDeletedStudentIds();
+        const isSuspended = deletedIds.some(
+          id => id.toLowerCase() === studentId.toLowerCase()
+        );
+        if (isSuspended) {
+          // Force logout
+          setRole('guest');
+          setCurrentStudent(null);
+          setActiveTab('home');
+          localStorage.removeItem('apex_session_role');
+          localStorage.removeItem('apex_session_student');
+          localStorage.removeItem('apex_session_tab');
+          alert('Your account has been suspended. Please contact administration.');
+        }
+      } catch (e) {
+        // ignore — never break the app over a suspension check
+      }
+    };
+
+    // Check immediately (covers the case where they were deleted before
+    // this browser session re-opened, but the session was still cached).
+    checkSuspended();
+
+    // Re-check whenever storage updates arrive from Firestore sync.
+    window.addEventListener('apex_storage_updated', checkSuspended);
+    window.addEventListener('storage', checkSuspended);
+
+    return () => {
+      window.removeEventListener('apex_storage_updated', checkSuspended);
+      window.removeEventListener('storage', checkSuspended);
+    };
+  }, [role, currentStudent]);
+
   return (
     <div className="min-h-screen overflow-x-hidden bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-amber-400 selection:text-slate-950">
+      {/* Top Navbar */}
       <Navbar
         role={role}
         currentStudent={currentStudent}
@@ -98,6 +149,7 @@ export default function App() {
         onLogout={handleLogout}
       />
 
+      {/* Main Content Area */}
       <main className="flex-1">
         {role === 'guest' ? (
           activeTab === 'login' ? (
@@ -114,14 +166,14 @@ export default function App() {
         ) : (
           <div className="max-w-7xl mx-auto px-3.5 sm:px-6 lg:px-8 py-4 sm:py-8">
             {activeTab !== 'dashboard' && (
-              <button
-                onClick={() => setActiveTab('dashboard')}
+              <button 
+                onClick={() => setActiveTab('dashboard')} 
                 className="mb-6 flex items-center gap-1.5 text-sm font-bold text-slate-500 hover:text-slate-900 transition-colors bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm w-fit"
               >
                 <ArrowLeft className="w-4 h-4" /> Back to Dashboard
               </button>
             )}
-
+            
             {role === 'admin' && (
               <>
                 {activeTab === 'dashboard' && (
@@ -138,9 +190,9 @@ export default function App() {
                 {activeTab === 'notes' && <AdminNotes />}
                 {activeTab === 'doubts' && <AdminDoubts />}
                 {activeTab === 'tests' && <AdminTests />}
-                {activeTab === 'live' && <LiveClasses role="admin" />}
-                {activeTab === 'support' && <AdminSupport />}
+                {activeTab === 'videocall' && <AdminVideoCall />}
                 {activeTab === 'settings' && <AdminSettings />}
+                {activeTab === 'support' && <AdminSupport />}
               </>
             )}
             {role === 'student' && currentStudent && (
@@ -156,7 +208,7 @@ export default function App() {
                 {activeTab === 'notes' && <StudentNotes student={currentStudent} />}
                 {activeTab === 'tests' && <StudentTests student={currentStudent} />}
                 {activeTab === 'doubts' && <StudentDoubts student={currentStudent} />}
-                {activeTab === 'live' && <LiveClasses role="student" student={currentStudent} />}
+                {activeTab === 'videocall' && <StudentVideoCall student={currentStudent} />}
                 {activeTab === 'profile' && <StudentProfile student={currentStudent} />}
                 {activeTab === 'help' && <StudentHelp student={currentStudent} />}
               </>
