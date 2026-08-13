@@ -1,0 +1,12 @@
+{
+  "name": "live-sync-server",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "socket.io": "^4.8.3"
+  }
+}
