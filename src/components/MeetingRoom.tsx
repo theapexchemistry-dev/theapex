@@ -1,0 +1,415 @@
+import React, { useEffect, useRef } from "react";
+import {
+  Video,
+  VideoOff,
+  Mic,
+  MicOff,
+  ScreenShare,
+  MonitorOff,
+  PhoneOff,
+  Users,
+  Info,
+  CheckCircle2,
+  X,
+  MonitorPlay,
+} from "lucide-react";
+import {
+  useMeetingRoom,
+  type LiveMeeting,
+  type Participant,
+} from "../lib/useLiveClass";
+
+// Tiny className joiner (no external dep)
+function cn(...classes: (string | false | undefined | null)[]): string {
+  return classes.filter(Boolean).join(" ");
+}
+
+function timeAgo(ts: number): string {
+  const diff = Date.now() - ts;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins === 1) return "1 min ago";
+  if (mins < 60) return `${mins} mins ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs === 1) return "1 hour ago";
+  return `${hrs} hours ago`;
+}
+
+// ============================================================================
+//  MeetingDialog — the full-screen WebRTC call surface
+// ============================================================================
+interface MeetingDialogProps {
+  meeting: LiveMeeting;
+  role: "admin" | "student";
+  displayName: string;
+  meetingActive: boolean;
+  onClose: () => void;
+  onEndMeeting: (id: string) => void;
+}
+
+export function MeetingDialog({
+  meeting,
+  role,
+  displayName,
+  meetingActive,
+  onClose,
+  onEndMeeting,
+}: MeetingDialogProps) {
+  const isAdmin = role === "admin";
+  const room = useMeetingRoom({
+    active: true,
+    roomName: meeting.roomName,
+    displayName,
+    role,
+  });
+
+  const ended = !isAdmin && !meetingActive;
+
+  useEffect(() => {
+    if (!ended) return;
+    const t = setTimeout(onClose, 2500);
+    return () => clearTimeout(t);
+  }, [ended, onClose]);
+
+  const scopeLabel =
+    meeting.scope === "all"
+      ? "All students"
+      : meeting.batchTitle || "Selected batch";
+
+  const handleEnd = () => {
+    room.leave();
+    if (isAdmin) onEndMeeting(meeting.id);
+    onClose();
+  };
+
+  const handleLeave = () => {
+    room.leave();
+    onClose();
+  };
+
+  const showScreen = isAdmin
+    ? room.screenSharing
+    : !!(room.adminParticipant?.screenSharing || room.remoteScreen);
+  const mainStream = isAdmin
+    ? room.screenSharing
+      ? room.screenStream
+      : room.localStream
+    : showScreen
+    ? room.remoteScreen
+    : room.adminStream;
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 text-white">
+      {/* Header */}
+      <header className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+        <div className="min-w-0">
+          <div className="mb-0.5 flex items-center gap-2">
+            <span className="flex h-2 w-2 items-center justify-center">
+              <span className="h-2 w-2 animate-ping rounded-full bg-red-500 opacity-75" />
+              <span className="h-2 w-2 rounded-full bg-red-500" />
+            </span>
+            <span className="text-[10px] font-bold uppercase tracking-wide text-red-400">
+              Live
+            </span>
+            <span className="text-[11px] text-slate-400">
+              · {timeAgo(meeting.startedAt)}
+            </span>
+            {!room.connected && (
+              <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-300">
+                connecting…
+              </span>
+            )}
+          </div>
+          <h2 className="truncate text-sm font-bold sm:text-base">
+            {meeting.title}
+          </h2>
+          <p className="truncate text-[11px] text-slate-400">
+            by {meeting.teacherName} · {scopeLabel}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className="hidden items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-xs font-semibold sm:flex">
+            <Users className="h-3.5 w-3.5" />
+            {room.participants.length}
+          </div>
+          {isAdmin ? (
+            <button
+              onClick={handleEnd}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-2 text-xs font-bold transition hover:bg-red-700"
+            >
+              <PhoneOff className="h-3.5 w-3.5" /> End class
+            </button>
+          ) : (
+            <button
+              onClick={handleLeave}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-slate-700 px-3 py-2 text-xs font-bold transition hover:bg-slate-600"
+            >
+              <X className="h-3.5 w-3.5" /> Leave
+            </button>
+          )}
+        </div>
+      </header>
+
+      {/* Body */}
+      <div className="flex flex-1 flex-col overflow-hidden lg:flex-row">
+        {/* Stage */}
+        <div className="relative flex flex-1 items-center justify-center bg-black p-3">
+          {ended ? (
+            <div className="text-center">
+              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-white/10">
+                <CheckCircle2 className="h-7 w-7 text-slate-300" />
+              </div>
+              <p className="text-sm font-bold">The class has ended</p>
+              <p className="mt-1 text-xs text-slate-400">Closing automatically…</p>
+            </div>
+          ) : mainStream ? (
+            <>
+              <MediaView
+                stream={mainStream}
+                muted={isAdmin}
+                mirror={isAdmin && !showScreen}
+                className="h-full w-full rounded-xl object-contain"
+              />
+              {showScreen && (
+                <span className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-300">
+                  <MonitorPlay className="h-3 w-3" />
+                  {isAdmin ? "Sharing your screen" : "Screen share"}
+                </span>
+              )}
+            </>
+          ) : (
+            <div className="text-center text-slate-400">
+              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-white/10">
+                <Video className="h-7 w-7" />
+              </div>
+              <p className="text-sm font-semibold">
+                {isAdmin ? "Starting your camera…" : "Waiting for the teacher…"}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                {isAdmin
+                  ? "Allow camera & microphone access when prompted."
+                  : "The video will appear here once the connection is ready."}
+              </p>
+              {room.error && (
+                <p className="mt-3 inline-block rounded-lg bg-red-500/15 px-3 py-1.5 text-xs font-semibold text-red-300">
+                  {room.error}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Teacher camera thumbnail (student view, when screen is sharing) */}
+          {!isAdmin && showScreen && room.adminStream && (
+            <div className="absolute bottom-5 right-5 h-28 w-40 overflow-hidden rounded-lg border-2 border-white/20 bg-black shadow-xl sm:h-32 sm:w-48">
+              <MediaView
+                stream={room.adminStream}
+                muted={false}
+                className="h-full w-full object-cover"
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Participants panel */}
+        <aside className="flex w-full flex-col border-t border-white/10 bg-slate-900 lg:w-72 lg:border-l lg:border-t-0">
+          <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
+            <Users className="h-4 w-4 text-slate-300" />
+            <h3 className="text-sm font-bold">
+              Participants ({room.participants.length})
+            </h3>
+          </div>
+          <div className="max-h-48 flex-1 overflow-y-auto px-2 py-2 lg:max-h-none">
+            {room.participants.length === 0 ? (
+              <p className="px-3 py-6 text-center text-xs text-slate-500">
+                No participants yet.
+              </p>
+            ) : (
+              <ul className="space-y-1">
+                {room.participants.map((p) => (
+                  <ParticipantRow key={p.id} p={p} />
+                ))}
+              </ul>
+            )}
+          </div>
+        </aside>
+      </div>
+
+      {/* Controls */}
+      <footer className="flex items-center justify-center gap-2 border-t border-white/10 bg-slate-900 px-4 py-3 sm:gap-3">
+        {isAdmin ? (
+          <>
+            <ControlButton
+              active={room.micOn}
+              onClick={room.toggleMic}
+              onIcon={<Mic className="h-5 w-5" />}
+              offIcon={<MicOff className="h-5 w-5" />}
+              labelOn="Mute"
+              labelOff="Unmute"
+            />
+            <ControlButton
+              active={room.camOn}
+              onClick={room.toggleCam}
+              onIcon={<Video className="h-5 w-5" />}
+              offIcon={<VideoOff className="h-5 w-5" />}
+              labelOn="Stop video"
+              labelOff="Start video"
+            />
+            <ControlButton
+              active={room.screenSharing}
+              onClick={room.toggleScreen}
+              onIcon={<ScreenShare className="h-5 w-5" />}
+              offIcon={<MonitorOff className="h-5 w-5" />}
+              labelOn="Stop share"
+              labelOff="Share screen"
+              accent
+            />
+            <button
+              onClick={handleEnd}
+              className="ml-1 inline-flex items-center gap-1.5 rounded-full bg-red-600 px-5 py-2.5 text-xs font-bold transition hover:bg-red-700"
+            >
+              <PhoneOff className="h-4 w-4" /> End
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 rounded-full bg-white/5 px-4 py-2 text-xs text-slate-300">
+              <Info className="h-3.5 w-3.5 text-slate-400" />
+              You are viewing as{" "}
+              <strong className="text-white">{displayName}</strong>
+            </div>
+            <button
+              onClick={handleLeave}
+              className="inline-flex items-center gap-1.5 rounded-full bg-red-600 px-5 py-2.5 text-xs font-bold transition hover:bg-red-700"
+            >
+              <PhoneOff className="h-4 w-4" /> Leave
+            </button>
+          </>
+        )}
+      </footer>
+    </div>
+  );
+}
+
+// ============================================================================
+//  Sub-components
+// ============================================================================
+function MediaView({
+  stream,
+  muted,
+  mirror,
+  className,
+}: {
+  stream: MediaStream | null;
+  muted?: boolean;
+  mirror?: boolean;
+  className?: string;
+}) {
+  const ref = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const v = ref.current;
+    if (!v) return;
+    if (stream) {
+      v.srcObject = stream;
+      v.play().catch(() => {
+        /* autoplay may be blocked until user gesture */
+      });
+    } else {
+      v.srcObject = null;
+    }
+  }, [stream]);
+  return (
+    <video
+      ref={ref}
+      autoPlay
+      playsInline
+      muted={muted}
+      className={cn(
+        "h-full w-full object-contain",
+        mirror && "-scale-x-100",
+        className
+      )}
+    />
+  );
+}
+
+function ControlButton({
+  active,
+  onClick,
+  onIcon,
+  offIcon,
+  labelOn,
+  labelOff,
+  accent,
+}: {
+  active: boolean;
+  onClick: () => void;
+  onIcon: React.ReactNode;
+  offIcon: React.ReactNode;
+  labelOn: string;
+  labelOff: string;
+  accent?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={active ? labelOn : labelOff}
+      className={cn(
+        "inline-flex flex-col items-center gap-1 rounded-xl px-3 py-2 text-[10px] font-bold transition sm:px-4",
+        active
+          ? accent
+            ? "bg-emerald-500 text-white hover:bg-emerald-600"
+            : "bg-white/10 text-white hover:bg-white/20"
+          : "bg-red-500/90 text-white hover:bg-red-600"
+      )}
+    >
+      {active ? onIcon : offIcon}
+      <span className="hidden sm:inline">{active ? labelOn : labelOff}</span>
+    </button>
+  );
+}
+
+function ParticipantRow({ p }: { p: Participant }) {
+  const initial = (p.displayName || "?").trim().charAt(0).toUpperCase();
+  const isHost = p.role === "admin";
+  return (
+    <li className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 hover:bg-white/5">
+      <div
+        className={cn(
+          "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold",
+          isHost ? "bg-amber-400 text-slate-950" : "bg-slate-700 text-slate-200"
+        )}
+      >
+        {initial}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="truncate text-xs font-semibold text-white">
+            {p.displayName}
+          </span>
+          {isHost && (
+            <span className="rounded bg-amber-400/20 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-300">
+              Host
+            </span>
+          )}
+        </div>
+        <span className="text-[10px] capitalize text-slate-400">{p.role}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        {p.screenSharing && (
+          <MonitorPlay className="h-3.5 w-3.5 text-emerald-400" />
+        )}
+        {p.micOn ? (
+          <Mic className="h-3.5 w-3.5 text-slate-300" />
+        ) : (
+          <MicOff className="h-3.5 w-3.5 text-slate-500" />
+        )}
+        {p.camOn ? (
+          <Video className="h-3.5 w-3.5 text-slate-300" />
+        ) : (
+          <VideoOff className="h-3.5 w-3.5 text-slate-500" />
+        )}
+      </div>
+    </li>
+  );
+}
