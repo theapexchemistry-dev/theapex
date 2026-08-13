@@ -39,7 +39,7 @@ export interface Participant {
 // ============================================================================
 //  Socket config
 // ============================================================================
-const SOCKET_URL = "/";
+const SOCKET_URL = typeof window !== "undefined" ? window.location.origin : "";
 
 const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
@@ -50,12 +50,12 @@ const ICE_SERVERS: RTCConfiguration = {
 
 function makeSocket(): Socket {
   return io(SOCKET_URL, {
-    transports: ["websocket", "polling"],
+    transports: ["polling", "websocket"],
     forceNew: true,
     reconnection: true,
-    reconnectionAttempts: 10,
+    reconnectionAttempts: 15,
     reconnectionDelay: 1000,
-    timeout: 10000,
+    timeout: 15000,
   });
 }
 
@@ -245,6 +245,26 @@ export function useMeetingRoom({
       /* no-op */
     };
 
+    // Guarantee offer trigger immediately if tracks are already present
+    if (ls || ss) {
+      setTimeout(async () => {
+        if (pc.signalingState === "stable") {
+          try {
+            await pc.setLocalDescription(await pc.createOffer());
+            if (socketRef.current) {
+              socketRef.current.emit("webrtc_signal", {
+                to: peerId,
+                type: "offer",
+                payload: pc.localDescription,
+              });
+            }
+          } catch (err) {
+            console.error("[webrtc] admin manual offer failed", err);
+          }
+        }
+      }, 200);
+    }
+
     return pc;
   }, []);
 
@@ -340,13 +360,9 @@ export function useMeetingRoom({
     const socket = makeSocket();
     socketRef.current = socket;
 
-    socket.on("connect", async () => {
+    socket.on("connect", () => {
       if (!mounted) return;
       setConnected(true);
-
-      if (roleRef.current === "admin") {
-        await requestMedia();
-      }
 
       socket.emit("join_room", {
         roomName,
@@ -356,6 +372,10 @@ export function useMeetingRoom({
         camOn: roleRef.current === "admin",
         screenSharing: false,
       });
+
+      if (roleRef.current === "admin") {
+        requestMedia(); // Run asynchronously to prevent blocking the initial room presence join!
+      }
     });
 
     socket.on("disconnect", () => {
