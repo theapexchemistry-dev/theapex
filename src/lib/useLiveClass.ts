@@ -187,7 +187,7 @@ export function useMeetingRoom({
     };
 
     pc.ontrack = (e) => {
-      const stream = e.streams[0];
+      const stream = e.streams && e.streams[0] ? e.streams[0] : null;
       if (stream) {
         setRemoteStreams(prev => {
           const next = new Map(prev);
@@ -199,6 +199,7 @@ export function useMeetingRoom({
 
     pc.onnegotiationneeded = async () => {
       try {
+        if (pc.signalingState !== "stable") return;
         await pc.setLocalDescription(await pc.createOffer());
         sendSignal(peerId, "offer", pc.localDescription);
       } catch (err) {
@@ -238,6 +239,16 @@ export function useMeetingRoom({
     pc.onicecandidate = (e) => {
       if (e.candidate) {
         sendSignal(adminId, "ice", e.candidate);
+      }
+    };
+
+    pc.onnegotiationneeded = async () => {
+      try {
+        if (pc.signalingState !== "stable") return;
+        await pc.setLocalDescription(await pc.createOffer());
+        sendSignal(adminId, "offer", pc.localDescription);
+      } catch (err) {
+        console.error("[webrtc] student offer failed", err);
       }
     };
 
@@ -406,7 +417,15 @@ export function useMeetingRoom({
           } else {
             const pc = pcsRef.current.get(from);
             if (!pc) return;
-            if (type === "answer") {
+            if (type === "offer") {
+              try {
+                await pc.setRemoteDescription(new RTCSessionDescription(payload));
+                flushPendingIce(from);
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                sendSignal(from, "answer", answer);
+              } catch (e) { console.error("[webrtc] admin offer handle fail", e); }
+            } else if (type === "answer") {
               try {
                 await pc.setRemoteDescription(new RTCSessionDescription(payload));
                 flushPendingIce(from);

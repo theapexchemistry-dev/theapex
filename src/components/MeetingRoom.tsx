@@ -76,6 +76,7 @@ export function MeetingDialog({
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const ended = !isAdmin && !meetingActive;
+  const [countdown, setCountdown] = React.useState(5);
 
   useEffect(() => {
     if (sidebarTab === "chat") {
@@ -105,8 +106,17 @@ export function MeetingDialog({
 
   useEffect(() => {
     if (!ended) return;
-    const t = setTimeout(onClose, 2500);
-    return () => clearTimeout(t);
+    const timer = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          onClose();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
   }, [ended, onClose]);
 
   const scopeLabel =
@@ -217,7 +227,7 @@ export function MeetingDialog({
                 <CheckCircle2 className="h-7 w-7 text-slate-300" />
               </div>
               <p className="text-sm font-bold">The class has ended</p>
-              <p className="mt-1 text-xs text-slate-400">Closing automatically…</p>
+              <p className="mt-1 text-xs text-slate-400">Closing automatically in {countdown}s…</p>
             </div>
           ) : mainStream ? (
             <>
@@ -321,12 +331,30 @@ export function MeetingDialog({
 
           {/* Teacher camera thumbnail (student view, when screen is sharing) */}
           {!isAdmin && showScreen && room.adminStream && (
-            <div className="absolute bottom-5 right-5 h-28 w-40 overflow-hidden rounded-lg border-2 border-white/20 bg-black shadow-xl sm:h-32 sm:w-48">
+            <div className="absolute bottom-5 right-5 z-10 h-28 w-40 overflow-hidden rounded-lg border-2 border-white/20 bg-black shadow-xl sm:h-32 sm:w-48">
               <MediaView
                 stream={room.adminStream}
                 muted={false}
                 className="h-full w-full object-cover"
               />
+            </div>
+          )}
+
+          {/* Student self-view thumbnail (student view, when camera is on) */}
+          {!isAdmin && room.camOn && room.localStream && (
+            <div className={cn(
+              "absolute z-10 overflow-hidden rounded-lg border-2 border-white/20 bg-black shadow-xl transition-all",
+              showScreen ? "bottom-36 right-5 h-24 w-32" : "bottom-5 right-5 h-28 w-40 sm:h-32 sm:w-48"
+            )}>
+              <MediaView
+                stream={room.localStream}
+                muted={true}
+                mirror={true}
+                className="h-full w-full object-cover"
+              />
+              <div className="absolute bottom-1 left-1 rounded bg-black/40 px-1.5 py-0.5 text-[8px] font-bold text-white">
+                You
+              </div>
             </div>
           )}
         </div>
