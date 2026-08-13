@@ -1,200 +1,394 @@
-import React, { useState, useEffect } from 'react';
-import { StorageService } from '../../lib/storage';
-import { Batch, Meeting } from '../../types';
-import { openJitsiMeeting } from '../../lib/jitsi';
-import { Video, Phone, Users, AlertCircle, Clock, ExternalLink, CheckCircle2 } from 'lucide-react';
+// ============================================================================
+//  AdminVideoCall.tsx — Real WebRTC live classes (Option B)
+// ----------------------------------------------------------------------------
+//  Admin fills in: title, teacher name, audience (batches) → Start live class.
+//  A meeting dialog opens with REAL controls: mute/unmute (mic), video on/off
+//  (camera), share screen. These actually capture/stop media and broadcast to
+//  every student via WebRTC. Live participant list shown in the dialog.
+// ============================================================================
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  Video,
+  PhoneOff,
+  Users,
+  AlertCircle,
+  Clock,
+  Play,
+  Radio,
+  History,
+  Trash2,
+  CheckCircle2,
+  Wifi,
+  Info,
+} from "lucide-react";
+import { StorageService } from "../../lib/storage";
+import { Batch } from "../../types";
+import {
+  useMeetings,
+  type LiveMeeting,
+} from "../../lib/useLiveClass";
+import { MeetingDialog } from "../MeetingRoom";
 
 export const AdminVideoCall: React.FC = () => {
   const [batches, setBatches] = useState<Batch[]>(() => StorageService.getBatches());
-  const [selectedBatchId, setSelectedBatchId] = useState<string>('');
-  const [activeMeetings, setActiveMeetings] = useState<Meeting[]>(() => StorageService.getActiveMeetings());
-  const [currentMeeting, setCurrentMeeting] = useState<Meeting | null>(null);
-  const [error, setError] = useState<string>('');
+  const {
+    activeMeetings,
+    pastMeetings,
+    connected,
+    startMeeting,
+    endMeeting,
+    deleteMeeting,
+  } = useMeetings();
 
+  const [activeMeeting, setActiveMeeting] = useState<LiveMeeting | null>(null);
+
+  // Form state
+  const [title, setTitle] = useState("");
+  const [teacherName, setTeacherName] = useState("Mr. Subhamoy Mondal");
+  const [audience, setAudience] = useState<string>("all"); // 'all' | batchId
+  const [starting, setStarting] = useState(false);
+
+  // Refresh batches in case StorageService changes
   useEffect(() => {
-    const refresh = () => {
-      setBatches(StorageService.getBatches());
-      setActiveMeetings(StorageService.getActiveMeetings());
-    };
-    window.addEventListener('apex_storage_updated', refresh);
-    window.addEventListener('storage', refresh);
-    return () => {
-      window.removeEventListener('apex_storage_updated', refresh);
-      window.removeEventListener('storage', refresh);
-    };
+    setBatches(StorageService.getBatches());
   }, []);
 
-  const handleStartMeeting = () => {
-    if (!selectedBatchId) {
-      setError('Please select a batch first');
-      return;
-    }
-    const batch = batches.find(b => b.id === selectedBatchId);
-    if (!batch) {
-      setError('Batch not found');
-      return;
-    }
+  const handleStart = () => {
+    if (!title.trim()) return;
+    setStarting(true);
 
-    setError('');
-    const existing = StorageService.getActiveMeetingForBatch(selectedBatchId);
-    if (existing) {
-      StorageService.endMeeting(existing.id);
-    }
+    const batch = batches.find((b) => b.id === audience);
+    const meeting: LiveMeeting = {
+      id: `m_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      title: title.trim(),
+      scope: audience === "all" ? "all" : "batch",
+      batchId: audience === "all" ? null : batch?.id || null,
+      batchTitle: audience === "all" ? null : batch?.title || null,
+      className: audience === "all" ? null : batch?.className || null,
+      teacherName: teacherName.trim() || "Teacher",
+      roomName: `ApexWorld_${(title || "class")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "")
+        .slice(0, 24)}_${Math.random().toString(36).slice(2, 10)}`,
+      startedAt: Date.now(),
+      active: true,
+      endedAt: null,
+      createdAt: Date.now(),
+    };
 
-    const meeting = StorageService.startMeeting(selectedBatchId, batch.title);
-    setCurrentMeeting(meeting);
-    setActiveMeetings(StorageService.getActiveMeetings());
-
-    openJitsiMeeting({
-      roomName: meeting.roomName,
-      displayName: 'Mr. Subhamoy Mondal (Teacher)',
-    });
+    startMeeting(meeting);
+    setTitle("");
+    setStarting(false);
+    setActiveMeeting(meeting);
   };
 
-  const handleEndMeeting = () => {
-    if (!currentMeeting) return;
-    StorageService.endMeeting(currentMeeting.id);
-    setCurrentMeeting(null);
-    setActiveMeetings(StorageService.getActiveMeetings());
-  };
+  // Live "time ago" ticker
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 30000);
+    return () => clearInterval(t);
+  }, []);
 
-  const handleRejoin = () => {
-    if (!currentMeeting) return;
-    openJitsiMeeting({
-      roomName: currentMeeting.roomName,
-      displayName: 'Mr. Subhamoy Mondal (Teacher)',
-    });
-  };
-
-  const handleJoinExisting = (meeting: Meeting) => {
-    setCurrentMeeting(meeting);
-    openJitsiMeeting({
-      roomName: meeting.roomName,
-      displayName: 'Mr. Subhamoy Mondal (Teacher)',
-    });
-  };
+  const displayName = teacherName.trim() || "Teacher";
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-black text-slate-900 tracking-tight">Live Video Class</h2>
-        <p className="text-sm text-slate-500">Start a live video class for a batch. Students of that batch will see a "Join" button.</p>
+        <h2 className="text-2xl font-black text-slate-900 tracking-tight">
+          Live Video Class
+        </h2>
+        <p className="text-sm text-slate-500">
+          Start a live class with real-time video, audio, and screen sharing.
+          Students of the selected batch see a "Join" button instantly.
+        </p>
       </div>
 
-      {!currentMeeting && (
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-          <div className="flex flex-col md:flex-row items-start md:items-end gap-4">
-            <div className="flex-1 w-full">
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">Select Batch</label>
-              <select
-                value={selectedBatchId}
-                onChange={e => setSelectedBatchId(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl border border-slate-300 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              >
-                <option value="">-- Choose a batch --</option>
-                {batches.map(b => (
-                  <option key={b.id} value={b.id}>{b.title} ({b.className})</option>
-                ))}
-              </select>
-            </div>
-            <button
-              onClick={handleStartMeeting}
-              disabled={!selectedBatchId}
-              className="px-6 py-3 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-sm font-bold flex items-center gap-2 transition-colors whitespace-nowrap"
-            >
-              <Video className="w-4 h-4" /> Start Meeting
-            </button>
+      {/* Sync status */}
+      <div
+        className={`flex items-center justify-between gap-3 rounded-lg border px-4 py-2.5 text-xs ${
+          connected
+            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+            : "border-amber-200 bg-amber-50 text-amber-700"
+        }`}
+      >
+        <div className="flex items-center gap-2 font-semibold">
+          <Wifi className="h-3.5 w-3.5" /> Live ·{" "}
+          {connected ? "synced" : "connecting…"}
+        </div>
+        <span className="font-mono">{activeMeetings.length} active</span>
+      </div>
+
+      {/* Start meeting form */}
+      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
+            <Radio className="h-4 w-4" />
+          </div>
+          <h3 className="text-base font-bold text-slate-900">Start a live class</h3>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Live class title
+            </label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Mole Concept — Revision"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
+            />
           </div>
 
-          {error && (
-            <div className="mt-3 flex items-center gap-2 text-xs font-semibold text-red-600 bg-red-50 p-3 rounded-xl border border-red-200">
-              <AlertCircle className="w-4 h-4 shrink-0" /> {error}
-            </div>
-          )}
+          <div className="space-y-2">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Teacher name
+            </label>
+            <input
+              type="text"
+              value={teacherName}
+              onChange={(e) => setTeacherName(e.target.value)}
+              placeholder="e.g. Mr. Subhamoy Mondal"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
+            />
+          </div>
 
-          {activeMeetings.length > 0 && (
-            <div className="mt-6 pt-6 border-t border-slate-100">
-              <p className="text-xs font-bold text-slate-700 mb-3 flex items-center gap-1.5">
-                <Users className="w-4 h-4 text-emerald-600" /> Active Meetings
-              </p>
-              <div className="space-y-2">
-                {activeMeetings.map(m => (
-                  <div key={m.id} className="flex items-center justify-between p-3 rounded-xl bg-emerald-50 border border-emerald-200">
-                    <div>
-                      <p className="text-sm font-bold text-slate-900">{m.batchName}</p>
-                      <p className="text-[11px] text-slate-500 flex items-center gap-1">
-                        <Clock className="w-3 h-3" /> Started {new Date(m.startedAt).toLocaleString()}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => handleJoinExisting(m)}
-                      className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-xs font-bold transition-colors"
-                    >
-                      Rejoin
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
+          <div className="space-y-2 md:col-span-2">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Audience
+            </label>
+            <select
+              value={audience}
+              onChange={(e) => setAudience(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
+            >
+              <option value="all">All students</option>
+              {batches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.title} ({b.className})
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <button
+          onClick={handleStart}
+          disabled={starting || !title.trim()}
+          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50 md:w-auto"
+        >
+          {starting ? (
+            <>
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              Starting…
+            </>
+          ) : (
+            <>
+              <Play className="h-4 w-4" /> Start live class
+            </>
           )}
+        </button>
+
+        <p className="mt-3 flex items-start gap-1.5 text-xs text-slate-500">
+          <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+          When you start a class, a meeting dialog opens with real mic, camera
+          and screen-share controls. Students of the selected audience see a
+          "Join" button instantly — across devices.
+        </p>
+      </div>
+
+      {/* Active meetings */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-bold text-slate-900">
+          Active right now ({activeMeetings.length})
+        </h3>
+        {activeMeetings.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
+            <Video className="mx-auto mb-2 h-8 w-8 text-slate-400" />
+            <p className="text-sm text-slate-500">
+              No active classes. Start one above and it appears here instantly.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {activeMeetings.map((m) => (
+              <ActiveMeetingCard
+                key={m.id}
+                meeting={m}
+                onJoin={() => setActiveMeeting(m)}
+                onEnd={() => endMeeting(m.id)}
+                onDelete={() => deleteMeeting(m.id)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Recent classes */}
+      {pastMeetings.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <History className="h-4 w-4 text-slate-500" />
+            <h3 className="text-sm font-bold text-slate-900">
+              Recent classes ({pastMeetings.length})
+            </h3>
+          </div>
+          <div className="space-y-2">
+            {pastMeetings.slice(0, 8).map((m) => (
+              <PastMeetingCard
+                key={m.id}
+                meeting={m}
+                onDelete={() => deleteMeeting(m.id)}
+              />
+            ))}
+          </div>
         </div>
       )}
 
-      {currentMeeting && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-            <div>
-              <p className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                <span className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse" />
-                LIVE: {currentMeeting.batchName}
-              </p>
-              <p className="text-[11px] text-slate-500">Started at {new Date(currentMeeting.startedAt).toLocaleTimeString()}</p>
-            </div>
-            <button
-              onClick={handleEndMeeting}
-              className="px-5 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-bold flex items-center gap-2 transition-colors"
-            >
-              <Phone className="w-4 h-4 rotate-[135deg]" /> End Meeting
-            </button>
-          </div>
-
-          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-8 text-center">
-            <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
-              <CheckCircle2 className="w-8 h-8 text-emerald-600" />
-            </div>
-            <h3 className="text-lg font-bold text-slate-900 mb-1">Meeting is Live!</h3>
-            <p className="text-sm text-slate-600 mb-5">
-              The video call opened in a new browser tab. Students of <strong>{currentMeeting.batchName}</strong> can now join from their Live Class tab.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-2 justify-center">
-              <button
-                onClick={handleRejoin}
-                className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-bold flex items-center gap-2 transition-colors justify-center"
-              >
-                <ExternalLink className="w-4 h-4" /> Reopen Call Tab
-              </button>
-              <button
-                onClick={handleEndMeeting}
-                className="px-5 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-bold flex items-center gap-2 transition-colors justify-center"
-              >
-                <Phone className="w-4 h-4 rotate-[135deg]" /> End Meeting
-              </button>
-            </div>
-            <div className="mt-4 text-xs text-slate-500 flex items-center justify-center gap-1.5">
-              <AlertCircle className="w-3.5 h-3.5" />
-              If the new tab didn't open, check your popup blocker.
-            </div>
-          </div>
-
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-            <p className="text-xs text-blue-800 font-medium">
-              Students of <strong>{currentMeeting.batchName}</strong> will see a "Join Live Class" button in their Live Class tab.
-              Click "End Meeting" when class is over to remove the join button.
-            </p>
-          </div>
-        </div>
+      {/* Meeting dialog */}
+      {activeMeeting && (
+        <MeetingDialog
+          meeting={activeMeeting}
+          role="admin"
+          displayName={displayName}
+          meetingActive={activeMeetings.some(
+            (m) => m.id === activeMeeting.id
+          )}
+          onClose={() => setActiveMeeting(null)}
+          onEndMeeting={(id) => endMeeting(id)}
+        />
       )}
     </div>
   );
 };
+
+// ============================================================================
+//  Sub-components
+// ============================================================================
+function timeAgo(ts: number): string {
+  const diff = Date.now() - ts;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins === 1) return "1 min ago";
+  if (mins < 60) return `${mins} mins ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs === 1) return "1 hour ago";
+  return `${hrs} hours ago`;
+}
+
+function formatTime(ts: number): string {
+  return new Date(ts).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function ActiveMeetingCard({
+  meeting,
+  onJoin,
+  onEnd,
+  onDelete,
+}: {
+  meeting: LiveMeeting;
+  onJoin: () => void;
+  onEnd: () => void;
+  onDelete: () => void;
+}) {
+  const scopeLabel =
+    meeting.scope === "all" ? "All students" : meeting.batchTitle;
+  return (
+    <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="mb-1 flex items-center gap-2">
+            <span className="flex h-2 w-2 items-center justify-center">
+              <span className="h-2 w-2 animate-ping rounded-full bg-red-500 opacity-75" />
+              <span className="h-2 w-2 rounded-full bg-red-500" />
+            </span>
+            <span className="text-xs font-bold uppercase tracking-wide text-red-600">
+              Live
+            </span>
+            <span className="text-xs text-slate-500">
+              · {timeAgo(meeting.startedAt)}
+            </span>
+          </div>
+          <h4 className="truncate text-sm font-bold text-slate-900">
+            {meeting.title}
+          </h4>
+          <p className="mt-0.5 text-xs text-slate-600">
+            {meeting.teacherName} · {scopeLabel}
+          </p>
+          <p className="mt-1 text-[11px] text-slate-500">
+            Started {formatTime(meeting.startedAt)}
+          </p>
+        </div>
+
+        <div className="flex flex-shrink-0 items-center gap-1">
+          <button
+            onClick={onJoin}
+            title="Open the meeting room"
+            className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700"
+          >
+            <Play className="h-3 w-3" /> Join
+          </button>
+          <button
+            onClick={onEnd}
+            title="End meeting (moves to history)"
+            className="inline-flex items-center gap-1 rounded-md bg-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-300"
+          >
+            End
+          </button>
+          <button
+            onClick={onDelete}
+            title="Permanently delete this record"
+            className="inline-flex items-center justify-center rounded-md bg-red-100 p-1.5 text-red-600 transition hover:bg-red-200"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PastMeetingCard({
+  meeting,
+  onDelete,
+}: {
+  meeting: LiveMeeting;
+  onDelete: () => void;
+}) {
+  const scopeLabel =
+    meeting.scope === "all" ? "All students" : meeting.batchTitle;
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3">
+      <div className="min-w-0 flex-1">
+        <div className="mb-0.5 flex items-center gap-2">
+          <CheckCircle2 className="h-3.5 w-3.5 text-slate-400" />
+          <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+            Ended
+          </span>
+        </div>
+        <h4 className="truncate text-sm font-semibold text-slate-800">
+          {meeting.title}
+        </h4>
+        <p className="mt-0.5 text-xs text-slate-500">
+          {meeting.teacherName} · {scopeLabel}
+        </p>
+        <p className="mt-0.5 text-[11px] text-slate-400">
+          {formatTime(meeting.startedAt)}
+          {meeting.endedAt ? ` → ${formatTime(meeting.endedAt)}` : ""}
+        </p>
+      </div>
+      <button
+        onClick={onDelete}
+        title="Permanently delete this record"
+        className="inline-flex items-center justify-center rounded-md bg-red-50 p-1.5 text-red-500 transition hover:bg-red-100"
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
