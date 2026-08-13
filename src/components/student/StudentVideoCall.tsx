@@ -206,4 +206,64 @@ function StudentMeetingCard({
           <span className="h-2.5 w-2.5 animate-ping rounded-full bg-red-500 opacity-75" />
           <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
         </span>
-        <span className="text
+        <span className="text-xs font-bold uppercase tracking-wide text-red-600">
+          Live now
+        </span>
+        <span className="text-xs text-slate-500">
+          · started {timeAgo(meeting.startedAt)}
+        </span>
+      </div>
+
+      <h4 className="text-base font-bold text-slate-900">{meeting.title}</h4>
+      <p className="mt-1 text-sm text-slate-600">
+        by <span className="font-semibold">{meeting.teacherName}</span>
+      </p>
+
+      <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+        <span className="inline-flex items-center gap-1">
+          <Clock className="h-3.5 w-3.5" /> {formatTime(meeting.startedAt)}
+        </span>
+        {meeting.scope !== "all" && (
+          <span className="inline-flex items-center gap-1">
+            <Users className="h-3.5 w-3.5" />
+            {meeting.batchTitle}
+          </span>
+        )}
+      </div>
+
+      <button
+        onClick={onJoin}
+        className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-emerald-700"
+      >
+        <Play className="h-4 w-4" /> Join now
+      </button>
+    </div>
+  );
+}
+
+function PastMeetingCard({ meeting }: { meeting: LiveMeeting }) {
+  const scopeLabel =
+    meeting.scope === "all" ? "All students" : meeting.batchTitle;
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3">
+      <div className="min-w-0 flex-1">
+        <div className="mb-0.5 flex items-center gap-2">
+          <CheckCircle2 className="h-3.5 w-3.5 text-slate-400" />
+          <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+            Ended
+          </span>
+        </div>
+        <h4 className="truncate text-sm font-semibold text-slate-800">
+          {meeting.title}
+        </h4>
+        <p className="mt-0.5 text-xs text-slate-500">
+          {meeting.teacherName} · {scopeLabel}
+        </p>
+        <p className="mt-0.5 text-[11px] text-slate-400">
+          {formatTime(meeting.startedAt)}
+          {meeting.endedAt ? ` → ${formatTime(meeting.endedAt)}` : ""}
+        </p>
+      </div>
+    </div>
+  );
+}
