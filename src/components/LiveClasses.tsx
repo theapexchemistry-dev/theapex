@@ -501,7 +501,6 @@ export function LiveClasses({ role, student }: LiveClassesProps) {
               onClose={() => setShowWebRTCModal(null)}
               onEndMeeting={(id) => {
                 handleEndMeeting(id);
-                setShowWebRTCModal(null);
               }}
             />
           );

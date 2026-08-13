@@ -475,16 +475,6 @@ export function useMeetingRoom({
     await setDoc(presenceDoc, { micOn: next }, { merge: true });
   }, [micOn]);
 
-  const toggleCam = useCallback(async () => {
-    const ls = localStreamRef.current;
-    if (!ls) return;
-    const next = !camOn;
-    ls.getVideoTracks().forEach(t => { t.enabled = next; });
-    setCamOn(next);
-    const presenceDoc = doc(db, "liveMeetings", meetingIdRef.current, "participants", participantIdRef.current);
-    await setDoc(presenceDoc, { camOn: next }, { merge: true });
-  }, [camOn]);
-
   const stopScreenShare = useCallback(async () => {
     const ss = screenStreamRef.current;
     if (!ss) return;
@@ -501,6 +491,21 @@ export function useMeetingRoom({
     await setDoc(presenceDoc, { screenSharing: false }, { merge: true });
   }, []);
 
+  const toggleCam = useCallback(async () => {
+    const ls = localStreamRef.current;
+    if (!ls) return;
+    const next = !camOn;
+    
+    if (next && screenSharing) {
+      await stopScreenShare();
+    }
+
+    ls.getVideoTracks().forEach(t => { t.enabled = next; });
+    setCamOn(next);
+    const presenceDoc = doc(db, "liveMeetings", meetingIdRef.current, "participants", participantIdRef.current);
+    await setDoc(presenceDoc, { camOn: next }, { merge: true });
+  }, [camOn, screenSharing, stopScreenShare]);
+
   const startScreenShare = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
@@ -508,6 +513,18 @@ export function useMeetingRoom({
       const track = stream.getVideoTracks()[0];
       setScreenStream(stream);
       setScreenSharing(true);
+
+      // Disable camera if it was on
+      if (camOn) {
+        const ls = localStreamRef.current;
+        if (ls) {
+          ls.getVideoTracks().forEach(t => { t.enabled = false; });
+          setCamOn(false);
+          const presenceDoc = doc(db, "liveMeetings", meetingIdRef.current, "participants", participantIdRef.current);
+          setDoc(presenceDoc, { camOn: false }, { merge: true }).catch(() => {});
+        }
+      }
+
       pcsRef.current.forEach(pc => {
         try { pc.addTrack(track, stream); } catch { /* ignore */ }
       });
@@ -515,7 +532,7 @@ export function useMeetingRoom({
       const presenceDoc = doc(db, "liveMeetings", meetingIdRef.current, "participants", participantIdRef.current);
       await setDoc(presenceDoc, { screenSharing: true }, { merge: true });
     } catch { setError("Screen share failed."); }
-  }, [stopScreenShare]);
+  }, [stopScreenShare, camOn]);
 
   const toggleScreen = useCallback(() => {
     if (screenSharing) stopScreenShare();

@@ -75,7 +75,7 @@ export function MeetingDialog({
   const [chatInput, setChatInput] = React.useState("");
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  const ended = !isAdmin && !meetingActive;
+  const ended = !meetingActive;
   const [countdown, setCountdown] = React.useState(5);
 
   useEffect(() => {
@@ -125,9 +125,12 @@ export function MeetingDialog({
       : meeting.batchTitle || "Selected batch";
 
   const handleEnd = () => {
-    room.leave();
-    if (isAdmin) onEndMeeting(meeting.id);
-    onClose();
+    if (isAdmin) {
+      onEndMeeting(meeting.id);
+    } else {
+      room.leave();
+      onClose();
+    }
   };
 
   const handleLeave = () => {
@@ -330,7 +333,7 @@ export function MeetingDialog({
           )}
 
           {/* Teacher camera thumbnail (student view, when screen is sharing) */}
-          {!isAdmin && showScreen && room.adminStream && (
+          {!isAdmin && showScreen && room.adminStream && room.adminParticipant?.camOn && (
             <div className="absolute bottom-5 right-5 z-10 h-28 w-40 overflow-hidden rounded-lg border-2 border-white/20 bg-black shadow-xl sm:h-32 sm:w-48">
               <MediaView
                 stream={room.adminStream}
