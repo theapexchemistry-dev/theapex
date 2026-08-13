@@ -241,11 +241,13 @@ export function useMeetingRoom({
   const requestMedia = useCallback(async () => {
     if (roleRef.current !== "admin") return false;
     setError("");
+    console.log("[webrtc] requesting media...");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: true,
       });
+      console.log("[webrtc] media stream acquired");
       localStreamRef.current = stream;
       setLocalStream(stream);
       setMicOn(true);
@@ -264,7 +266,7 @@ export function useMeetingRoom({
       return true;
     } catch (err) {
       console.error("[webrtc] media failed", err);
-      setError("Could not access camera/microphone.");
+      setError("Could not access camera/microphone. Please ensure you have given permissions.");
       return false;
     }
   }, []);
@@ -277,6 +279,7 @@ export function useMeetingRoom({
     const presenceDoc = doc(db, "liveMeetings", meetingId, "participants", participantIdRef.current);
     const joinRoom = async () => {
       try {
+        console.log(`[webrtc] joining room ${meetingId}...`);
         await setDoc(presenceDoc, {
           id: participantIdRef.current,
           displayName: displayRef.current,
@@ -288,11 +291,15 @@ export function useMeetingRoom({
           lastSeen: serverTimestamp(), // For cleanup
         });
         if (mounted) {
+          console.log("[webrtc] room joined successfully");
           setConnected(true);
-          if (roleRef.current === "admin") requestMedia();
+          if (roleRef.current === "admin") {
+            requestMedia();
+          }
         }
       } catch (err) {
         console.error("[webrtc] joinRoom failed", err);
+        if (mounted) setError("Failed to join classroom. Please check your connection.");
       }
     };
     joinRoom();

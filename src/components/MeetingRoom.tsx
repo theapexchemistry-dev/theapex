@@ -142,6 +142,11 @@ export function MeetingDialog({
                 connecting…
               </span>
             )}
+            {room.error && (
+              <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-red-500/20 px-2 py-0.5 text-[10px] font-bold text-red-300">
+                {room.error}
+              </span>
+            )}
           </div>
           <h2 className="truncate text-sm font-bold sm:text-base">
             {meeting.title}

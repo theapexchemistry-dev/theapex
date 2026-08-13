@@ -79,8 +79,12 @@ service cloud.firestore {
 
     // Live Meetings Collection
     match /liveMeetings/{meetingId} {
-      allow read: if true;
-      allow write: if true; // Allows teacher to initialize/update, and student/socket interactions if needed
+      allow read, write: if true;
+      
+      // Allow recursive access to subcollections (participants, signals)
+      match /{allSubcollections=**} {
+        allow read, write: if true;
+      }
     }
   }
 }
