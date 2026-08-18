@@ -25,6 +25,7 @@ import { StorageService } from './lib/storage';
 import { runMonthlyFeeReminderTask } from './lib/scheduledTasks';
 import { AdminVideoCall } from './components/admin/AdminVideoCall';
 import { StudentVideoCall } from './components/student/StudentVideoCall';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 
 export default function App() {
   const [role, setRole] = useState<Role>(() => {
@@ -220,6 +221,9 @@ export default function App() {
 
       {/* Global Footer */}
       <Footer />
+      
+      {/* Vercel Speed Insights */}
+      <SpeedInsights />
     </div>
   );
 }
