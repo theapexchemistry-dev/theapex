@@ -107,7 +107,11 @@ export const Navbar: React.FC<NavbarProps> = ({
       return true;
     }
     return false;
+<<<<<<< HEAD
   }).sort((a, b) => getTimestampFromId(b.id) - getTimestampFromId(a.id));
+=======
+  });
+>>>>>>> bdb3ffbbecec4b0e99ac1ca5b65c2118fb94fd17
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const handleMarkNotificationsRead = () => {
@@ -289,9 +293,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                                 )}
                               </div>
                               <p className={`mt-0.5 text-[11px] leading-relaxed ${txtSecondary}`}>{n.message}</p>
+<<<<<<< HEAD
                               <span className={`text-[10px] mt-1 block font-mono ${txtMuted}`}>
                                 {getTimestampFromId(n.id) ? timeAgo(getTimestampFromId(n.id)) : n.timestamp}
                               </span>
+=======
+                              <span className={`text-[10px] mt-1 block font-mono ${txtMuted}`}>{n.timestamp}</span>
+>>>>>>> bdb3ffbbecec4b0e99ac1ca5b65c2118fb94fd17
                             </div>
                           ))
                         )}
