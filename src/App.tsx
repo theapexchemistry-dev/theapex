@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Role, Student } from './types';
 import { Navbar } from './components/Navbar';
+import { Footer } from './components/Footer';
 import { ArrowLeft } from 'lucide-react';
 import { LandingPage } from './components/LandingPage';
 import { LoginPage } from './components/LoginPage';
@@ -216,6 +217,9 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* Global Footer */}
+      <Footer />
     </div>
   );
 }

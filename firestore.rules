@@ -70,6 +70,18 @@ service cloud.firestore {
       allow write: if true; // Both students and admins can update read status
     }
 
+    // FCM Push Tokens
+    match /pushTokens/{token} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // FCM Push Queue
+    match /pushQueue/{notifId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
     // Site Settings Collection (logo, name, tagline, deleted student IDs)
     // Public read so the logo shows for all visitors; admin-only write.
     match /siteSettings/{docId} {

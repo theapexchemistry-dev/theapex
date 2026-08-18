@@ -164,6 +164,10 @@ export const AdminSettings: React.FC = () => {
   };
 
   const handleEnablePush = async () => {
+    if (window.self !== window.top) {
+      alert("Browser notifications cannot be properly configured inside this preview window. Please open the application in a new tab using the button in the top right corner.");
+      return;
+    }
     setPushBusy(true);
     setStatusMsg('');
     try {
@@ -310,11 +314,27 @@ export const AdminSettings: React.FC = () => {
             </div>
           </div>
           {pushState === 'granted' ? (
-            <button onClick={handleDisablePush} disabled={pushBusy}
-              className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 font-bold text-xs rounded-xl transition-colors flex items-center justify-center gap-2">
-              {pushBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <BellRing className="w-4 h-4" />}
-              Disable Push on this device
-            </button>
+            <div className="space-y-2">
+              <button onClick={async () => {
+                const now = new Date().toLocaleTimeString();
+                StorageService.addNotification({
+                  title: 'Test Notification',
+                  message: `This is a test notification sent at ${now}. If you see this, push notifications are working!`,
+                  type: 'announcement',
+                  targetRole: 'admin',
+                  read: false
+                });
+                setStatusMsg('✓ Test notification sent! Check your notification bar.');
+              }} className="w-full py-2.5 bg-indigo-500 hover:bg-indigo-600 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2">
+                <Bell className="w-4 h-4" />
+                Send Test Notification
+              </button>
+              <button onClick={handleDisablePush} disabled={pushBusy}
+                className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 font-bold text-xs rounded-xl transition-colors flex items-center justify-center gap-2">
+                {pushBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <BellRing className="w-4 h-4" />}
+                Disable Push on this device
+              </button>
+            </div>
           ) : (
             <button onClick={handleEnablePush} disabled={pushBusy || pushState === 'denied' || pushState === 'unsupported'}
               className="w-full py-2.5 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2">

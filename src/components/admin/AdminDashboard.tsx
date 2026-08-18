@@ -79,17 +79,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     };
   }, []);
 
-  // ✅ FIX: Sort notifications NEWEST FIRST
+  const getTimestampFromId = (id: string): number => {
+    if (id && id.startsWith('n-')) {
+      const parsed = parseInt(id.slice(2), 36);
+      if (!isNaN(parsed)) return parsed;
+    }
+    return 0;
+  };
+
+  const timeAgo = (ts: number): string => {
+    if (!ts) return '';
+    const diff = Date.now() - ts;
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins === 1) return '1 min ago';
+    if (mins < 60) return `${mins} mins ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs === 1) return '1 hour ago';
+    if (hrs < 24) return `${hrs} hours ago`;
+    const days = Math.floor(hrs / 24);
+    if (days === 1) return '1 day ago';
+    return `${days} days ago`;
+  };
+
   const sortedNotifications = [...allNotifications].sort((a, b) => {
-    const parseTimestamp = (ts: string): number => {
-      if (!ts || ts === 'Just now') return Date.now();
-      const parsed = Date.parse(ts);
-      return isNaN(parsed) ? 0 : parsed;
-    };
-    return parseTimestamp(b.timestamp) - parseTimestamp(a.timestamp);
+    return getTimestampFromId(b.id) - getTimestampFromId(a.id);
   });
 
-  const recentNotifications = sortedNotifications.slice(0, 4);
+  const recentNotifications = sortedNotifications.slice(0, 5);
 
   const handleRefreshDatabase = async () => {
     setIsRefreshing(true);
@@ -402,7 +419,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       </div>
                       <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed line-clamp-2">{n.message}</p>
                       <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
-                        <Clock className="w-3 h-3" /> {n.timestamp}
+                        <Clock className="w-3 h-3" /> {getTimestampFromId(n.id) ? timeAgo(getTimestampFromId(n.id)) : n.timestamp}
                       </p>
                     </div>
                   </div>
@@ -566,7 +583,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         </div>
                         <p className="text-xs text-slate-600 mt-1 leading-relaxed">{n.message}</p>
                         <p className="text-[10px] text-slate-400 mt-1.5 flex items-center gap-1">
-                          <Clock className="w-3 h-3" /> {n.timestamp}
+                          <Clock className="w-3 h-3" /> {getTimestampFromId(n.id) ? timeAgo(getTimestampFromId(n.id)) : n.timestamp}
                         </p>
                       </div>
                     </div>

@@ -164,14 +164,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="border-t border-slate-800 py-6 bg-[#080d1f] text-slate-400 text-xs text-center">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <Logo size="sm" variant="dark" />
-          <p>© 2026 The Apex World • Faculty: Mr. Subhamoy Mondal. All rights reserved.</p>
-        </div>
-      </footer>
-
       {/* Explore Courses Modal Pop-up */}
       {showCoursesModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 overflow-y-auto animate-in fade-in duration-200">

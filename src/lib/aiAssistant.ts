@@ -14,7 +14,7 @@ const GROQ_API_KEY =
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 // Llama 3.3 70B is great for chemistry tutoring — smart + fast on Groq
-const GROQ_MODEL = 'llama-3.3-70b-versatile';
+const GROQ_MODEL = 'openai/gpt-oss-120b';
 
 export interface AiAnswerResult {
   answer: string;

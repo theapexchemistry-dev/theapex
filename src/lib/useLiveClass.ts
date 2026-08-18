@@ -122,6 +122,7 @@ export function useMeetingRoom({
   const [camOn, setCamOn] = useState(role === "admin");
   const [screenSharing, setScreenSharing] = useState(false);
   const [handRaised, setHandRaised] = useState(false);
+  const [removedByAdmin, setRemovedByAdmin] = useState(false);
   const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
   const [error, setError] = useState<string>("");
 
@@ -283,18 +284,34 @@ export function useMeetingRoom({
     console.log("[webrtc] requesting media...");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { 
+          width: { ideal: 1280 }, 
+          height: { ideal: 720 }
+        },
         audio: true,
       });
       console.log("[webrtc] media stream acquired");
+      
+      // Stop old tracks if any
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(t => t.stop());
+      }
+
       localStreamRef.current = stream;
       setLocalStream(stream);
       setMicOn(true);
       setCamOn(true);
 
       pcsRef.current.forEach((pc) => {
+        // Replace tracks in existing PCs
+        const senders = pc.getSenders();
         stream.getTracks().forEach((t) => {
-          try { pc.addTrack(t, stream); } catch { /* ignore */ }
+          const sender = senders.find(s => s.track?.kind === t.kind);
+          if (sender) {
+            sender.replaceTrack(t);
+          } else {
+            try { pc.addTrack(t, stream); } catch { /* ignore */ }
+          }
         });
       });
 
@@ -310,12 +327,35 @@ export function useMeetingRoom({
     }
   }, []);
 
+  const removeParticipant = useCallback(async (pid: string) => {
+    if (roleRef.current !== "admin") return;
+    try {
+      const pDoc = doc(db, "liveMeetings", meetingIdRef.current, "participants", pid);
+      await deleteDoc(pDoc);
+    } catch (err) {
+      console.error("[webrtc] failed to remove participant", err);
+    }
+  }, []);
+
   useEffect(() => {
     if (!active || !meetingId) return;
     let mounted = true;
 
     // 1. Join Room (Presence)
     const presenceDoc = doc(db, "liveMeetings", meetingId, "participants", participantIdRef.current);
+    
+    // Add a specific listener for self-removal (Admin kicks student)
+    const unsubPresence = onSnapshot(presenceDoc, (snap) => {
+      if (mounted) {
+        if (!snap.exists()) {
+           // Only trigger if we WERE connected or if this is student role
+           // This handles the "Admin deleted doc" case
+           setRemovedByAdmin(true);
+        } else {
+           setConnected(true);
+        }
+      }
+    });
     const joinRoom = async () => {
       try {
         console.log(`[webrtc] joining room ${meetingId}...`);
@@ -332,7 +372,6 @@ export function useMeetingRoom({
         });
         if (mounted) {
           console.log("[webrtc] room joined successfully");
-          setConnected(true);
           if (roleRef.current === "admin") {
             requestMedia();
           }
@@ -448,6 +487,7 @@ export function useMeetingRoom({
 
     return () => {
       mounted = false;
+      unsubPresence();
       unsubParticipants();
       unsubSignals();
       deleteDoc(presenceDoc).catch(() => {});
@@ -460,10 +500,10 @@ export function useMeetingRoom({
       
       setLocalStream(null);
       setAdminStream(null);
-      setConnected(false);
+      // setConnected(false); // Handled by leave() or listener
       setParticipants([]);
     };
-  }, [active, meetingId, createAdminPC, createStudentPC, flushPendingIce, sendSignal, requestMedia]);
+  }, [active, meetingId, createAdminPC, createStudentPC, flushPendingIce, sendSignal]);
 
   const toggleMic = useCallback(async () => {
     const ls = localStreamRef.current;
@@ -547,8 +587,10 @@ export function useMeetingRoom({
   }, [handRaised]);
 
   const leave = useCallback(() => {
+    if (!meetingIdRef.current || !participantIdRef.current) return;
     const presenceDoc = doc(db, "liveMeetings", meetingIdRef.current, "participants", participantIdRef.current);
     deleteDoc(presenceDoc).catch(() => {});
+    setConnected(false);
   }, []);
 
   return {
@@ -565,12 +607,14 @@ export function useMeetingRoom({
     camOn,
     handRaised,
     screenSharing,
+    removedByAdmin,
     error,
     requestMedia,
     toggleMic,
     toggleCam,
     toggleScreen,
     toggleHand,
+    removeParticipant,
     leave,
   };
 }

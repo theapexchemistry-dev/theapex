@@ -728,18 +728,30 @@ function RecordingPlayerModal({ meeting, onClose }: { meeting: LiveMeeting; onCl
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-fade-in" onClick={onClose}>
-      <div className="w-full max-w-4xl rounded-3xl bg-slate-900 p-1 shadow-2xl border border-slate-800" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
-          <div className="flex flex-col">
-            <h3 className="text-lg font-black text-white">{meeting.title}</h3>
-            <p className="text-xs text-slate-400">Recorded on {new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(meeting.startedAt)} at {new Intl.DateTimeFormat('en-US', { timeStyle: 'short' }).format(meeting.startedAt)}</p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 sm:p-6 backdrop-blur-md animate-fade-in" onClick={onClose}>
+      <div className="w-full max-w-5xl rounded-[2rem] bg-slate-900 p-1.5 shadow-2xl border border-slate-800/60 relative overflow-hidden ring-1 ring-white/10" onClick={(e) => e.stopPropagation()}>
+        {/* Subtle glowing effects behind the player */}
+        <div className="absolute -top-40 -right-40 h-96 w-96 rounded-full bg-indigo-500/20 blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-40 -left-40 h-96 w-96 rounded-full bg-amber-500/10 blur-3xl pointer-events-none" />
+        
+        <div className="relative z-10 flex items-center justify-between px-6 py-5 bg-slate-900/50 backdrop-blur-xl rounded-t-[1.75rem]">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-indigo-500/20 border border-indigo-500/30">
+              <Play className="w-5 h-5 text-indigo-400 fill-indigo-400" />
+            </div>
+            <div className="flex flex-col">
+              <h3 className="text-xl font-bold text-white tracking-tight">{meeting.title}</h3>
+              <p className="text-sm font-medium text-slate-400 mt-0.5">
+                Class Recording • <span className="text-slate-500">{new Intl.DateTimeFormat('en-US', { dateStyle: 'long' }).format(meeting.startedAt)}</span>
+              </p>
+            </div>
           </div>
-          <button onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-800 hover:text-white transition-colors">
+          <button onClick={onClose} className="rounded-full p-2.5 text-slate-400 hover:bg-slate-800 hover:text-white transition-all bg-slate-800/50">
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="relative w-full aspect-video bg-black rounded-b-3xl overflow-hidden">
+        
+        <div className="relative z-10 w-full aspect-video bg-black/90 rounded-[1.5rem] overflow-hidden border border-slate-800 shadow-inner">
           {embedUrl ? (
             <iframe 
               src={embedUrl}
@@ -748,9 +760,10 @@ function RecordingPlayerModal({ meeting, onClose }: { meeting: LiveMeeting; onCl
               allowFullScreen
             />
           ) : (
-            <div className="flex flex-col items-center justify-center h-full text-slate-500">
-              <Video className="w-12 h-12 mb-3 opacity-20" />
-              <p>No valid recording URL provided.</p>
+            <div className="flex flex-col items-center justify-center h-full text-slate-500 bg-slate-900">
+              <Video className="w-14 h-14 mb-4 opacity-20" />
+              <p className="font-medium text-lg text-slate-400">No valid recording URL provided.</p>
+              <p className="text-sm text-slate-500 mt-1">Please make sure the link is correctly pasted.</p>
             </div>
           )}
         </div>
@@ -773,77 +786,90 @@ function PastMeetingCard({ meeting, isAdmin = false, onDelete, onUpdate }: { mee
     setShowAddUrl(false);
   };
 
-  if (meeting.recordingUrl) {
-    return (
-      <>
-        <div 
-          onClick={() => setShowPlayer(true)}
-          className="group relative flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-all hover:shadow-md cursor-pointer hover:border-emerald-300 overflow-hidden"
-        >
-          <div className="absolute top-0 right-0 p-4 z-10 flex gap-2">
-            {isAdmin && onDelete && (
-               <button onClick={(e) => { e.stopPropagation(); onDelete(); }} title="Delete record" className="inline-flex items-center justify-center rounded-lg bg-white/90 backdrop-blur-sm shadow-sm p-2 text-red-500 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>
-            )}
-          </div>
-          
-          <div className="relative w-full h-32 bg-slate-900 rounded-xl overflow-hidden flex items-center justify-center">
-            <div className="absolute inset-0 opacity-20 bg-gradient-to-br from-emerald-500 to-slate-900 mix-blend-overlay"></div>
-            <div className="z-10 flex flex-col items-center justify-center transform group-hover:scale-110 transition-transform duration-300">
-               <div className="h-12 w-12 rounded-full bg-emerald-500/90 text-white flex items-center justify-center shadow-lg backdrop-blur-md">
-                 <Play className="h-5 w-5 fill-current ml-1" />
-               </div>
-            </div>
-            <div className="absolute bottom-2 right-2 px-2 py-1 bg-black/70 rounded-md text-[10px] font-bold text-white backdrop-blur-md">
-              RECORDED
-            </div>
-          </div>
-          
-          <div className="flex flex-col min-w-0">
-            <h4 className="truncate text-sm font-bold text-slate-900 group-hover:text-emerald-700 transition-colors">{meeting.title}</h4>
-            <p className="mt-0.5 text-xs text-slate-500">{meeting.teacherName} · {scopeLabel}</p>
-            <p className="mt-1 text-[11px] font-semibold text-slate-400">{new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(meeting.startedAt)}</p>
-          </div>
-        </div>
-        {showPlayer && <RecordingPlayerModal meeting={meeting} onClose={() => setShowPlayer(false)} />}
-      </>
-    );
-  }
+  const formattedDate = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(meeting.startedAt);
+  const startTime = formatTime(meeting.startedAt);
+  const endTime = meeting.endedAt ? formatTime(meeting.endedAt) : "N/A";
 
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-3.5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="mb-0.5 flex items-center gap-2">
-            <CheckCircle2 className="h-3.5 w-3.5 text-slate-400" />
-            <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Ended Class</span>
-            <span className="text-[10px] text-slate-400 uppercase font-semibold">· {meeting.platform || "live"}</span>
-          </div>
-          <h4 className="truncate text-sm font-semibold text-slate-800">{meeting.title}</h4>
-          <p className="mt-0.5 text-xs text-slate-500">{meeting.teacherName} · {scopeLabel}</p>
-          <p className="mt-0.5 text-[11px] text-slate-400">{new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(meeting.startedAt)} · {formatDuration(meeting.startedAt, meeting.endedAt)}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {isAdmin && onDelete && (<button onClick={onDelete} title="Delete record" className="inline-flex items-center justify-center rounded-lg bg-red-50 p-2 text-red-500 hover:bg-red-100"><Trash2 className="h-3.5 w-3.5" /></button>)}
-        </div>
-      </div>
-      {isAdmin && !showAddUrl && (
-        <button onClick={() => setShowAddUrl(true)} className="mt-1 flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-300 bg-slate-50 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
-          <LinkIcon className="h-3.5 w-3.5" /> Attach Google Drive Recording
+    <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3 hover:border-indigo-400 transition-all flex flex-col justify-between group relative">
+      {isAdmin && onDelete && (
+        <button 
+          onClick={(e) => { e.stopPropagation(); onDelete(); }} 
+          className="absolute top-4 right-4 p-2 rounded-xl bg-red-50 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-100"
+          title="Delete History Record"
+        >
+          <Trash2 className="w-4 h-4" />
         </button>
       )}
-      {isAdmin && showAddUrl && (
-        <div className="mt-2 flex items-center gap-2">
-          <input 
-            type="url" 
-            placeholder="Paste Google Drive link..." 
-            value={urlInput}
-            onChange={(e) => setUrlInput(e.target.value)}
-            className="flex-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-200"
-          />
-          <button onClick={handleSaveRecording} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700">Save</button>
-          <button onClick={() => setShowAddUrl(false)} className="rounded-lg bg-slate-100 px-2 py-1.5 text-slate-500 hover:bg-slate-200"><X className="h-4 w-4" /></button>
+
+      <div className="space-y-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-md border border-indigo-200 uppercase">
+            Live Class History
+          </span>
+          <span className="text-[10px] font-mono font-medium text-slate-500 flex items-center gap-1">
+            <Calendar className="w-3 h-3 text-slate-400" />
+            {formattedDate}
+          </span>
         </div>
-      )}
+
+        <div>
+          <h4 className="text-sm font-black text-slate-900 flex items-center gap-1.5">
+            <Radio className="w-4 h-4 text-indigo-600 shrink-0" />
+            {meeting.title}
+          </h4>
+          <div className="mt-2.5 flex flex-wrap gap-2">
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-50 border border-slate-100 rounded-xl text-[11px] font-bold text-slate-700">
+              <Clock className="w-3.5 h-3.5 text-indigo-600" />
+              {startTime} — {endTime}
+            </div>
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-50 border border-slate-100 rounded-xl text-[11px] font-bold text-slate-700">
+              <Users className="w-3.5 h-3.5 text-indigo-600" />
+              {scopeLabel}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[11px] font-medium text-slate-500">
+          Teacher: <span className="font-bold text-slate-800">{meeting.teacherName}</span>
+        </p>
+
+        {meeting.recordingUrl ? (
+          <button 
+            onClick={() => setShowPlayer(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-xl text-[11px] font-bold border border-emerald-100 hover:bg-emerald-100 transition-colors"
+          >
+            <Play className="w-3 h-3 fill-current" /> Watch Recording
+          </button>
+        ) : (
+          isAdmin && !showAddUrl && (
+            <button 
+              onClick={() => setShowAddUrl(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-xl text-[11px] font-bold border border-indigo-100 hover:bg-indigo-100 transition-colors"
+            >
+              <LinkIcon className="w-3 h-3" /> Attach Recording
+            </button>
+          )
+        )}
+
+        {isAdmin && showAddUrl && (
+          <div className="mt-2 flex w-full items-center gap-2">
+            <input 
+              type="url" 
+              placeholder="Paste Google Drive link..." 
+              value={urlInput}
+              onChange={(e) => setUrlInput(e.target.value)}
+              className="flex-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[11px] focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-200"
+            />
+            <button onClick={handleSaveRecording} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-indigo-700">Save</button>
+            <button onClick={() => setShowAddUrl(false)} className="rounded-lg bg-slate-100 px-2 py-1.5 text-slate-500 hover:bg-slate-200"><X className="h-4 w-4" /></button>
+          </div>
+        )}
+      </div>
+
+      {showPlayer && <RecordingPlayerModal meeting={meeting} onClose={() => setShowPlayer(false)} />}
     </div>
   );
 }
