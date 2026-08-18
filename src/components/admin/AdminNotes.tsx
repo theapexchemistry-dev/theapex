@@ -1,28 +1,32 @@
 import React, { useState } from 'react';
 import { StorageService } from '../../lib/storage';
 import { Batch } from '../../types';
-import {
-  Mail,
-  Send,
-  CheckCircle2,
-  FileText,
-  SendHorizontal,
-  History,
-  Clock,
-  Trash2,
-  Server,
-  AlertTriangle,
-  Loader2
-} from 'lucide-react';
-import { sendNoteEmails } from '../../lib/emailApi';
+import { Mail, Send, CheckCircle2, FileText, SendHorizontal, History, Clock, Trash2 } from 'lucide-react';
+import { sendEmailViaGmail, googleSignIn, getAccessToken } from '../../lib/auth';
+import { uploadFileChunks, downloadFileChunks } from '../../lib/fileChunks';
+// import { storage, ref, uploadBytes, getDownloadURL } from '../../lib/firebase';
+
+interface NoteEmailLog {
+  id: string;
+  title: string;
+  subject: string;
+  batchId: string;
+  batchTitle: string;
+  fileName: string;
+  fileUrl?: string;
+  description: string;
+  sentAt: string;
+  recipientCount: number;
+}
 
 export const AdminNotes: React.FC = () => {
   const [batches] = useState<Batch[]>(() => StorageService.getBatches());
   const [notes, setNotes] = useState<any[]>(() => StorageService.getNotes());
+
   const refreshNotes = () => setNotes(StorageService.getNotes());
 
   const handleDeleteNote = (id: string, noteTitle: string) => {
-    if (window.confirm(`Are you sure you want to delete "${noteTitle}"?`)) {
+    if (window.confirm(`Are you sure you want to delete "${noteTitle}" from the notes log?`)) {
       StorageService.deleteNote(id);
       refreshNotes();
     }
@@ -30,16 +34,14 @@ export const AdminNotes: React.FC = () => {
 
   const [selectedBatchId, setSelectedBatchId] = useState<string>(batches[0]?.id || '');
   const [filterBatchId, setFilterBatchId] = useState<string>('ALL');
+
   const [title, setTitle] = useState('');
   const [subject, setSubject] = useState('Physical Chemistry');
   const [description, setDescription] = useState('');
   const [fileName, setFileName] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isSending, setIsSending] = useState(false);
-  const [emailStatusMsg, setEmailStatusMsg] = useState<{
-    type: 'success' | 'error' | 'info';
-    text: string;
-  } | null>(null);
+  const [emailStatusMsg, setEmailStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -59,40 +61,56 @@ export const AdminNotes: React.FC = () => {
     e.preventDefault();
     if (!title.trim() || !selectedBatchId) return;
 
-    setIsSending(true);
-    setEmailStatusMsg({ type: 'info', text: 'Preparing to send emails...' });
+    // Trigger OAuth popup before any other async operation to avoid browser popup blockers
+    let token = await getAccessToken();
+    if (!token) {
+      try {
+        const authResult = await googleSignIn();
+        if (authResult?.accessToken) {
+          token = authResult.accessToken;
+        } else {
+          throw new Error("Authentication failed");
+        }
+      } catch (err: any) {
+        setEmailStatusMsg({
+          type: 'error',
+          text: `Authentication failed: ${err.message}`
+        });
+        return;
+      }
+    }
 
-    const students = StorageService.getStudents().filter(
-      s => s.batchId === selectedBatchId && s.email && s.email.trim() !== ''
-    );
+    setIsSending(true);
+    setEmailStatusMsg(null);
+
+    const students = StorageService.getStudents().filter(s => s.batchId === selectedBatchId && s.email && s.email.trim() !== '');
     const targetBatch = batches.find(b => b.id === selectedBatchId);
     const batchName = targetBatch ? targetBatch.title : 'Selected Batch';
 
     if (students.length === 0) {
       setEmailStatusMsg({
         type: 'error',
-        text: `No students with valid email addresses found in ${batchName}.`
+        text: `No students with valid email addresses found in ${batchName}. Please check Student Management.`
       });
       setIsSending(false);
       return;
     }
 
-    const effectiveFileName =
-      fileName || selectedFile?.name || `${title.replace(/\s+/g, '_')}_Notes.pdf`;
+    const effectiveFileName = fileName || selectedFile?.name || `${title.replace(/\s+/g, '_')}_Notes.pdf`;
 
     try {
-      let attachment:
-        | { filename: string; content: string; mimeType: string }
-        | undefined = undefined;
+      let attachment: { filename: string; content: string; mimeType: string } | undefined = undefined;
 
       if (selectedFile) {
-        setEmailStatusMsg({ type: 'info', text: 'Preparing file attachment...' });
+        setEmailStatusMsg({ type: 'success', text: 'Preparing file attachment for email...' });
+
         const base64Data = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.readAsDataURL(selectedFile);
           reader.onload = () => resolve(reader.result as string);
           reader.onerror = error => reject(error);
         });
+
         attachment = {
           filename: effectiveFileName,
           content: base64Data,
@@ -100,10 +118,7 @@ export const AdminNotes: React.FC = () => {
         };
       }
 
-      setEmailStatusMsg({
-        type: 'info',
-        text: `Dispatching emails to ${students.length} student(s) in ${batchName}...`
-      });
+      setEmailStatusMsg({ type: 'success', text: 'Dispatching emails to students via Gmail...' });
 
       const emailSubject = `[The Apex Chemistry] Study Note: ${title}`;
       const emailBody = `
@@ -112,32 +127,43 @@ export const AdminNotes: React.FC = () => {
             <h2 style="margin: 0; color: #facc15; font-size: 22px;">The Apex Chemistry</h2>
             <p style="margin: 4px 0 0 0; font-size: 14px; color: #cbd5e1;">Mr. Subhamoy Mondal • Chemistry Tuition</p>
           </div>
+          
           <div style="padding: 20px 0;">
             <h3 style="color: #1e293b; font-size: 18px; margin-top: 0;">New Study Material Released</h3>
             <p style="color: #475569; font-size: 14px;">Dear Student,</p>
             <p style="color: #475569; font-size: 14px;">Mr. Subhamoy Mondal has sent a new study material for your batch <strong>(${batchName})</strong>:</p>
+            
             <div style="background-color: #f8fafc; border-left: 4px solid #4f46e5; padding: 15px; margin: 15px 0; border-radius: 4px;">
               <p style="margin: 0; font-weight: bold; font-size: 16px; color: #1e293b;">${title}</p>
               <p style="margin: 5px 0 0 0; font-size: 13px; color: #64748b;">Subject / Topic: <strong>${subject}</strong></p>
               ${description ? `<p style="margin: 8px 0 0 0; font-size: 13px; color: #334155;"><strong>Details:</strong> ${description}</p>` : ''}
               <p style="margin: 8px 0 0 0; font-size: 12px; color: #4338ca; font-weight: bold;">📎 Attached Document: ${effectiveFileName}</p>
             </div>
+
             <p style="color: #475569; font-size: 14px;">Please check the file attachment directly in this email to download and view your study notes.</p>
           </div>
+
           <div style="border-top: 1px solid #e2e8f0; padding-top: 15px; font-size: 12px; color: #94a3b8; text-align: center;">
             <p style="margin: 0;">The Apex Chemistry • Quality Chemistry Coaching for JEE / NEET / CBSE</p>
           </div>
         </div>
       `;
 
-      const result = await sendNoteEmails({
-        to: students.map(s => s.email),
-        subject: emailSubject,
-        bodyHtml: emailBody,
-        attachment
-      });
+      let successCount = 0;
+      let failCount = 0;
 
-      if (result.success && result.sentCount > 0) {
+      for (const student of students) {
+        const res = await sendEmailViaGmail(student.email, emailSubject, emailBody, attachment, token);
+        if (res.success) {
+          successCount++;
+        } else {
+          failCount++;
+          console.warn(`Failed to send email to ${student.email}:`, res.error);
+        }
+      }
+
+      if (successCount > 0) {
+        // Save note metadata to storage as email log record
         StorageService.addNote({
           title,
           subject,
@@ -146,18 +172,14 @@ export const AdminNotes: React.FC = () => {
           batchTitle: batchName,
           fileName: effectiveFileName,
           fileSize: selectedFile ? `${(selectedFile.size / 1024 / 1024).toFixed(2)} MB` : undefined,
-          recipientCount: result.sentCount
+          recipientCount: successCount
         });
 
         refreshNotes();
 
         setEmailStatusMsg({
           type: 'success',
-          text: `Successfully sent note "${title}" to ${result.sentCount} student(s) in ${batchName}!${
-            result.failedEmails.length > 0
-              ? ` (${result.failedEmails.length} failed: ${result.failedEmails.join(', ')})`
-              : ''
-          }`
+          text: `Successfully sent note "${title}" directly to ${successCount} student(s) in ${batchName} via Gmail!${failCount > 0 ? ` (${failCount} failed)` : ''}`
         });
 
         setTitle('');
@@ -167,7 +189,7 @@ export const AdminNotes: React.FC = () => {
       } else {
         setEmailStatusMsg({
           type: 'error',
-          text: result.error || 'Failed to send emails. Please check that the Gmail service is configured in Vercel.'
+          text: `Failed to send email. Please ensure your Google / Gmail permissions are authorized.`
         });
       }
     } catch (err: any) {
@@ -188,62 +210,21 @@ export const AdminNotes: React.FC = () => {
       {/* Header */}
       <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-black text-slate-900 tracking-tight">
-            Email Study Notes directly to Students
-          </h2>
-          <p className="text-sm text-slate-500">
-            Dispatch handwritten notes, chapter guides, and formula sheets directly to students'
-            registered email inboxes via Gmail.
-          </p>
+          <h2 className="text-2xl font-black text-slate-900 tracking-tight">Email Study Notes directly to Students</h2>
+          <p className="text-sm text-slate-500">Dispatch handwritten notes, chapter guides, and formula sheets directly to students' registered email inboxes via Gmail.</p>
         </div>
-        <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-100 text-emerald-800 px-3 py-2 rounded-xl text-xs font-semibold shrink-0">
-          <Server className="w-4 h-4 text-emerald-600" /> Server Email Service Active
-        </div>
-      </div>
-
-      {/* Info banner */}
-      <div className="p-4 rounded-2xl border bg-blue-50 border-blue-200 flex items-start gap-3">
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-blue-100 text-blue-700">
-          <Server className="w-5 h-5" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-bold text-blue-900">Server-based email sending</p>
-          <p className="text-xs text-blue-700 mt-0.5 leading-relaxed">
-            Emails are sent through a secure serverless function using your Gmail account. Requires
-            <code className="mx-1 px-1.5 py-0.5 bg-blue-100 rounded text-[10px] font-mono">GMAIL_USER</code>
-            and
-            <code className="mx-1 px-1.5 py-0.5 bg-blue-100 rounded text-[10px] font-mono">GMAIL_APP_PASSWORD</code>
-            environment variables in Vercel. No popup or Google sign-in required.
-          </p>
+        <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-100 text-indigo-800 px-3 py-2 rounded-xl text-xs font-semibold shrink-0">
+          <Mail className="w-4 h-4 text-indigo-600" /> Direct Gmail Dispatch Active
         </div>
       </div>
 
       {emailStatusMsg && (
-        <div
-          className={`p-4 rounded-xl border flex items-center justify-between text-xs font-medium ${
-            emailStatusMsg.type === 'success'
-              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-              : emailStatusMsg.type === 'error'
-              ? 'bg-red-50 text-red-800 border-red-200'
-              : 'bg-blue-50 text-blue-800 border-blue-200'
-          }`}
-        >
-          <div className="flex items-center gap-2 min-w-0">
-            {emailStatusMsg.type === 'info' ? (
-              <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
-            ) : emailStatusMsg.type === 'error' ? (
-              <AlertTriangle className="w-4 h-4 shrink-0" />
-            ) : (
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
-            )}
-            <span className="break-words">{emailStatusMsg.text}</span>
+        <div className={`p-4 rounded-xl border flex items-center justify-between text-xs font-medium ${emailStatusMsg.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-red-50 text-red-800 border-red-200'}`}>
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>{emailStatusMsg.text}</span>
           </div>
-          <button
-            onClick={() => setEmailStatusMsg(null)}
-            className="text-slate-400 hover:text-slate-600 font-bold ml-2 shrink-0"
-          >
-            ×
-          </button>
+          <button onClick={() => setEmailStatusMsg(null)} className="text-slate-400 hover:text-slate-600 font-bold ml-2">×</button>
         </div>
       )}
 
@@ -255,6 +236,7 @@ export const AdminNotes: React.FC = () => {
           </h3>
 
           <form onSubmit={handleSendNoteSubmit} className="space-y-4">
+            {/* Batch Selection Dropdown */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Target Batch *</label>
               <select
@@ -308,6 +290,7 @@ export const AdminNotes: React.FC = () => {
               />
             </div>
 
+            {/* Note Reference Attachment Name */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Select / Reference Note File (Optional)</label>
               <div className="relative border-2 border-dashed border-indigo-200 bg-indigo-50/30 hover:bg-indigo-50/60 rounded-2xl p-5 text-center transition-colors">
@@ -330,13 +313,9 @@ export const AdminNotes: React.FC = () => {
             <button
               type="submit"
               disabled={isSending}
-              className={`w-full py-3.5 text-white font-bold text-sm rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 ${
-                isSending
-                  ? 'bg-indigo-400 cursor-not-allowed'
-                  : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/20'
-              }`}
+              className={`w-full py-3.5 text-white font-bold text-sm rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 ${isSending ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/20'}`}
             >
-              {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              <Send className="w-4 h-4" />
               <span>{isSending ? 'Dispatching Emails...' : 'Send Notes directly to Students via Email'}</span>
             </button>
           </form>
@@ -348,6 +327,8 @@ export const AdminNotes: React.FC = () => {
             <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
               <History className="w-4 h-4 text-slate-500" /> Dispatched Email Notes Log
             </h3>
+
+            {/* Batch Filter */}
             <select
               value={filterBatchId}
               onChange={e => setFilterBatchId(e.target.value)}
@@ -371,10 +352,7 @@ export const AdminNotes: React.FC = () => {
               </div>
             ) : (
               filteredNotes.map(note => (
-                <div
-                  key={note.id}
-                  className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-start justify-between gap-4 group"
-                >
+                <div key={note.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-start justify-between gap-4 group">
                   <div className="flex items-start gap-3 flex-1 min-w-0">
                     <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold shrink-0">
                       <Mail className="w-5 h-5" />
@@ -394,12 +372,12 @@ export const AdminNotes: React.FC = () => {
                           {note.createdAt}
                         </span>
                       </div>
-
+                      
                       <h4 className="text-sm font-black text-slate-900 mt-1.5 flex items-center gap-1.5">
                         <FileText className="w-4 h-4 text-indigo-600 shrink-0" />
                         {note.title}
                       </h4>
-
+                      
                       {note.description && (
                         <p className="text-xs text-slate-600 mt-1 leading-relaxed bg-slate-50 p-2.5 rounded-xl border border-slate-100">
                           {note.description}
@@ -407,15 +385,10 @@ export const AdminNotes: React.FC = () => {
                       )}
 
                       <div className="mt-2.5 flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
-                        <span
-                          className="font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md truncate max-w-[200px]"
-                          title={note.fileName}
-                        >
+                        <span className="font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md truncate max-w-[200px]" title={note.fileName}>
                           Document: <strong className="text-slate-900 font-mono">{note.fileName}</strong>
                         </span>
-                        <span>
-                          Batch: <strong className="text-slate-800">{note.batchTitle}</strong>
-                        </span>
+                        <span>Batch: <strong className="text-slate-800">{note.batchTitle}</strong></span>
                         <span className="text-emerald-600 font-bold flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">
                           ✉️ Sent directly to student email inboxes
                         </span>
@@ -439,3 +412,5 @@ export const AdminNotes: React.FC = () => {
     </div>
   );
 };
+
+
