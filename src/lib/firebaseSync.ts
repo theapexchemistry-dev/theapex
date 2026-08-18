@@ -1,4 +1,4 @@
-// firebaseSync.ts — FIXED (v3)
+// firebaseSync.ts — FIXED
 // CRITICAL FIXES:
 //   1. The onSnapshot listener now MERGES Firestore data with local data
 //      (union by ID) instead of OVERWRITING. Previously, an empty or partial
@@ -14,19 +14,6 @@
 //      ...) no longer make setDoc() throw "Unsupported field value: undefined".
 //      syncArrayToFirestore() also isolates per-item failures so ONE bad record
 //      can no longer abort the loop and drop a brand-new student doubt.
-//
-//   5. ★ TOMBSTONE GUARD (the "deleted doubts reappearing" fix) ★
-//      mergeAndStore() now STRIPS OUT every item whose id is in the
-//      per-collection deleted-IDs blacklist BEFORE writing the merged array
-//      back to localStorage. The blacklist is itself synced to Firestore
-//      (siteSettings/deletedXxxIds) and re-broadcast to every device via the
-//      siteSettings onSnapshot listener. This is the LAST LINE OF DEFENCE:
-//      even if deleteFromFirestore() silently failed and an orphan doc
-//      lingers in the `doubts` collection, mergeAndStore() will refuse to
-//      re-hydrate it. This is generalized to EVERY collection — doubts,
-//      students, notifications, notes, fees, batches, tests, liveMeetings,
-//      supportRequests — so the same class of bug can never come back for
-//      any other entity.
 import { collection, doc, setDoc, updateDoc, getDoc, getDocs, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { db } from './firebase';
 import { FeeRecord } from '../types';
@@ -182,71 +169,8 @@ export function dedupeFeeRecords(records: FeeRecord[]): FeeRecord[] {
   return Array.from(map.values());
 }
 
-// ── TOMBSTONE INFRASTRUCTURE ───────────────────────────────────────────────
-// The "deleted doubts reappearing" bug happened because:
-//   (a) mergeAndStore() did a UNION of local + remote — so a doubt that was
-//       deleted locally but still lingered in Firestore (deleteFromFirestore
-//       silently failed, or another device re-uploaded it) got merged
-//       straight back into localStorage; AND
-//   (b) the new listener dropped the `deletedDoubtIds` siteSettings handler,
-//       so the tombstone list never propagated to other devices.
-//
-// The fix below is generalized to EVERY collection. For each collection we
-// maintain a per-collection blacklist:
-//   localStorage key  : apex_deleted_<singular>_ids      (e.g. apex_deleted_doubt_ids)
-//   Firestore doc     : siteSettings/deletedXxxIds        (e.g. deletedDoubtIds)
-//
-// storage.ts is already wired up to write `apex_deleted_doubt_ids` and to
-// sync it to `siteSettings/deletedDoubtIds` (see addDeletedDoubtId). The
-// listener below re-broadcasts every `deletedXxxIds` doc to its localStorage
-// key on every device, and mergeAndStore() consults the blacklist before
-// writing the merged array back. Net effect: a deleted record can never
-// come back, on any device, ever.
-const DELETED_IDS_KEYS: Record<string, { ls: string; fs: string }> = {
-  doubts:           { ls: 'apex_deleted_doubt_ids',            fs: 'deletedDoubtIds' },
-  students:         { ls: 'apex_deleted_student_ids',          fs: 'deletedStudentIds' },
-  notifications:    { ls: 'apex_deleted_notification_ids',      fs: 'deletedNotificationIds' },
-  notes:            { ls: 'apex_deleted_note_ids',             fs: 'deletedNoteIds' },
-  fees:             { ls: 'apex_deleted_fee_ids',              fs: 'deletedFeeIds' },
-  batches:          { ls: 'apex_deleted_batch_ids',             fs: 'deletedBatchIds' },
-  tests:            { ls: 'apex_deleted_test_ids',              fs: 'deletedTestIds' },
-  liveMeetings:     { ls: 'apex_deleted_live_meeting_ids',     fs: 'deletedLiveMeetingIds' },
-  support_requests: { ls: 'apex_deleted_support_request_ids',  fs: 'deletedSupportRequestIds' },
-};
-
-/** Read the per-collection tombstone set from localStorage. */
-function readDeletedIds(lsKey: string): Set<string> {
-  try {
-    const raw = localStorage.getItem(lsKey);
-    if (!raw) return new Set();
-    const arr = JSON.parse(raw);
-    if (!Array.isArray(arr)) return new Set();
-    return new Set(arr.map(String));
-  } catch {
-    return new Set();
-  }
-}
-
-/**
- * Remove any item whose id is in the per-collection tombstone set.
- * If the collection has no tombstone wiring, returns the input unchanged.
- */
-function applyTombstones(key: string, items: any[]): any[] {
-  const map = DELETED_IDS_KEYS[key];
-  if (!map) return items;
-  const set = readDeletedIds(map.ls);
-  if (set.size === 0) return items;
-  return items.filter((it) => {
-    if (!it || !it.id) return true;
-    return !set.has(String(it.id));
-  });
-}
-
 // ── Generic merge: union of local + remote by ID ───────────────────────────
 // For fee records, also dedupes by (studentId + month).
-// ★ TOMBSTONE GUARD: strips deleted IDs from BOTH the local and the remote
-//    leg of the union, so a lingering Firestore orphan can never be merged
-//    back into localStorage. ★
 function mergeAndStore(key: string, col: string, remoteItems: any[]): any[] {
   const localStorageKey = `apex_${key}_v2`;
   let localItems: any[] = [];
@@ -257,12 +181,6 @@ function mergeAndStore(key: string, col: string, remoteItems: any[]): any[] {
   } catch {
     localItems = [];
   }
-
-  // Tombstone guard — applied to BOTH legs so a deleted record that still
-  // lingers in either localStorage (leftover from before the fix) or in
-  // Firestore (silent deleteFromFirestore failure) cannot sneak back in.
-  localItems = applyTombstones(key, localItems);
-  remoteItems = applyTombstones(key, remoteItems);
 
   // Union by ID — remote wins for same ID (it's the cross-device source of
   // truth), EXCEPT we never let a "terminal" local state (paid/ended) be
@@ -342,26 +260,11 @@ export function setupFirestoreListeners() {
               if (doc.id === 'deletedStudentIds' && doc.ids) {
                 localStorage.setItem('apex_deleted_student_ids', JSON.stringify(doc.ids));
               }
-              // ── TOMBSTONE BROADCAST ──
-              // Re-broadcast EVERY per-collection deletedXxxIds doc to its
-              // matching localStorage key, so a deletion recorded on device
-              // A propagates to device B's tombstone set, and mergeAndStore()
-              // on device B will then refuse to re-hydrate the deleted doc.
-              // This is the cross-device half of the "deleted doubts
-              // reappearing" fix.
-              for (const k of Object.keys(DELETED_IDS_KEYS)) {
-                const entry = (DELETED_IDS_KEYS as any)[k];
-                if (doc.id === entry.fs && Array.isArray(doc.ids)) {
-                  localStorage.setItem(entry.ls, JSON.stringify(doc.ids));
-                }
-              }
             });
           } else {
             // ── MERGE instead of overwrite ──
             // This is the key fix: we union local + remote by ID, and for
             // fee records we also dedupe by (studentId + month).
-            // mergeAndStore() also STRIPS tombstoned IDs (see above), so a
-            // deleted-but-still-remote doc can no longer come back.
             mergeAndStore(key, col, items);
           }
           if (typeof window !== 'undefined') {
@@ -402,7 +305,7 @@ export async function fetchDataFromFirestore(): Promise<boolean> {
         if (!snap.empty) {
           hasData = true;
           const data = snap.docs.map(d => d.data());
-          // Merge with local instead of overwriting (and apply tombstones)
+          // Merge with local instead of overwriting
           mergeAndStore(key, col, data);
         }
         // If empty, do NOTHING — keep whatever is in localStorage.
@@ -417,11 +320,6 @@ export async function fetchDataFromFirestore(): Promise<boolean> {
     console.debug('Firestore fetch notice:', err);
   }
 
-  // ── Pull siteSettings (logo / name / tagline / ALL deletedXxxIds) ──
-  // This MUST run before the per-collection snapshot listeners fire, so the
-  // tombstone sets are populated in localStorage before mergeAndStore()
-  // consults them. The Firestore listener below will keep them in sync
-  // thereafter.
   try {
     const settingsSnap = await getDocs(collection(db, 'siteSettings'));
     for (const docSnap of settingsSnap.docs) {
@@ -433,16 +331,6 @@ export async function fetchDataFromFirestore(): Promise<boolean> {
         if (data?.tagline) localStorage.setItem('apex_tagline', data.tagline);
       } else if (docSnap.id === 'deletedStudentIds' && Array.isArray(data?.ids)) {
         localStorage.setItem('apex_deleted_student_ids', JSON.stringify(data.ids));
-      } else if (docSnap.id === 'deletedDoubtIds' && Array.isArray(data?.ids)) {
-        localStorage.setItem('apex_deleted_doubt_ids', JSON.stringify(data.ids));
-      } else {
-        // Any other deletedXxxIds doc → its per-collection localStorage key
-        for (const k of Object.keys(DELETED_IDS_KEYS)) {
-          const entry = (DELETED_IDS_KEYS as any)[k];
-          if (docSnap.id === entry.fs && Array.isArray(data?.ids)) {
-            localStorage.setItem(entry.ls, JSON.stringify(data.ids));
-          }
-        }
       }
     }
   } catch (e) {
@@ -704,10 +592,18 @@ export function subscribeToSupportRequests(
         const remote: any[] = snapshot.empty
           ? []
           : snapshot.docs.map((d) => d.data());
-        // Merge local + remote by ID (union — never wipes local data).
-        // ★ Tombstone guard also applies here via mergeAndStore(). ★
-        const merged = mergeAndStore('support_requests', 'supportRequests', remote);
-        onNext(Array.isArray(merged) ? merged : remote);
+        // Merge local + remote by ID (union — never wipes local data)
+        const local = readLocalSupportRequests();
+        const map = new Map<string, any>();
+        for (const item of local) {
+          if (item && item.id) map.set(item.id, item);
+        }
+        for (const item of remote) {
+          if (item && item.id) map.set(item.id, item); // remote wins
+        }
+        const merged = Array.from(map.values());
+        writeLocalSupportRequests(merged);
+        onNext(merged);
         dispatchStorageUpdate();
       },
       (err) => {

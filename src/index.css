@@ -240,7 +240,6 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   background: #404040;
 }
 
-<<<<<<< HEAD
 @layer utilities {
   .no-scrollbar::-webkit-scrollbar {
     display: none;
@@ -251,8 +250,6 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   }
 }
 
-=======
->>>>>>> bdb3ffbbecec4b0e99ac1ca5b65c2118fb94fd17
 /* ── GRADIENTS ───────────────────────────────────────────────────────── */
 html.dark .from-amber-50 { --tw-gradient-from: rgba(251,191,36,0.08) var(--tw-gradient-from-position) !important; }
 html.dark .to-white { --tw-gradient-to: #0a0a0a var(--tw-gradient-to-position) !important; }
