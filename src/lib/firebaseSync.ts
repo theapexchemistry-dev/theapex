@@ -224,6 +224,24 @@ function mergeAndStore(key: string, col: string, remoteItems: any[]): any[] {
     map.set(item.id, item);
   }
 
+  // For liveMeetings: Firestore is the authoritative source of truth.
+  // We keep recently created (<15s) optimistic local meetings, but remove deleted ones.
+  if (key === 'liveMeetings') {
+    const now = Date.now();
+    const remoteIdSet = new Set(remoteItems.map(r => r.id));
+    const recentLocal = localItems.filter(
+      l => l && l.id && !remoteIdSet.has(l.id) && (now - (l.createdAt || l.startedAt || 0) < 15000)
+    );
+    const cleanList = [...remoteItems, ...recentLocal];
+    cleanList.sort((a, b) => (b.startedAt || b.createdAt || 0) - (a.startedAt || a.createdAt || 0));
+    try {
+      localStorage.setItem(localStorageKey, JSON.stringify(cleanList));
+    } catch (e) {
+      console.debug('Error storing clean liveMeetings:', e);
+    }
+    return cleanList;
+  }
+
   // For students: if remoteItems was non-empty from Firestore, Firestore is source of truth.
   // Never keep records that were deleted in cloud or are on blacklist.
   if (key === 'students' && remoteItems.length > 0) {
@@ -440,9 +458,24 @@ export function subscribeToAllMeetings(
     console.debug('subscribeToAllMeetings initial emit failed:', e);
   }
 
+  // Listen to local update events as well
+  const handleLocalUpdate = () => {
+    try {
+      onNext(readLocalMeetings());
+    } catch (e) {
+      console.debug('Local meeting update notify failed:', e);
+    }
+  };
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('apex_live_meetings_updated', handleLocalUpdate);
+    window.addEventListener('apex_storage_updated', handleLocalUpdate);
+    window.addEventListener('storage', handleLocalUpdate);
+  }
+
   // 2) Subscribe to the Firestore `liveMeetings` collection for real-time
   //    cross-device updates. Each snapshot is merged with localStorage via
-  //    mergeAndStore() (union by ID — never wipes local data) and re-emitted.
+  //    mergeAndStore() (Firestore is authoritative for live history) and re-emitted.
   let unsub: () => void = () => {};
   try {
     unsub = onSnapshot(
@@ -450,8 +483,8 @@ export function subscribeToAllMeetings(
       (snapshot) => {
         const remote: LiveMeeting[] = snapshot.empty
           ? []
-          : (snapshot.docs.map((d) => d.data() as LiveMeeting));
-        // mergeAndStore unions local + remote by ID and writes back to
+          : (snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as LiveMeeting));
+        // mergeAndStore unions local + remote and writes back to
         // `apex_liveMeetings_v2`, returning the merged array.
         const merged = mergeAndStore('liveMeetings', 'liveMeetings', remote) as LiveMeeting[];
         onNext(Array.isArray(merged) ? merged : remote);
@@ -468,6 +501,11 @@ export function subscribeToAllMeetings(
   }
 
   return () => {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('apex_live_meetings_updated', handleLocalUpdate);
+      window.removeEventListener('apex_storage_updated', handleLocalUpdate);
+      window.removeEventListener('storage', handleLocalUpdate);
+    }
     try {
       unsub();
     } catch {
@@ -496,6 +534,7 @@ export async function startMeeting(meeting: LiveMeeting): Promise<void> {
   // Persist to Firestore (stripUndefined guarantees no `undefined` fields throw)
   await syncDocToFirestore('liveMeetings', meeting.id, meeting);
 
+  window.dispatchEvent(new Event('apex_live_meetings_updated'));
   dispatchStorageUpdate();
 }
 
@@ -525,6 +564,7 @@ export async function endMeeting(id: string): Promise<void> {
     console.debug(`Firestore endMeeting failed for ${id}:`, err);
   }
 
+  window.dispatchEvent(new Event('apex_live_meetings_updated'));
   dispatchStorageUpdate();
 }
 
@@ -543,6 +583,7 @@ export async function deleteMeeting(id: string): Promise<void> {
   // Delete from Firestore
   await deleteFromFirestore('liveMeetings', id);
 
+  window.dispatchEvent(new Event('apex_live_meetings_updated'));
   dispatchStorageUpdate();
 }
 

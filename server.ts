@@ -180,11 +180,83 @@ async function startServer() {
     }
   }, 60 * 1000);
 
-  app.use(express.json());
+  app.use(express.json({ limit: "25mb" }));
 
   // API routes FIRST
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
+  });
+
+  // ---------- Send Note Email with Attachments ----------
+  app.post("/api/send-note-email", async (req, res) => {
+    try {
+      const { to, subject, bodyHtml, attachment } = req.body || {};
+
+      if (!Array.isArray(to) || to.length === 0) {
+        return res.status(400).json({ error: "No recipients provided." });
+      }
+      if (!subject || !bodyHtml) {
+        return res.status(400).json({ error: "Subject and body are required." });
+      }
+
+      const gmailUser = process.env.GMAIL_USER;
+      const gmailPass = process.env.GMAIL_APP_PASSWORD;
+
+      if (!gmailUser || !gmailPass) {
+        return res.status(400).json({
+          success: false,
+          sentCount: 0,
+          failedEmails: to,
+          error: "Gmail credentials not configured. Please set GMAIL_USER and GMAIL_APP_PASSWORD in settings."
+        });
+      }
+
+      const nodemailer = await import("nodemailer");
+      const transporter = nodemailer.createTransport({
+        service: "gmail",
+        auth: { user: gmailUser, pass: gmailPass }
+      });
+
+      let sentCount = 0;
+      const failedEmails: string[] = [];
+
+      for (const recipient of to) {
+        try {
+          const mailOptions: any = {
+            from: `"The Apex Chemistry" <${gmailUser}>`,
+            to: recipient,
+            subject,
+            html: bodyHtml
+          };
+
+          if (attachment && attachment.filename && attachment.content) {
+            const base64Match = attachment.content.match(/^data:[^;]+;base64,(.*)$/);
+            const base64Data = base64Match ? base64Match[1] : attachment.content;
+            mailOptions.attachments = [{
+              filename: attachment.filename,
+              content: Buffer.from(base64Data, "base64"),
+              contentType: attachment.mimeType || "application/octet-stream"
+            }];
+          }
+
+          await transporter.sendMail(mailOptions);
+          sentCount++;
+        } catch (sendErr: any) {
+          console.error(`Failed to send to ${recipient}:`, sendErr.message);
+          failedEmails.push(recipient);
+        }
+      }
+
+      return res.status(200).json({
+        success: sentCount > 0,
+        sentCount,
+        failedEmails,
+        error: sentCount === 0 ? "Failed to send to all recipients." : undefined
+      });
+    } catch (err: any) {
+      console.error("[Email] Error in send-note-email:", err);
+      return res.status(500).json({ success: false, sentCount: 0, failedEmails: [], error: err.message });
+    }
   });
 
   // ---------- Auto Send Credentials via Email & WhatsApp ----------
