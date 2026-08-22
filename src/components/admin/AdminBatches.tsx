@@ -3,7 +3,11 @@ import { StorageService } from '../../lib/storage';
 import { Batch } from '../../types';
 import { Layers, Plus, Calendar, Clock, Trash2, Users, Edit2, TrendingUp } from 'lucide-react';
 
-export const AdminBatches: React.FC = () => {
+interface AdminBatchesProps {
+  isModerator?: boolean;
+}
+
+export const AdminBatches: React.FC<AdminBatchesProps> = ({ isModerator = false }) => {
   const [batches, setBatches] = useState<Batch[]>(() => StorageService.getBatches());
   const students = StorageService.getStudents();
 
@@ -147,16 +151,18 @@ export const AdminBatches: React.FC = () => {
                 </select>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Monthly Fees (₹)</label>
-                <input
-                  type="number"
-                  required
-                  value={fees}
-                  onChange={e => setFees(Number(e.target.value))}
-                  className="w-full text-xs px-3 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-600 outline-none"
-                />
-              </div>
+              {!isModerator && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Monthly Fees (₹)</label>
+                  <input
+                    type="number"
+                    required
+                    value={fees}
+                    onChange={e => setFees(Number(e.target.value))}
+                    className="w-full text-xs px-3 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-600 outline-none"
+                  />
+                </div>
+              )}
             </div>
 
             <div>
@@ -266,7 +272,7 @@ export const AdminBatches: React.FC = () => {
                     <div className="flex items-center gap-1.5">
                       <Users className="w-3.5 h-3.5 text-slate-400" /> {studentCount} Enrolled
                     </div>
-                    <div className="font-bold text-indigo-600">₹{b.fees.toLocaleString()} / mo</div>
+                    {!isModerator && <div className="font-bold text-indigo-600">₹{b.fees.toLocaleString()} / mo</div>}
                   </div>
 
                   {/* Scheduled Days Badges */}

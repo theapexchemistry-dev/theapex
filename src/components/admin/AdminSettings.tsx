@@ -34,7 +34,11 @@ import {
   type PushPermissionState
 } from '../../lib/pushNotifications';
 
-export const AdminSettings: React.FC = () => {
+interface AdminSettingsProps {
+  isModerator?: boolean;
+}
+
+export const AdminSettings: React.FC<AdminSettingsProps> = ({ isModerator = false }) => {
   const [wiping, setWiping] = useState(false);
   const [statusMsg, setStatusMsg] = useState('');
   const [siteName, setSiteName] = useState(() => StorageService.getSiteName());
@@ -361,9 +365,11 @@ export const AdminSettings: React.FC = () => {
             <button onClick={() => handleExportCsv('students')} className="py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold text-[11px] rounded-xl flex items-center justify-center gap-1.5">
               <FileSpreadsheet className="w-3.5 h-3.5" /> Students CSV
             </button>
-            <button onClick={() => handleExportCsv('feeRecords')} className="py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold text-[11px] rounded-xl flex items-center justify-center gap-1.5">
-              <FileSpreadsheet className="w-3.5 h-3.5" /> Fees CSV
-            </button>
+            {!isModerator && (
+              <button onClick={() => handleExportCsv('feeRecords')} className="py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold text-[11px] rounded-xl flex items-center justify-center gap-1.5">
+                <FileSpreadsheet className="w-3.5 h-3.5" /> Fees CSV
+              </button>
+            )}
             <button onClick={() => handleExportCsv('doubts')} className="py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold text-[11px] rounded-xl flex items-center justify-center gap-1.5">
               <FileSpreadsheet className="w-3.5 h-3.5" /> Doubts CSV
             </button>
@@ -438,18 +444,20 @@ export const AdminSettings: React.FC = () => {
         </div>
 
         {/* Wipe Database Action */}
-        <div className="lg:col-span-12 bg-white p-6 rounded-2xl border border-red-200 shadow-sm space-y-4">
-          <h3 className="text-base font-bold text-red-700 flex items-center gap-2 pb-2 border-b border-red-100">
-            <AlertTriangle className="w-5 h-5 text-red-600" /> Danger Zone: Factory Reset
-          </h3>
-          <p className="text-xs text-slate-600 font-medium">
-            This action will permanently delete all records, users, batches, tests, and fees from both this device and the Cloud Firestore database. It cannot be undone.
-          </p>
-          <button onClick={handleWipeDatabase} disabled={wiping}
-            className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2">
-            {wiping ? 'Wiping Database...' : 'Start from Zero (Wipe Database)'}
-          </button>
-        </div>
+        {!isModerator && (
+          <div className="lg:col-span-12 bg-white p-6 rounded-2xl border border-red-200 shadow-sm space-y-4">
+            <h3 className="text-base font-bold text-red-700 flex items-center gap-2 pb-2 border-b border-red-100">
+              <AlertTriangle className="w-5 h-5 text-red-600" /> Danger Zone: Factory Reset
+            </h3>
+            <p className="text-xs text-slate-600 font-medium">
+              This action will permanently delete all records, users, batches, tests, and fees from both this device and the Cloud Firestore database. It cannot be undone.
+            </p>
+            <button onClick={handleWipeDatabase} disabled={wiping}
+              className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2">
+              {wiping ? 'Wiping Database...' : 'Start from Zero (Wipe Database)'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

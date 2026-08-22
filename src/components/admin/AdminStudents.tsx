@@ -24,7 +24,11 @@ import {
   Mail
 } from 'lucide-react';
 
-export const AdminStudents: React.FC = () => {
+interface AdminStudentsProps {
+  isModerator?: boolean;
+}
+
+export const AdminStudents: React.FC<AdminStudentsProps> = ({ isModerator = false }) => {
   const [students, setStudents] = useState<Student[]>(() => StorageService.getStudents());
   const [batches, setBatches] = useState<Batch[]>(() => StorageService.getBatches());
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -392,7 +396,7 @@ export const AdminStudents: React.FC = () => {
                 <th className="p-3.5">Student ID & Name</th>
                 <th className="p-3.5">Class & Batch</th>
                 <th className="p-3.5">Phone Number</th>
-                <th className="p-3.5">Monthly Fee</th>
+                {!isModerator && <th className="p-3.5">Monthly Fee</th>}
                 <th className="p-3.5">Joining Date</th>
                 <th className="p-3.5 text-right">Actions</th>
               </tr>
@@ -432,7 +436,7 @@ export const AdminStudents: React.FC = () => {
                         <Phone className="w-3.5 h-3.5 text-slate-400" /> {student.phone}
                       </div>
                     </td>
-                    <td className="p-3.5 font-extrabold text-indigo-600">₹{student.fees.toLocaleString()}</td>
+                    {!isModerator && <td className="p-3.5 font-extrabold text-indigo-600">₹{student.fees.toLocaleString()}</td>}
                     <td className="p-3.5 text-slate-500 font-mono">
                       <div className="flex items-center gap-2">
                         <span>{student.joiningDate}</span>
@@ -605,13 +609,15 @@ export const AdminStudents: React.FC = () => {
                         onChange={e => setInlineBatchTime(e.target.value)}
                         className="px-2.5 py-1.5 bg-white border border-amber-300 rounded-lg"
                       />
-                      <input
-                        type="number"
-                        placeholder="Monthly Fee ₹"
-                        value={inlineBatchFees}
-                        onChange={e => setInlineBatchFees(Number(e.target.value))}
-                        className="px-2.5 py-1.5 bg-white border border-amber-300 rounded-lg"
-                      />
+                      {!isModerator && (
+                        <input
+                          type="number"
+                          placeholder="Monthly Fee ₹"
+                          value={inlineBatchFees}
+                          onChange={e => setInlineBatchFees(Number(e.target.value))}
+                          className="px-2.5 py-1.5 bg-white border border-amber-300 rounded-lg"
+                        />
+                      )}
                     </div>
                     <div className="flex justify-end gap-2">
                       <button
@@ -664,16 +670,18 @@ export const AdminStudents: React.FC = () => {
                 )}
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Monthly Fees Amount (₹)</label>
-                <input
-                  type="number"
-                  required
-                  value={studentFees}
-                  onChange={e => setStudentFees(Number(e.target.value))}
-                  className="w-full text-xs px-3 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none"
-                />
-              </div>
+              {!isModerator && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Monthly Fees Amount (₹)</label>
+                  <input
+                    type="number"
+                    required
+                    value={studentFees}
+                    onChange={e => setStudentFees(Number(e.target.value))}
+                    className="w-full text-xs px-3 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none"
+                  />
+                </div>
+              )}
 
               <button
                 type="submit"

@@ -32,13 +32,17 @@ interface AdminDashboardProps {
   onAddStudent: () => void;
   onAddBatch: () => void;
   onUploadNotes: () => void;
+  isModerator?: boolean;
+  moderatorName?: string;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onTabChange,
   onAddStudent,
   onAddBatch,
-  onUploadNotes
+  onUploadNotes,
+  isModerator = false,
+  moderatorName = ''
 }) => {
   const [students, setStudents] = useState<Student[]>(() => StorageService.getStudents());
   const [batches, setBatches] = useState<Batch[]>(() => StorageService.getBatches());
@@ -307,7 +311,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       ring: 'ring-emerald-100',
       onClick: () => onTabChange('batches')
     },
-    {
+    ...(!isModerator ? [{
       label: 'Pending Fees',
       value: `₹${pendingFeesAmount.toLocaleString('en-IN')}`,
       sub: `${pendingFees.length} pending payments`,
@@ -316,7 +320,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       bg: 'bg-orange-50',
       ring: 'ring-orange-100',
       onClick: () => onTabChange('fees')
-    },
+    }] : []),
     {
       label: 'Total Doubts',
       value: doubts.length,
@@ -354,8 +358,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-black text-slate-900 tracking-tight">Dashboard</h2>
-          <p className="text-sm text-slate-500 mt-0.5">Welcome back, Mr. Subhamoy Mondal! Here's your institute overview.</p>
+          <h2 className="text-2xl font-black text-slate-900 tracking-tight">
+            {isModerator ? 'Moderator Dashboard' : 'Dashboard'}
+          </h2>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Welcome back, {isModerator ? moderatorName : 'Mr. Subhamoy Mondal'}! Here's your institute overview.
+          </p>
         </div>
         <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 w-full md:w-auto">
           <button
@@ -440,43 +448,45 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       </div>
 
       {/* Charts + Notifications Row */}
-      <div className="grid lg:grid-cols-3 gap-6">
+      <div className={`grid ${isModerator ? 'lg:grid-cols-1' : 'lg:grid-cols-3'} gap-6`}>
         {/* Monthly Fee Collection Chart — takes 2 columns */}
-        <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-base font-bold text-slate-900">Monthly Fee Collection</h3>
-              <p className="text-xs text-slate-500">Revenue collection trend across recent months</p>
+        {!isModerator && (
+          <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Monthly Fee Collection</h3>
+                <p className="text-xs text-slate-500">Revenue collection trend across recent months</p>
+              </div>
+              <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-lg text-xs font-bold border border-emerald-200">
+                <TrendingUp className="w-3.5 h-3.5" />
+                Total: ₹{totalCollection.toLocaleString('en-IN')}
+              </div>
             </div>
-            <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-lg text-xs font-bold border border-emerald-200">
-              <TrendingUp className="w-3.5 h-3.5" />
-              Total: ₹{totalCollection.toLocaleString('en-IN')}
-            </div>
-          </div>
 
-          {/* Bar Chart */}
-          <div className="flex items-end justify-between gap-3 h-48 mt-6">
-            {chartData.map((month, idx) => {
-              const barHeight = maxChartAmount > 0
-                ? Math.max((month.amount / maxChartAmount) * 140, month.amount > 0 ? 6 : 0)
-                : 0;
-              return (
-                <div key={idx} className="flex-1 flex flex-col items-center gap-1 h-full justify-end">
-                  <div className="text-[10px] font-bold text-slate-700">
-                    ₹{month.amount > 0 ? (month.amount / 1000).toFixed(0) + 'k' : '0'}
+            {/* Bar Chart */}
+            <div className="flex items-end justify-between gap-3 h-48 mt-6">
+              {chartData.map((month, idx) => {
+                const barHeight = maxChartAmount > 0
+                  ? Math.max((month.amount / maxChartAmount) * 140, month.amount > 0 ? 6 : 0)
+                  : 0;
+                return (
+                  <div key={idx} className="flex-1 flex flex-col items-center gap-1 h-full justify-end">
+                    <div className="text-[10px] font-bold text-slate-700">
+                      ₹{month.amount > 0 ? (month.amount / 1000).toFixed(0) + 'k' : '0'}
+                    </div>
+                    <div className="w-full h-[140px] bg-slate-100 rounded-t-lg relative overflow-hidden">
+                      <div
+                        className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-indigo-600 to-indigo-400 rounded-t-lg transition-all duration-500 hover:from-indigo-700 hover:to-indigo-500"
+                        style={{ height: `${barHeight}px` }}
+                      />
+                    </div>
+                    <div className="text-[10px] font-bold text-slate-500">{month.label}</div>
                   </div>
-                  <div className="w-full h-[140px] bg-slate-100 rounded-t-lg relative overflow-hidden">
-                    <div
-                      className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-indigo-600 to-indigo-400 rounded-t-lg transition-all duration-500 hover:from-indigo-700 hover:to-indigo-500"
-                      style={{ height: `${barHeight}px` }}
-                    />
-                  </div>
-                  <div className="text-[10px] font-bold text-slate-500">{month.label}</div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Admin Announcements Chat & Creator Panel */}
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col">

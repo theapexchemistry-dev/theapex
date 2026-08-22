@@ -1,4 +1,4 @@
-export type Role = 'guest' | 'admin' | 'student';
+export type Role = 'guest' | 'admin' | 'student' | 'moderator';
 
 export interface Batch {
   id: string;

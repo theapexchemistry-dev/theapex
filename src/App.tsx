@@ -27,6 +27,8 @@ import { AdminVideoCall } from './components/admin/AdminVideoCall';
 import { StudentVideoCall } from './components/student/StudentVideoCall';
 
 export default function App() {
+  const MODERATOR_IDS = ['APEX2026101', 'APEX2026102'];
+
   const [role, setRole] = useState<Role>(() => {
     return (localStorage.getItem('apex_session_role') as Role) || 'guest';
   });
@@ -39,6 +41,16 @@ export default function App() {
       return null;
     }
   });
+
+  const isModeratorAccount = currentStudent && MODERATOR_IDS.includes(currentStudent.id.toUpperCase());
+
+  const handleRoleToggle = () => {
+    if (!isModeratorAccount) return;
+    const newRole = role === 'moderator' ? 'student' : 'moderator';
+    setRole(newRole);
+    localStorage.setItem('apex_session_role', newRole);
+    setActiveTab('dashboard');
+  };
 
   const [activeTab, setActiveTab] = useState<string>(() => {
     const savedRole = localStorage.getItem('apex_session_role');
@@ -148,6 +160,8 @@ export default function App() {
         onTabChange={setActiveTab}
         onLoginClick={() => setActiveTab('login')}
         onLogout={handleLogout}
+        isModerator={isModeratorAccount || false}
+        onToggleRole={handleRoleToggle}
       />
 
       {/* Main Content Area */}
@@ -175,7 +189,7 @@ export default function App() {
               </button>
             )}
             
-            {role === 'admin' && (
+            {(role === 'admin' || role === 'moderator') && (
               <>
                 {activeTab === 'dashboard' && (
                   <AdminDashboard
@@ -183,16 +197,18 @@ export default function App() {
                     onAddStudent={() => setActiveTab('students')}
                     onAddBatch={() => setActiveTab('batches')}
                     onUploadNotes={() => setActiveTab('notes')}
+                    isModerator={role === 'moderator'}
+                    moderatorName={currentStudent?.name}
                   />
                 )}
-                {activeTab === 'students' && <AdminStudents />}
-                {activeTab === 'batches' && <AdminBatches />}
-                {activeTab === 'fees' && <AdminFees />}
+                {activeTab === 'students' && <AdminStudents isModerator={role === 'moderator'} />}
+                {activeTab === 'batches' && <AdminBatches isModerator={role === 'moderator'} />}
+                {activeTab === 'fees' && role === 'admin' && <AdminFees />}
                 {activeTab === 'notes' && <AdminNotes />}
                 {activeTab === 'doubts' && <AdminDoubts />}
                 {activeTab === 'tests' && <AdminTests />}
                 {(activeTab === 'videocall' || activeTab === 'live') && <AdminVideoCall />}
-                {activeTab === 'settings' && <AdminSettings />}
+                {activeTab === 'settings' && <AdminSettings isModerator={role === 'moderator'} />}
                 {activeTab === 'support' && <AdminSupport />}
               </>
             )}

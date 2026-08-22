@@ -22,6 +22,8 @@ interface NavbarProps {
   onTabChange: (tab: string) => void;
   onLoginClick: () => void;
   onLogout: () => void;
+  isModerator?: boolean;
+  onToggleRole?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -30,7 +32,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   onTabChange,
   onLoginClick,
-  onLogout
+  onLogout,
+  isModerator = false,
+  onToggleRole
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -134,12 +138,12 @@ export const Navbar: React.FC<NavbarProps> = ({
   };
 
   const navItems =
-    role === 'admin'
+    (role === 'admin' || role === 'moderator')
       ? [
           { id: 'dashboard', label: 'Dashboard' },
           { id: 'students', label: 'Students' },
           { id: 'batches', label: 'Batches' },
-          { id: 'fees', label: 'Fees' },
+          ...(role === 'moderator' ? [] : [{ id: 'fees', label: 'Fees' }]),
           { id: 'notes', label: 'Notes' },
           { id: 'doubts', label: 'Doubts' },
           { id: 'tests', label: 'Tests' },
@@ -233,6 +237,25 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <Moon className="w-4 h-4 sm:w-5 sm:h-5" />
                 )}
               </button>
+
+              {isModerator && (
+                <button
+                  onClick={onToggleRole}
+                  className={`p-1.5 sm:p-2 rounded-xl sm:rounded-2xl flex items-center gap-1.5 font-bold text-[10px] sm:text-xs transition-all duration-200 hover:scale-105 active:scale-95 ${
+                    role === 'moderator' 
+                      ? 'bg-purple-500 text-white shadow-md' 
+                      : 'bg-indigo-500 text-white shadow-md'
+                  }`}
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  <span className="hidden sm:inline">
+                    {role === 'moderator' ? 'Student View' : 'Moderator View'}
+                  </span>
+                  <span className="sm:hidden">
+                    {role === 'moderator' ? 'STU' : 'MOD'}
+                  </span>
+                </button>
+              )}
 
               {role !== 'guest' && (
                 <div className="relative">
