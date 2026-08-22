@@ -41,9 +41,13 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const dueFeesAmount = totalFeesAmount - paidFeesAmount;
 
   const [announcements, setAnnouncements] = useState<Announcement[]>(() => StorageService.getAnnouncements());
-  const studentAnnouncements = announcements.filter(
-    ann => ann.targetAudience === 'all' || ann.targetAudience === student.batchId
-  );
+  const studentAnnouncements = announcements.filter(ann => {
+    if (!ann.targetAudience || ann.targetAudience === 'all') return true;
+    const target = ann.targetAudience.trim().toLowerCase();
+    const bId = (student.batchId || '').trim().toLowerCase();
+    const bTitle = (student.batchTitle || '').trim().toLowerCase();
+    return target === bId || (bTitle && target === bTitle) || target === 'all';
+  });
 
   const handleReact = (annId: string, emoji: string) => {
     const all = StorageService.getAnnouncements();
