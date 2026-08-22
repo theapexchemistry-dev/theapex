@@ -92,8 +92,22 @@ export function MeetingDialog({
   const [sidebarTab, setSidebarTab] = React.useState<"participants" | "chat">("participants");
   const [chatInput, setChatInput] = React.useState("");
   const [elapsedTime, setElapsedTime] = React.useState("00:00:00");
+  const [isFullscreen, setIsFullscreen] = React.useState(false);
+  const [dismissScreenBadge, setDismissScreenBadge] = React.useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+    };
+  }, []);
 
   // Timer logic
   useEffect(() => {
@@ -295,6 +309,12 @@ export function MeetingDialog({
   const showScreen = isAdmin
     ? room.screenSharing
     : !!(room.adminParticipant?.screenSharing || room.remoteScreen);
+
+  useEffect(() => {
+    if (!showScreen) {
+      setDismissScreenBadge(false);
+    }
+  }, [showScreen]);
   const mainStream = isAdmin
     ? room.screenSharing
       ? room.screenStream
@@ -550,16 +570,29 @@ export function MeetingDialog({
                           muted={false}
                           className="h-full w-full object-contain"
                         />
-                        {showScreen && (
-                          <div className="absolute left-4 top-4 inline-flex items-center gap-2 rounded-xl bg-indigo-600/90 backdrop-blur-md px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-white shadow-lg">
+                        {showScreen && !isFullscreen && !dismissScreenBadge && (
+                          <div className="absolute left-4 top-4 z-20 inline-flex items-center gap-2 rounded-xl bg-indigo-600/90 backdrop-blur-md px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-white shadow-lg transition-all">
                             <MonitorPlay className="h-3.5 w-3.5" />
-                            Teacher Sharing Screen
+                            <span>Teacher Sharing Screen</span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDismissScreenBadge(true);
+                              }}
+                              className="ml-1 rounded-full p-0.5 hover:bg-white/20 transition-colors"
+                              title="Dismiss notification"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
                           </div>
                         )}
-                        <div className="absolute bottom-4 left-4 inline-flex items-center gap-2 rounded-xl bg-black/60 backdrop-blur-md px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-white">
-                          <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                          Teacher: {meeting.teacherName}
-                        </div>
+                        {!isFullscreen && (
+                          <div className="absolute bottom-4 left-4 inline-flex items-center gap-2 rounded-xl bg-black/60 backdrop-blur-md px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-white">
+                            <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            Teacher: {meeting.teacherName}
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div className="flex h-full flex-col items-center justify-center text-center p-8 bg-slate-900/60">
