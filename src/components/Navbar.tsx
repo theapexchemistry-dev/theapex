@@ -241,7 +241,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               {isModerator && (
                 <button
                   onClick={onToggleRole}
-                  className={`p-1.5 sm:p-2 rounded-xl sm:rounded-2xl flex items-center gap-1.5 font-bold text-[10px] sm:text-xs transition-all duration-200 hover:scale-105 active:scale-95 ${
+                  className={`hidden lg:flex p-1.5 sm:p-2 rounded-xl sm:rounded-2xl items-center gap-1.5 font-bold text-[10px] sm:text-xs transition-all duration-200 hover:scale-105 active:scale-95 ${
                     role === 'moderator' 
                       ? 'bg-purple-500 text-white shadow-md' 
                       : 'bg-indigo-500 text-white shadow-md'
@@ -250,9 +250,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   <span className="hidden sm:inline">
                     {role === 'moderator' ? 'Student View' : 'Moderator View'}
-                  </span>
-                  <span className="sm:hidden">
-                    {role === 'moderator' ? 'STU' : 'MOD'}
                   </span>
                 </button>
               )}
@@ -409,6 +406,27 @@ export const Navbar: React.FC<NavbarProps> = ({
               ? 'bg-slate-900/80 backdrop-blur-xl border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)]'
               : 'bg-white/80 backdrop-blur-xl border border-white/60 shadow-[0_8px_32px_rgba(0,0,0,0.12)]'
           }`}>
+            {isModerator && (
+              <button
+                onClick={() => {
+                  onToggleRole?.();
+                  setMobileMenuOpen(false);
+                }}
+                className={`w-full text-left px-4 py-3.5 rounded-3xl text-base font-black transition-all duration-200 flex items-center justify-between gap-3 mb-4 shadow-lg border-2 ${
+                  role === 'moderator'
+                    ? 'bg-purple-600 text-white border-purple-400'
+                    : 'bg-indigo-600 text-white border-indigo-400'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <ShieldCheck className="w-6 h-6" />
+                  <span>{role === 'moderator' ? 'Switch to Student' : 'Switch to Moderator'}</span>
+                </div>
+                <div className="bg-white/20 px-3 py-1 rounded-full text-xs">
+                  {role === 'moderator' ? 'MOD' : 'STU'}
+                </div>
+              </button>
+            )}
             {navItems.map(item => (
               <button
                 key={item.id}
