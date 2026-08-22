@@ -272,17 +272,23 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
       </div>
 
       {/* Announcements & Broadcasts Stream */}
-      {studentAnnouncements.length > 0 && (
-        <div className="bg-white p-6 rounded-3xl border border-indigo-100 shadow-sm space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <Megaphone className="w-5 h-5 text-indigo-600" /> Institute Announcements & Notices
-            </h3>
-            <span className="text-xs bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full font-bold">
-              {studentAnnouncements.length} New
-            </span>
-          </div>
+      <div className="bg-white p-6 rounded-3xl border border-indigo-100 shadow-sm space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+            <Megaphone className="w-5 h-5 text-indigo-600" /> Institute Announcements & Notices
+          </h3>
+          <span className="text-xs bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full font-bold">
+            {studentAnnouncements.length} {studentAnnouncements.length === 1 ? 'Notice' : 'Notices'}
+          </span>
+        </div>
 
+        {studentAnnouncements.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-10 text-center text-slate-400 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+            <Megaphone className="w-10 h-10 mb-2 opacity-30 text-indigo-600" />
+            <p className="text-xs font-bold text-slate-700">No announcements posted yet</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">Notices, reminders, and test announcements from admin will appear here.</p>
+          </div>
+        ) : (
           <div className="space-y-4">
             {studentAnnouncements.map(ann => {
               const myReaction = ann.userReactions?.[student.id];
@@ -330,8 +336,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               );
             })}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Main Grid: Calendar & Fee Overview */}
       <div className="grid lg:grid-cols-12 gap-6">
