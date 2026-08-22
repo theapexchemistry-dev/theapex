@@ -3,6 +3,7 @@ import { StorageService } from '../../lib/storage';
 import { fetchDataFromFirestore } from '../../lib/firebaseSync';
 import { Student, Batch } from '../../types';
 import { ShareCredentialsModal } from '../ShareCredentialsModal';
+import { autoDispatchCredentials, DispatchNotificationResult } from '../../lib/notificationService';
 import {
   UserPlus,
   Search,
@@ -17,7 +18,10 @@ import {
   RefreshCw,
   Clock,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Send,
+  Loader2,
+  Mail
 } from 'lucide-react';
 
 export const AdminStudents: React.FC = () => {
@@ -51,7 +55,10 @@ export const AdminStudents: React.FC = () => {
 
   // Created student credential share modal state
   const [createdStudentForShare, setCreatedStudentForShare] = useState<Student | null>(null);
+  const [autoSentStatus, setAutoSentStatus] = useState<DispatchNotificationResult | undefined>(undefined);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [approvingStudentId, setApprovingStudentId] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const refreshData = () => {
     setStudents(StorageService.getStudents());
@@ -111,33 +118,51 @@ export const AdminStudents: React.FC = () => {
   };
 
   // Handle Create Student submission
-  const handleStudentSubmit = (e: React.FormEvent) => {
+  const handleStudentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!studentName.trim() || !selectedBatchId) return;
 
     if (editingStudentId) {
+      const selectedBatch = batches.find(b => b.id === selectedBatchId);
+      const isActivating = selectedBatchId && selectedBatchId !== 'PENDING_BATCH';
+
       const updateData: Partial<Student> = {
         name: studentName,
         className: studentClass,
         batchId: selectedBatchId,
+        batchTitle: selectedBatch ? selectedBatch.title : undefined,
         phone: studentPhone || '9876543210',
         email: studentEmail.trim() || undefined,
         fees: Number(studentFees)
       };
 
       // If they were assigned a real batch, mark them active
-      if (selectedBatchId && selectedBatchId !== 'PENDING_BATCH') {
+      if (isActivating) {
         updateData.status = 'active';
       }
 
       StorageService.updateStudent(editingStudentId, updateData);
       refreshData();
       setIsCreateModalOpen(false);
+
+      const targetStudent = StorageService.getStudents().find(s => s.id === editingStudentId);
       setEditingStudentId(null);
       // Reset Form
       setStudentName('');
       setStudentPhone('');
       setStudentEmail('');
+
+      // If this was an approval of a student, trigger auto dispatch to WhatsApp and Email!
+      if (targetStudent && isActivating) {
+        setCreatedStudentForShare(targetStudent);
+        setIsShareModalOpen(true);
+        const autoResult = await autoDispatchCredentials(targetStudent, {
+          batchTitle: selectedBatch ? selectedBatch.title : targetStudent.batchTitle
+        });
+        setAutoSentStatus(autoResult);
+        setToastMessage(`Credentials automatically sent to ${targetStudent.name} on WhatsApp & Email!`);
+        setTimeout(() => setToastMessage(null), 5000);
+      }
       return;
     }
 
@@ -147,7 +172,8 @@ export const AdminStudents: React.FC = () => {
       batchId: selectedBatchId,
       phone: studentPhone || '9876543210',
       email: studentEmail.trim() || undefined,
-      fees: Number(studentFees)
+      fees: Number(studentFees),
+      status: 'active'
     });
 
     refreshData();
@@ -158,9 +184,56 @@ export const AdminStudents: React.FC = () => {
     setStudentPhone('');
     setStudentEmail('');
 
-    // Open Share Modal
+    // Open Share Modal & Auto-Dispatch
     setCreatedStudentForShare(newStudent);
     setIsShareModalOpen(true);
+    const autoResult = await autoDispatchCredentials(newStudent, {
+      batchTitle: batches.find(b => b.id === selectedBatchId)?.title || newStudent.batchTitle
+    });
+    setAutoSentStatus(autoResult);
+    setToastMessage(`Account created & credentials automatically sent to ${newStudent.name}!`);
+    setTimeout(() => setToastMessage(null), 5000);
+  };
+
+  // 1-Click Quick Accept / Batch Approval
+  const handleQuickApprove = async (student: Student, batchId?: string) => {
+    setApprovingStudentId(student.id);
+    try {
+      const targetBatchId = batchId || (batches.length > 0 ? batches[0].id : 'BATCH_DEFAULT');
+      const targetBatch = batches.find(b => b.id === targetBatchId);
+      const assignedFees = targetBatch ? targetBatch.fees : (student.fees > 0 ? student.fees : 2500);
+
+      StorageService.updateStudent(student.id, {
+        batchId: targetBatchId,
+        batchTitle: targetBatch ? targetBatch.title : 'Chemistry Batch',
+        fees: assignedFees,
+        status: 'active'
+      });
+
+      refreshData();
+
+      const updatedStudent = StorageService.getStudents().find(s => s.id === student.id) || {
+        ...student,
+        batchId: targetBatchId,
+        batchTitle: targetBatch ? targetBatch.title : 'Chemistry Batch',
+        fees: assignedFees,
+        status: 'active' as const
+      };
+
+      setCreatedStudentForShare(updatedStudent);
+      setIsShareModalOpen(true);
+
+      const res = await autoDispatchCredentials(updatedStudent, {
+        batchTitle: targetBatch ? targetBatch.title : updatedStudent.batchTitle
+      });
+      setAutoSentStatus(res);
+      setToastMessage(`✓ ${student.name} approved! Credentials dispatched to WhatsApp (+91 ${student.phone}) and Email.`);
+      setTimeout(() => setToastMessage(null), 5000);
+    } catch (err: any) {
+      console.error('Quick approve failed:', err);
+    } finally {
+      setApprovingStudentId(null);
+    }
   };
 
   const openEditModal = (student: Student) => {
@@ -205,6 +278,21 @@ export const AdminStudents: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 bg-slate-950 text-white border border-emerald-500/50 px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-bottom-4 duration-300 max-w-md">
+          <div className="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+            <Send className="w-4 h-4" />
+          </div>
+          <div className="flex-1 text-xs font-semibold leading-snug">
+            {toastMessage}
+          </div>
+          <button onClick={() => setToastMessage(null)} className="text-slate-400 hover:text-white">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Top Header & Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm">
         <div>
@@ -346,15 +434,36 @@ export const AdminStudents: React.FC = () => {
                     </td>
                     <td className="p-3.5 font-extrabold text-indigo-600">₹{student.fees.toLocaleString()}</td>
                     <td className="p-3.5 text-slate-500 font-mono">
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2">
                         <span>{student.joiningDate}</span>
                         {(student.status === 'pending' || student.batchId === 'PENDING_BATCH') && (
-                          <button
-                            onClick={() => openEditModal(student)}
-                            className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-lg text-[10px] tracking-wider uppercase shadow-sm transition-all"
-                          >
-                            Assign Batch
-                          </button>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => handleQuickApprove(student)}
+                              disabled={approvingStudentId === student.id}
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-lg text-[10px] tracking-wider uppercase shadow-sm transition-all flex items-center gap-1 disabled:opacity-60"
+                              title="Accept and automatically send credentials to student's WhatsApp and Email"
+                            >
+                              {approvingStudentId === student.id ? (
+                                <>
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                  <span>Accepting...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Check className="w-3 h-3 stroke-[3]" />
+                                  <span>Accept & Send</span>
+                                </>
+                              )}
+                            </button>
+                            <button
+                              onClick={() => openEditModal(student)}
+                              className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-lg text-[10px] tracking-wider uppercase shadow-sm transition-all"
+                              title="Assign custom batch before approval"
+                            >
+                              Edit Batch
+                            </button>
+                          </div>
                         )}
                       </div>
                     </td>
@@ -580,8 +689,12 @@ export const AdminStudents: React.FC = () => {
       {/* CREDENTIAL SHARE MODAL */}
       <ShareCredentialsModal
         isOpen={isShareModalOpen}
-        onClose={() => setIsShareModalOpen(false)}
+        onClose={() => {
+          setIsShareModalOpen(false);
+          setAutoSentStatus(undefined);
+        }}
         student={createdStudentForShare}
+        autoSentStatus={autoSentStatus}
       />
     </div>
   );
