@@ -187,43 +187,71 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
+  // ---------- SMTP / Gmail Transporter Helper ----------
+  const getSmtpTransporter = async (customConfig?: { gmailUser?: string; gmailAppPassword?: string }) => {
+    const rawUser = customConfig?.gmailUser || process.env.GMAIL_USER || "theapexchemistry@gmail.com";
+    const rawPass = customConfig?.gmailAppPassword || process.env.GMAIL_APP_PASSWORD || "";
+
+    const user = rawUser.trim();
+    const pass = rawPass.trim().replace(/\s+/g, "");
+
+    if (!user || !pass) {
+      throw new Error(
+        "Gmail credentials not configured. Please set your Gmail address and 16-character Google App Password in Admin Settings > Email Configuration, or set GMAIL_USER and GMAIL_APP_PASSWORD."
+      );
+    }
+
+    const nodemailer = await import("nodemailer");
+    const transporter = nodemailer.createTransport({
+      host: "smtp.gmail.com",
+      port: 465,
+      secure: true,
+      auth: {
+        user,
+        pass
+      },
+      connectionTimeout: 15000,
+      greetingTimeout: 10000,
+      socketTimeout: 30000
+    });
+
+    return { transporter, user, pass };
+  };
+
   // ---------- Send Note Email with Attachments ----------
   app.post("/api/send-note-email", async (req, res) => {
     try {
-      const { to, subject, bodyHtml, attachment } = req.body || {};
+      const { to, subject, bodyHtml, attachment, config } = req.body || {};
 
       if (!Array.isArray(to) || to.length === 0) {
-        return res.status(400).json({ error: "No recipients provided." });
+        return res.status(400).json({ success: false, sentCount: 0, failedEmails: [], error: "No recipients provided." });
       }
       if (!subject || !bodyHtml) {
-        return res.status(400).json({ error: "Subject and body are required." });
+        return res.status(400).json({ success: false, sentCount: 0, failedEmails: [], error: "Subject and body are required." });
       }
 
-      const gmailUser = process.env.GMAIL_USER;
-      const gmailPass = process.env.GMAIL_APP_PASSWORD;
-
-      if (!gmailUser || !gmailPass) {
+      let smtp;
+      try {
+        smtp = await getSmtpTransporter(config);
+      } catch (authErr: any) {
         return res.status(400).json({
           success: false,
           sentCount: 0,
           failedEmails: to,
-          error: "Gmail credentials not configured. Please set GMAIL_USER and GMAIL_APP_PASSWORD in settings."
+          error: authErr.message
         });
       }
 
-      const nodemailer = await import("nodemailer");
-      const transporter = nodemailer.createTransport({
-        service: "gmail",
-        auth: { user: gmailUser, pass: gmailPass }
-      });
-
+      const { transporter, user } = smtp;
+      const senderDisplayName = (config?.senderName || "The Apex Chemistry").trim();
       let sentCount = 0;
       const failedEmails: string[] = [];
+      let lastErrorMessage = "";
 
       for (const recipient of to) {
         try {
           const mailOptions: any = {
-            from: `"The Apex Chemistry" <${gmailUser}>`,
+            from: `"${senderDisplayName}" <${user}>`,
             to: recipient,
             subject,
             html: bodyHtml
@@ -242,8 +270,9 @@ async function startServer() {
           await transporter.sendMail(mailOptions);
           sentCount++;
         } catch (sendErr: any) {
-          console.error(`Failed to send to ${recipient}:`, sendErr.message);
+          console.error(`[Email] Failed to send to ${recipient}:`, sendErr.message);
           failedEmails.push(recipient);
+          lastErrorMessage = sendErr.message || "Failed to send email";
         }
       }
 
@@ -251,11 +280,112 @@ async function startServer() {
         success: sentCount > 0,
         sentCount,
         failedEmails,
-        error: sentCount === 0 ? "Failed to send to all recipients." : undefined
+        error: sentCount === 0 ? (lastErrorMessage || "Failed to send to recipients.") : undefined
       });
     } catch (err: any) {
       console.error("[Email] Error in send-note-email:", err);
       return res.status(500).json({ success: false, sentCount: 0, failedEmails: [], error: err.message });
+    }
+  });
+
+  // ---------- General Send Email Route (Fee reminders, Announcements, etc.) ----------
+  app.post("/api/send-email", async (req, res) => {
+    try {
+      const { to, subject, html, text, config } = req.body || {};
+      const recipients = Array.isArray(to) ? to : (to ? [to] : []);
+
+      if (recipients.length === 0 || !subject || (!html && !text)) {
+        return res.status(400).json({ success: false, error: "Recipient, subject, and content are required." });
+      }
+
+      const { transporter, user } = await getSmtpTransporter(config);
+      const senderDisplayName = (config?.senderName || "The Apex Chemistry").trim();
+
+      let sentCount = 0;
+      const failedEmails: string[] = [];
+
+      for (const recipient of recipients) {
+        try {
+          await transporter.sendMail({
+            from: `"${senderDisplayName}" <${user}>`,
+            to: recipient,
+            subject,
+            html: html || undefined,
+            text: text || undefined
+          });
+          sentCount++;
+        } catch (err: any) {
+          console.error(`[Email] Send failed for ${recipient}:`, err.message);
+          failedEmails.push(recipient);
+        }
+      }
+
+      return res.json({
+        success: sentCount > 0,
+        sentCount,
+        failedEmails,
+        error: sentCount === 0 ? "Failed to deliver email" : undefined
+      });
+    } catch (err: any) {
+      console.error("[Email] General send-email error:", err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // ---------- Test Email Connection Route ----------
+  app.post("/api/test-email", async (req, res) => {
+    try {
+      const { testEmail, config } = req.body || {};
+      if (!testEmail || !testEmail.includes("@")) {
+        return res.status(400).json({ success: false, error: "Valid test email recipient is required." });
+      }
+
+      const { transporter, user } = await getSmtpTransporter(config);
+      
+      // 1. Verify SMTP connection
+      await transporter.verify();
+
+      // 2. Send test message
+      const senderDisplayName = (config?.senderName || "The Apex Chemistry").trim();
+      const testHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background: #f8fafc; border-radius: 16px; border: 1px solid #e2e8f0;">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <h2 style="color: #4f46e5; margin: 0;">THE APEX CHEMISTRY</h2>
+            <p style="color: #16a34a; font-weight: bold; margin: 6px 0 0 0;">✓ Email Dispatch System Test Succeeded</p>
+          </div>
+          <div style="background: #ffffff; padding: 20px; border-radius: 12px; border: 1px solid #cbd5e1;">
+            <p style="font-size: 14px; color: #1e293b; line-height: 1.6; margin: 0 0 12px 0;">
+              Hello! This is a verification test from <strong>The Apex Chemistry</strong> portal.
+            </p>
+            <p style="font-size: 13px; color: #475569; line-height: 1.5; margin: 0;">
+              Your Gmail SMTP connection is active and configured correctly. Notes, student credentials, and fee reminders can now be delivered directly to student inboxes.
+            </p>
+          </div>
+          <div style="text-align: center; margin-top: 18px; color: #94a3b8; font-size: 12px;">
+            Sender: ${user} • Time: ${new Date().toLocaleString('en-US')}
+          </div>
+        </div>
+      `;
+
+      await transporter.sendMail({
+        from: `"${senderDisplayName}" <${user}>`,
+        to: testEmail,
+        subject: `✓ [Test] The Apex Chemistry Email Dispatch Active`,
+        html: testHtml,
+        text: `The Apex Chemistry email verification test succeeded. Sent from ${user} at ${new Date().toLocaleString('en-US')}.`
+      });
+
+      return res.json({
+        success: true,
+        message: `Test email successfully sent to ${testEmail} from ${user}!`
+      });
+    } catch (err: any) {
+      console.error("[Email] Test email error:", err);
+      let errorHint = err.message || "Failed to send test email";
+      if (err.message && (err.message.includes("BadCredentials") || err.message.includes("Invalid login") || err.message.includes("535-5.7.8"))) {
+        errorHint = "Google authentication failed (Invalid credentials). Ensure you are using a 16-character Google App Password (not your normal Google account password) and that 2-Step Verification is turned ON.";
+      }
+      return res.status(400).json({ success: false, error: errorHint });
     }
   });
 
@@ -270,7 +400,8 @@ async function startServer() {
         email,
         className,
         batchTitle,
-        portalUrl
+        portalUrl,
+        config
       } = req.body;
 
       if (!studentId || !name) {
@@ -287,74 +418,61 @@ async function startServer() {
 
       // 1. Email notification
       if (email && email.includes("@")) {
-        const gmailUser = process.env.GMAIL_USER;
-        const gmailPass = process.env.GMAIL_APP_PASSWORD;
+        try {
+          const { transporter, user } = await getSmtpTransporter(config);
+          const senderDisplayName = (config?.senderName || "The Apex Chemistry").trim();
 
-        if (gmailUser && gmailPass) {
-          try {
-            const nodemailer = await import("nodemailer");
-            const transporter = nodemailer.createTransport({
-              service: "gmail",
-              auth: {
-                user: gmailUser,
-                pass: gmailPass
-              }
-            });
+          const htmlContent = `
+            <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background: #f8fafc; border-radius: 16px; border: 1px solid #e2e8f0;">
+              <div style="text-align: center; margin-bottom: 24px;">
+                <h1 style="color: #4f46e5; margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.5px;">THE APEX CHEMISTRY</h1>
+                <p style="color: #64748b; margin: 4px 0 0 0; font-size: 13px; font-weight: 600;">Account Activated & Credentials Confirmation</p>
+              </div>
 
-            const htmlContent = `
-              <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background: #f8fafc; border-radius: 16px; border: 1px solid #e2e8f0;">
-                <div style="text-align: center; margin-bottom: 24px;">
-                  <h1 style="color: #4f46e5; margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.5px;">THE APEX CHEMISTRY</h1>
-                  <p style="color: #64748b; margin: 4px 0 0 0; font-size: 13px; font-weight: 600;">Account Activated & Credentials Confirmation</p>
-                </div>
+              <div style="background: #ffffff; padding: 24px; border-radius: 12px; border: 1px solid #cbd5e1; margin-bottom: 20px;">
+                <p style="font-size: 15px; color: #1e293b; margin: 0 0 12px 0;">Dear <strong>${name}</strong>,</p>
+                <p style="font-size: 14px; color: #475569; line-height: 1.6; margin: 0 0 16px 0;">
+                  Your account enrollment for <strong>${className || 'Chemistry Batch'}</strong> (<em>${batchTitle || 'Regular Batch'}</em>) has been officially approved and activated by <strong>Mr. Subhamoy Mondal</strong>.
+                </p>
 
-                <div style="background: #ffffff; padding: 24px; border-radius: 12px; border: 1px solid #cbd5e1; margin-bottom: 20px;">
-                  <p style="font-size: 15px; color: #1e293b; margin: 0 0 12px 0;">Dear <strong>${name}</strong>,</p>
-                  <p style="font-size: 14px; color: #475569; line-height: 1.6; margin: 0 0 16px 0;">
-                    Your account enrollment for <strong>${className || 'Chemistry Batch'}</strong> (<em>${batchTitle || 'Regular Batch'}</em>) has been officially approved and activated by <strong>Mr. Subhamoy Mondal</strong>.
-                  </p>
-
-                  <div style="background: #0f172a; color: #ffffff; padding: 18px; border-radius: 10px; margin-bottom: 16px;">
-                    <div style="margin-bottom: 8px;">
-                      <span style="color: #94a3b8; font-size: 12px; text-transform: uppercase; font-weight: 700;">Student ID:</span>
-                      <strong style="color: #818cf8; font-size: 16px; margin-left: 8px; font-family: monospace;">${studentId}</strong>
-                    </div>
-                    <div>
-                      <span style="color: #94a3b8; font-size: 12px; text-transform: uppercase; font-weight: 700;">Password:</span>
-                      <strong style="color: #34d399; font-size: 16px; margin-left: 8px; font-family: monospace;">${password || 'apex123'}</strong>
-                    </div>
+                <div style="background: #0f172a; color: #ffffff; padding: 18px; border-radius: 10px; margin-bottom: 16px;">
+                  <div style="margin-bottom: 8px;">
+                    <span style="color: #94a3b8; font-size: 12px; text-transform: uppercase; font-weight: 700;">Student ID:</span>
+                    <strong style="color: #818cf8; font-size: 16px; margin-left: 8px; font-family: monospace;">${studentId}</strong>
                   </div>
-
-                  <div style="text-align: center; margin: 24px 0 10px 0;">
-                    <a href="${loginLink}" style="background: #4f46e5; color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-weight: 700; font-size: 14px; display: inline-block;">
-                      Login to Student Portal
-                    </a>
+                  <div>
+                    <span style="color: #94a3b8; font-size: 12px; text-transform: uppercase; font-weight: 700;">Password:</span>
+                    <strong style="color: #34d399; font-size: 16px; margin-left: 8px; font-family: monospace;">${password || 'apex123'}</strong>
                   </div>
                 </div>
 
-                <div style="text-align: center; color: #94a3b8; font-size: 12px; line-height: 1.5;">
-                  <p style="margin: 0;"><strong>The Apex Chemistry</strong> • By Mr. Subhamoy Mondal</p>
-                  <p style="margin: 4px 0 0 0;">For queries or support, contact through your portal or WhatsApp.</p>
+                <div style="text-align: center; margin: 24px 0 10px 0;">
+                  <a href="${loginLink}" style="background: #4f46e5; color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-weight: 700; font-size: 14px; display: inline-block;">
+                    Login to Student Portal
+                  </a>
                 </div>
               </div>
-            `;
 
-            await transporter.sendMail({
-              from: `"The Apex Chemistry" <${gmailUser}>`,
-              to: email,
-              subject: `🎓 Your Account Credentials - The Apex Chemistry (${studentId})`,
-              html: htmlContent,
-              text: `Dear ${name},\nYour Apex Chemistry portal credentials are:\nStudent ID: ${studentId}\nPassword: ${password}\nPortal Link: ${loginLink}\n- Mr. Subhamoy Mondal`
-            });
+              <div style="text-align: center; color: #94a3b8; font-size: 12px; line-height: 1.5;">
+                <p style="margin: 0;"><strong>The Apex Chemistry</strong> • By Mr. Subhamoy Mondal</p>
+                <p style="margin: 4px 0 0 0;">For queries or support, contact through your portal or WhatsApp.</p>
+              </div>
+            </div>
+          `;
 
-            results.email.sent = true;
-            console.log(`[Auto-Notify] Credentials email delivered to ${email}`);
-          } catch (e: any) {
-            console.error("[Auto-Notify] Email delivery failed:", e);
-            results.email.error = e.message || "Failed to send email";
-          }
-        } else {
-          results.email.error = "GMAIL_USER or GMAIL_APP_PASSWORD not set in environment";
+          await transporter.sendMail({
+            from: `"${senderDisplayName}" <${user}>`,
+            to: email,
+            subject: `🎓 Your Account Credentials - The Apex Chemistry (${studentId})`,
+            html: htmlContent,
+            text: `Dear ${name},\nYour Apex Chemistry portal credentials are:\nStudent ID: ${studentId}\nPassword: ${password}\nPortal Link: ${loginLink}\n- Mr. Subhamoy Mondal`
+          });
+
+          results.email.sent = true;
+          console.log(`[Auto-Notify] Credentials email delivered to ${email}`);
+        } catch (e: any) {
+          console.error("[Auto-Notify] Email delivery failed:", e.message);
+          results.email.error = e.message || "Failed to send email";
         }
       }
 
