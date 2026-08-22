@@ -240,6 +240,7 @@ export function setupFirestoreListeners() {
     { key: 'tests', col: 'tests' },
     { key: 'liveMeetings', col: 'liveMeetings' },
     { key: 'support_requests', col: 'supportRequests' },
+    { key: 'apex_announcements_v2', col: 'announcements' },
     { key: 'siteSettings', col: 'siteSettings' }
   ];
 
@@ -290,7 +291,8 @@ export async function fetchDataFromFirestore(): Promise<boolean> {
     { key: 'tests',      col: 'tests' },
     { key: 'notifications', col: 'notifications' },
     { key: 'liveMeetings', col: 'liveMeetings' },
-    { key: 'support_requests', col: 'supportRequests' }
+    { key: 'support_requests', col: 'supportRequests' },
+    { key: 'apex_announcements_v2', col: 'announcements' }
   ];
 
   let hasData = false;

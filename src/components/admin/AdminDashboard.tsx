@@ -553,8 +553,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </div>
                     <button
                       onClick={() => {
-                        const updated = announcements.filter(a => a.id !== ann.id);
-                        StorageService.saveAnnouncements(updated);
+                        StorageService.deleteAnnouncement(ann.id);
                         setAnnouncements(StorageService.getAnnouncements());
                       }}
                       className="text-slate-400 hover:text-rose-600 transition-colors p-1"

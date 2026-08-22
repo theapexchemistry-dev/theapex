@@ -860,4 +860,14 @@ export class StorageService {
       window.dispatchEvent(new Event('apex_storage_updated'));
     }
   }
+
+  static deleteAnnouncement(id: string): void {
+    const current = this.getAnnouncements();
+    const updated = current.filter(a => a.id !== id);
+    this.saveAnnouncements(updated);
+    deleteFromFirestore('announcements', id);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('apex_storage_updated'));
+    }
+  }
 }

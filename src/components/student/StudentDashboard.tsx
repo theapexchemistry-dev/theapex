@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Student, Batch, Announcement } from '../../types';
 import { StorageService } from '../../lib/storage';
 import {
@@ -72,6 +72,14 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     StorageService.saveAnnouncements(updated);
     setAnnouncements(StorageService.getAnnouncements());
   };
+
+  useEffect(() => {
+    const handleStorageUpdate = () => {
+      setAnnouncements(StorageService.getAnnouncements());
+    };
+    window.addEventListener('apex_storage_updated', handleStorageUpdate);
+    return () => window.removeEventListener('apex_storage_updated', handleStorageUpdate);
+  }, []);
 
     // ===== REAL SYNCED CALENDAR =====
   const scheduledDays = studentBatch?.days || ['Mon', 'Wed', 'Fri'];
