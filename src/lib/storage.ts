@@ -45,7 +45,8 @@ const KEYS = {
   SITE_LOGO: 'apex_site_logo',
   SITE_NAME: 'apex_site_name',
   TAGLINE: 'apex_tagline',
-  DELETED_STUDENT_IDS: 'apex_deleted_student_ids'
+  DELETED_STUDENT_IDS: 'apex_deleted_student_ids',
+  EMAIL_CONFIG: 'apex_email_config_v2'
 };
 
 function getItem<T>(key: string, fallback: T): T {
@@ -163,6 +164,52 @@ export class StorageService {
       });
     } catch (e) {
       console.error('Error saving tagline', e);
+    }
+  }
+
+  // -------- Email & SMTP Configuration --------
+  static getEmailConfig(): { gmailUser: string; gmailAppPassword: string; senderName?: string } {
+    try {
+      const data = localStorage.getItem(KEYS.EMAIL_CONFIG);
+      if (data) {
+        return JSON.parse(data);
+      }
+    } catch {
+      // fallback
+    }
+    return {
+      gmailUser: 'theapexchemistry@gmail.com',
+      gmailAppPassword: '',
+      senderName: 'The Apex Chemistry'
+    };
+  }
+
+  static async saveEmailConfig(config: { gmailUser: string; gmailAppPassword: string; senderName?: string }): Promise<void> {
+    try {
+      const cleanConfig = {
+        gmailUser: (config.gmailUser || '').trim(),
+        gmailAppPassword: (config.gmailAppPassword || '').trim().replace(/\s+/g, ''),
+        senderName: (config.senderName || 'The Apex Chemistry').trim()
+      };
+      localStorage.setItem(KEYS.EMAIL_CONFIG, JSON.stringify(cleanConfig));
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('apex_storage_updated'));
+      await syncDocToFirestore('siteSettings', 'emailConfig', {
+        id: 'emailConfig',
+        ...cleanConfig,
+        updatedAt: new Date().toISOString()
+      });
+    } catch (e) {
+      console.error('Error saving email configuration:', e);
+    }
+  }
+
+  static async clearEmailConfig(): Promise<void> {
+    try {
+      localStorage.removeItem(KEYS.EMAIL_CONFIG);
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('apex_storage_updated'));
+      await deleteFromFirestore('siteSettings', 'emailConfig');
+    } catch (e) {
+      console.error('Error clearing email configuration:', e);
     }
   }
 
