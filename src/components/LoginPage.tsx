@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ShieldCheck, UserCheck, Lock, User, LogIn, ArrowLeft, Sparkles, Key, CheckCircle2, HelpCircle, XCircle, Mail, AlertCircle } from 'lucide-react';
+import { ShieldCheck, UserCheck, Lock, User, LogIn, ArrowLeft, Sparkles, Key, CheckCircle2, HelpCircle, XCircle, Mail, AlertCircle, Loader2 } from 'lucide-react';
 import { Role, Student } from '../types';
 import { StorageService } from '../lib/storage';
 import { auth, signInWithEmailAndPassword, sendPasswordResetEmail, db, collection, getDocs } from '../lib/firebase';
@@ -39,6 +39,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     className: 'Class 11',
     board: 'CBSE'
   });
+  const [createError, setCreateError] = useState('');
+  const [createLoading, setCreateLoading] = useState(false);
   const [createSuccess, setCreateSuccess] = useState('');
   const [generatedId, setGeneratedId] = useState('');
   const [generatedPass, setGeneratedPass] = useState('');
@@ -47,6 +49,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
   const handleOpenCreateModal = () => {
     setCreateData({ firstName: '', lastName: '', phone: '', email: '', className: 'Class 11', board: 'CBSE' });
+    setCreateError('');
+    setCreateLoading(false);
     setCreateSuccess('');
     setGeneratedId('');
     setGeneratedPass('');
@@ -55,7 +59,59 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
   const handleCreateAccount = async (e: React.FormEvent) => {
     e.preventDefault();
+    setCreateError('');
+    setCreateLoading(true);
+
     try {
+      const cleanPhone = createData.phone.replace(/\D/g, '').trim();
+      const cleanEmail = createData.email.trim().toLowerCase();
+      const cleanFullName = `${createData.firstName} ${createData.lastName}`.trim().toLowerCase();
+
+      // 1. Check local storage students
+      const localStudents = StorageService.getStudents();
+      const isLocalDuplicate = localStudents.some(s => {
+        const sPhone = (s.phone || '').replace(/\D/g, '').trim();
+        const sEmail = (s.email || '').trim().toLowerCase();
+        const sName = (s.name || '').trim().toLowerCase();
+
+        if (cleanPhone && sPhone && sPhone === cleanPhone) return true;
+        if (cleanEmail && sEmail && sEmail === cleanEmail) return true;
+        if (cleanFullName && sName && sName === cleanFullName && sPhone === cleanPhone) return true;
+        return false;
+      });
+
+      if (isLocalDuplicate) {
+        setCreateError('Your account has already been created. Please contact for further help.');
+        setCreateLoading(false);
+        return;
+      }
+
+      // 2. Authoritative check in Firestore students collection
+      try {
+        const snap = await getDocs(collection(db, 'students'));
+        let isFirestoreDuplicate = false;
+        snap.forEach(d => {
+          const s = d.data() as Student;
+          if (s) {
+            const sPhone = (s.phone || '').replace(/\D/g, '').trim();
+            const sEmail = (s.email || '').trim().toLowerCase();
+            const sName = (s.name || '').trim().toLowerCase();
+
+            if (cleanPhone && sPhone && sPhone === cleanPhone) isFirestoreDuplicate = true;
+            if (cleanEmail && sEmail && sEmail === cleanEmail) isFirestoreDuplicate = true;
+            if (cleanFullName && sName && sName === cleanFullName && sPhone === cleanPhone) isFirestoreDuplicate = true;
+          }
+        });
+
+        if (isFirestoreDuplicate) {
+          setCreateError('Your account has already been created. Please contact for further help.');
+          setCreateLoading(false);
+          return;
+        }
+      } catch (err) {
+        console.debug('Firestore duplicate check error:', err);
+      }
+
       const { id: newId, pass: newPass } = StorageService.generateStudentCredentials();
 
       const newStudent: Student = {
@@ -92,6 +148,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       setCreateSuccess('Account creation request sent to Mr. Subhamoy Mondal. Come back in 24 hours. Note these credentials:');
     } catch (err: any) {
       console.error(err);
+      setCreateError('Failed to create account. Please try again or contact administration.');
+    } finally {
+      setCreateLoading(false);
     }
   };
 
@@ -671,6 +730,19 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 </div>
               ) : (
                 <form onSubmit={handleCreateAccount} className="space-y-3.5 pt-1">
+                  {createError && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold rounded-xl flex items-start gap-2.5 shadow-sm"
+                    >
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      <div className="flex-1 leading-relaxed">
+                        {createError}
+                      </div>
+                    </motion.div>
+                  )}
+
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[11px] font-extrabold text-slate-700 mb-1 uppercase tracking-wider">First Name *</label>
@@ -756,15 +828,24 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     <button
                       type="button"
                       onClick={() => setShowCreateModal(false)}
-                      className="flex-1 py-3 text-xs font-extrabold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
+                      disabled={createLoading}
+                      className="flex-1 py-3 text-xs font-extrabold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors disabled:opacity-60"
                     >
                       Cancel
                     </button>
                     <button
                       type="submit"
-                      className="flex-1 py-3 text-xs font-black text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-md shadow-indigo-600/20 uppercase tracking-wider"
+                      disabled={createLoading}
+                      className="flex-1 py-3 text-xs font-black text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-md shadow-indigo-600/20 uppercase tracking-wider flex items-center justify-center gap-2 disabled:opacity-60"
                     >
-                      Submit Request
+                      {createLoading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Checking...</span>
+                        </>
+                      ) : (
+                        'Submit Request'
+                      )}
                     </button>
                   </div>
                 </form>

@@ -239,12 +239,25 @@ export class StorageService {
 
   // -------- Students --------
   static getStudents(): Student[] {
-    return getItem<Student[]>(KEYS.STUDENTS, INITIAL_STUDENTS);
+    const deletedIds = this.getDeletedStudentIds();
+    const raw = getItem<Student[]>(KEYS.STUDENTS, INITIAL_STUDENTS);
+    if (deletedIds.length > 0) {
+      const filtered = raw.filter(s => s && s.id && !deletedIds.includes(s.id));
+      if (filtered.length !== raw.length) {
+        setItem(KEYS.STUDENTS, filtered);
+      }
+      return filtered;
+    }
+    return raw;
   }
 
   static saveStudents(students: Student[]): void {
-    setItem(KEYS.STUDENTS, students);
-    syncArrayToFirestore('students', students);
+    const deletedIds = this.getDeletedStudentIds();
+    const cleanStudents = deletedIds.length > 0
+      ? students.filter(s => s && s.id && !deletedIds.includes(s.id))
+      : students;
+    setItem(KEYS.STUDENTS, cleanStudents);
+    syncArrayToFirestore('students', cleanStudents);
   }
 
   static generateStudentCredentials(): { id: string; pass: string } {
@@ -346,18 +359,29 @@ export class StorageService {
   static deleteStudent(id: string): void {
     this.addDeletedStudentId(id);
 
-    // Delete the student's fee records from Firestore individually so they
-    // don't get pushed back into localStorage by the onSnapshot listener as
-    // "ghost" fees (which would inflate the dashboard's pending count).
+    // 1. Delete student from Firestore
+    deleteFromFirestore('students', id);
+
+    // 2. Delete the student's fee records from Firestore & local
     const allFees = this.getFeeRecords();
     const studentFees = allFees.filter(f => f.studentId === id);
     studentFees.forEach(f => deleteFromFirestore('feeRecords', f.id));
     const remainingFees = allFees.filter(f => f.studentId !== id);
     this.saveFeeRecords(remainingFees);
 
-    deleteFromFirestore('students', id);
-    const students = this.getStudents().filter(s => s.id !== id);
-    this.saveStudents(students);
+    // 3. Delete any doubts from Firestore & local
+    const allDoubts = this.getDoubts();
+    const studentDoubts = allDoubts.filter(d => d.studentId === id);
+    studentDoubts.forEach(d => deleteFromFirestore('doubts', d.id));
+    const remainingDoubts = allDoubts.filter(d => d.studentId !== id);
+    this.saveDoubts(remainingDoubts);
+
+    // 4. Clean local storage students list
+    const remainingStudents = this.getStudents().filter(s => s.id !== id);
+    setItem(KEYS.STUDENTS, remainingStudents);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('apex_storage_updated'));
+    }
   }
 
   // -------- Fees (DEDUPED) --------

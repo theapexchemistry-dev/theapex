@@ -182,15 +182,25 @@ function mergeAndStore(key: string, col: string, remoteItems: any[]): any[] {
     localItems = [];
   }
 
-  // Union by ID — remote wins for same ID (it's the cross-device source of
-  // truth), EXCEPT we never let a "terminal" local state (paid/ended) be
-  // overwritten by a non-terminal remote state.
+  // Load deleted student IDs blacklist
+  let deletedStudentIds: string[] = [];
+  try {
+    const rawDel = localStorage.getItem('apex_deleted_student_ids');
+    deletedStudentIds = rawDel ? JSON.parse(rawDel) : [];
+  } catch {}
+
   const map = new Map<string, any>();
   for (const item of localItems) {
-    if (item && item.id) map.set(item.id, item);
+    if (!item || !item.id) continue;
+    if (key === 'students' && deletedStudentIds.includes(item.id)) continue;
+    map.set(item.id, item);
   }
   for (const item of remoteItems) {
     if (!item || !item.id) continue;
+    if (key === 'students' && deletedStudentIds.includes(item.id)) {
+      deleteFromFirestore('students', item.id);
+      continue;
+    }
     const existing = map.get(item.id);
     if (!existing) {
       map.set(item.id, item);
@@ -214,11 +224,25 @@ function mergeAndStore(key: string, col: string, remoteItems: any[]): any[] {
     map.set(item.id, item);
   }
 
+  // For students: if remoteItems was non-empty from Firestore, Firestore is source of truth.
+  // Never keep records that were deleted in cloud or are on blacklist.
+  if (key === 'students' && remoteItems.length > 0) {
+    const remoteIdSet = new Set(remoteItems.map(r => r.id));
+    for (const [id] of Array.from(map.entries())) {
+      if (deletedStudentIds.includes(id) || !remoteIdSet.has(id)) {
+        map.delete(id);
+      }
+    }
+  }
+
   let merged = Array.from(map.values());
 
-  // Dedupe fee records by (studentId + month)
+  // Dedupe fee records by (studentId + month) & filter deleted students
   if (key === 'fees') {
-    merged = dedupeFeeRecords(merged as FeeRecord[]) as any[];
+    merged = dedupeFeeRecords(merged as FeeRecord[]).filter(f => !deletedStudentIds.includes(f.studentId)) as any[];
+  }
+  if (key === 'doubts') {
+    merged = merged.filter((d: any) => !deletedStudentIds.includes(d.studentId));
   }
 
   try {
@@ -282,46 +306,9 @@ export function setupFirestoreListeners() {
 }
 
 export async function fetchDataFromFirestore(): Promise<boolean> {
-  const collectionsToLoad = [
-    { key: 'batches',    col: 'batches' },
-    { key: 'students',   col: 'students' },
-    { key: 'fees',       col: 'feeRecords' },
-    { key: 'notes',      col: 'notes' },
-    { key: 'doubts',     col: 'doubts' },
-    { key: 'tests',      col: 'tests' },
-    { key: 'notifications', col: 'notifications' },
-    { key: 'liveMeetings', col: 'liveMeetings' },
-    { key: 'support_requests', col: 'supportRequests' },
-    { key: 'announcements', col: 'announcements' }
-  ];
-
   let hasData = false;
-  const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error('Firestore load timeout')), 8000)
-  );
 
-  try {
-    const fetchPromises = collectionsToLoad.map(async ({ key, col }) => {
-      try {
-        const snap = await getDocs(collection(db, col));
-        if (!snap.empty) {
-          hasData = true;
-          const data = snap.docs.map(d => d.data());
-          // Merge with local instead of overwriting
-          mergeAndStore(key, col, data);
-        }
-        // If empty, do NOTHING — keep whatever is in localStorage.
-        // (Previously this wrote an empty array, wiping local data.)
-      } catch (err) {
-        // ignore single collection fetch fail
-        console.debug(`Fetch failed for ${col}:`, err);
-      }
-    });
-    await Promise.race([Promise.allSettled(fetchPromises), timeoutPromise]);
-  } catch (err) {
-    console.debug('Firestore fetch notice:', err);
-  }
-
+  // Load siteSettings first so deletedStudentIds blacklist is immediately populated
   try {
     const settingsSnap = await getDocs(collection(db, 'siteSettings'));
     for (const docSnap of settingsSnap.docs) {
@@ -337,6 +324,42 @@ export async function fetchDataFromFirestore(): Promise<boolean> {
     }
   } catch (e) {
     console.debug('siteSettings load failed:', e);
+  }
+
+  const collectionsToLoad = [
+    { key: 'batches',    col: 'batches' },
+    { key: 'students',   col: 'students' },
+    { key: 'fees',       col: 'feeRecords' },
+    { key: 'notes',      col: 'notes' },
+    { key: 'doubts',     col: 'doubts' },
+    { key: 'tests',      col: 'tests' },
+    { key: 'notifications', col: 'notifications' },
+    { key: 'liveMeetings', col: 'liveMeetings' },
+    { key: 'support_requests', col: 'supportRequests' },
+    { key: 'announcements', col: 'announcements' }
+  ];
+
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('Firestore load timeout')), 8000)
+  );
+
+  try {
+    const fetchPromises = collectionsToLoad.map(async ({ key, col }) => {
+      try {
+        const snap = await getDocs(collection(db, col));
+        if (!snap.empty) {
+          hasData = true;
+          const data = snap.docs.map(d => d.data());
+          // Merge with local instead of overwriting
+          mergeAndStore(key, col, data);
+        }
+      } catch (err) {
+        console.debug(`Fetch failed for ${col}:`, err);
+      }
+    });
+    await Promise.race([Promise.allSettled(fetchPromises), timeoutPromise]);
+  } catch (err) {
+    console.debug('Firestore fetch notice:', err);
   }
 
   if (typeof window !== 'undefined') {
