@@ -121,19 +121,25 @@ export const StudentDoubts: React.FC<StudentDoubtsProps> = ({ student }) => {
   };
 
   const handleAskAi = async () => {
-    if (!question.trim() || aiThinking) return;
+    const qText = question.trim();
+    if ((!qText && !imageUrl) || aiThinking) return;
     setAiError(null);
     setAiThinking(true);
 
     const userMsg: ChatMessage = {
       role: 'user',
-      text: question.trim(),
+      text: qText || 'Please analyze and solve the chemistry problem shown in the attached image.',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
     setChatHistory(prev => [...prev, userMsg]);
 
     try {
-      const result = await askAiAssistant(question.trim(), subject, student.className);
+      const result = await askAiAssistant(
+        qText || 'Please analyze and solve the chemistry problem shown in the attached image.',
+        subject,
+        student.className,
+        imageUrl && imageUrl.startsWith('data:image') ? imageUrl : undefined
+      );
       setLastAiResult(result);
       const aiMsg: ChatMessage = {
         role: 'ai',
@@ -317,7 +323,7 @@ export const StudentDoubts: React.FC<StudentDoubtsProps> = ({ student }) => {
               )}
             </div>
 
-            <button type="button" onClick={handleAskAi} disabled={!question.trim() || aiThinking}
+            <button type="button" onClick={handleAskAi} disabled={(!question.trim() && !imageUrl) || aiThinking}
               className="w-full py-2.5 bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-600 hover:to-fuchsia-600 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5">
               {aiThinking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
               {aiThinking ? 'Apex AI is thinking...' : 'Ask Apex AI First'}

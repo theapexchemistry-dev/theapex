@@ -3,16 +3,18 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { Server } from "socket.io";
 import { createServer as createHttpServer } from "http";
-import { GoogleGenAI } from "@google/genai";
+import Groq from "groq-sdk";
 
-let ai: GoogleGenAI | null = null;
-function getAiClient() {
-  if (!ai) {
-    const key = process.env.GEMINI_API_KEY;
-    if (!key) throw new Error("GEMINI_API_KEY is not set.");
-    ai = new GoogleGenAI({ apiKey: key });
+let groqClient: Groq | null = null;
+function getGroqClient(): Groq {
+  const key = process.env.GROQ_API_KEY;
+  if (!key) {
+    throw new Error("GROQ_API_KEY is not configured in environment variables. Please set your Groq API key.");
   }
-  return ai;
+  if (!groqClient) {
+    groqClient = new Groq({ apiKey: key });
+  }
+  return groqClient;
 }
 
 async function startServer() {
@@ -550,58 +552,127 @@ OUTPUT FORMAT — return STRICT JSON only, no markdown fences, no extra text:
 
   app.post("/api/ai/ask", async (req, res) => {
     try {
-      const { question, subject, className } = req.body;
-      const userPrompt = `Student Class: ${className || 'Class 11-12 (JEE/NEET aspirant)'}\nSubject Area: ${subject}\n\nStudent Question:\n"""\n ${question}\n"""\n\nAnswer as Apex AI. Follow the rules and output format strictly. Return JSON only.`;
+      const { question, subject, className, image } = req.body || {};
+      if (!question && !image) {
+        return res.status(400).json({ error: "Please provide a question or attach an image." });
+      }
+
+      const userPrompt = `Student Class: ${className || 'Class 11-12 (JEE/NEET aspirant)'}\nSubject Area: ${subject || 'Chemistry'}\n\nStudent Question:\n"""\n${question || 'Please analyze and solve the chemistry problem shown in the attached image.'}\n"""\n\nAnswer as Apex AI. Follow the rules and output format strictly. Return JSON only.`;
       
-      const client = getAiClient();
-      const response = await client.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: [
-          { role: "user", parts: [{ text: userPrompt }] }
-        ],
-        config: {
-          systemInstruction: SYSTEM_PROMPT,
+      const groq = getGroqClient();
+      const hasImage = image && typeof image === 'string' && image.startsWith('data:image/');
+      const targetModel = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+      
+      let messages: any[];
+      let model = targetModel;
+
+      if (hasImage) {
+        model = 'llama-3.2-11b-vision-preview';
+        messages = [
+          { role: "system", content: SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: userPrompt },
+              { type: "image_url", image_url: { url: image } }
+            ]
+          }
+        ];
+      } else {
+        messages = [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: userPrompt }
+        ];
+      }
+
+      let responseContent = "";
+      try {
+        const completion = await groq.chat.completions.create({
+          model,
+          messages,
           temperature: 0.4,
-          responseMimeType: "application/json",
+          response_format: { type: "json_object" }
+        });
+        responseContent = completion.choices[0]?.message?.content || "{}";
+      } catch (err: any) {
+        // Fallback mechanism if vision or specific model is unavailable
+        console.warn(`[Groq AI] Request with model ${model} failed (${err.message}). Attempting fallback.`);
+        const fallbackModel = (model === targetModel) ? 'llama-3.3-70b-versatile' : targetModel;
+        try {
+          const fallbackCompletion = await groq.chat.completions.create({
+            model: fallbackModel,
+            messages: [
+              { role: "system", content: SYSTEM_PROMPT },
+              { role: "user", content: userPrompt }
+            ],
+            temperature: 0.4,
+            response_format: { type: "json_object" }
+          });
+          responseContent = fallbackCompletion.choices[0]?.message?.content || "{}";
+        } catch (fbErr: any) {
+          throw err;
         }
-      });
+      }
       
-      res.json({ content: response.text });
+      res.json({ content: responseContent });
     } catch (err: any) {
-      console.error("[AI] Error:", err);
-      res.status(500).json({ error: err.message });
+      console.error("[Groq AI] Error:", err);
+      const errMsg = err?.message || "Failed to generate AI response from Groq";
+      res.status(500).json({ error: errMsg });
     }
   });
 
   app.post("/api/ai/follow-up", async (req, res) => {
     try {
-      const { history, newQuestion, subject, className } = req.body;
-      const contents = history.map((m: any) => ({
-        role: m.role === 'user' ? 'user' : 'model',
-        parts: [{ text: m.text }]
-      }));
-      contents.push({
+      const { history, newQuestion, subject, className } = req.body || {};
+      if (!newQuestion) {
+        return res.status(400).json({ error: "Follow-up question is required." });
+      }
+
+      const groq = getGroqClient();
+      const messages: any[] = [
+        { role: "system", content: SYSTEM_PROMPT }
+      ];
+
+      (Array.isArray(history) ? history : []).forEach((m: any) => {
+        messages.push({
+          role: m.role === 'user' ? 'user' : 'assistant',
+          content: m.text || ''
+        });
+      });
+
+      messages.push({
         role: "user",
-        parts: [{
-          text: `Subject Area: ${subject}\nStudent Class: ${className || 'Class 11-12'}\n\nNEW MESSAGE FROM STUDENT:\n"""\n ${newQuestion}\n"""\n\nAnswer as Apex AI. Be concise (≤200 words) and reference what was discussed earlier if relevant. Output STRICT JSON in the same format.`
-        }]
+        content: `Subject Area: ${subject || 'Chemistry'}\nStudent Class: ${className || 'Class 11-12'}\n\nNEW MESSAGE FROM STUDENT:\n"""\n${newQuestion}\n"""\n\nAnswer as Apex AI. Be concise (≤200 words) and reference what was discussed earlier if relevant. Output STRICT JSON in the same format.`
       });
       
-      const client = getAiClient();
-      const response = await client.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents,
-        config: {
-          systemInstruction: SYSTEM_PROMPT,
+      const targetModel = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+      let content = "{}";
+
+      try {
+        const completion = await groq.chat.completions.create({
+          model: targetModel,
+          messages,
           temperature: 0.4,
-          responseMimeType: "application/json",
-        }
-      });
+          response_format: { type: "json_object" }
+        });
+        content = completion.choices[0]?.message?.content || "{}";
+      } catch (err: any) {
+        console.warn(`[Groq AI] Follow-up with model ${targetModel} failed (${err.message}). Trying fallback.`);
+        const fallbackCompletion = await groq.chat.completions.create({
+          model: "llama-3.3-70b-versatile",
+          messages,
+          temperature: 0.4,
+          response_format: { type: "json_object" }
+        });
+        content = fallbackCompletion.choices[0]?.message?.content || "{}";
+      }
       
-      res.json({ content: response.text });
+      res.json({ content });
     } catch (err: any) {
-      console.error("[AI] Error:", err);
-      res.status(500).json({ error: err.message });
+      console.error("[Groq AI] Follow-up Error:", err);
+      const errMsg = err?.message || "Failed to generate AI follow-up response from Groq";
+      res.status(500).json({ error: errMsg });
     }
   });
 

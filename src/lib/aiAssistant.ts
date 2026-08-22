@@ -38,17 +38,18 @@ function parseAiResponse(raw: string): AiAnswerResult {
 export async function askAiAssistant(
   question: string,
   subject: string,
-  className?: string
+  className?: string,
+  image?: string
 ): Promise<AiAnswerResult> {
   const res = await fetch('/api/ai/ask', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question, subject, className })
+    body: JSON.stringify({ question, subject, className, image })
   });
 
   if (!res.ok) {
-    const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
-    throw new Error(errorData.error || `Server error: ${res.status}`);
+    const errorData = await res.json().catch(() => ({ error: 'Unknown server error' }));
+    throw new Error(errorData.error || `Server error (${res.status})`);
   }
 
   const data = await res.json();
