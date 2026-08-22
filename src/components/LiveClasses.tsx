@@ -721,76 +721,115 @@ function StudentMeetingCard({ meeting, studentName, studentClass, onJoin }: { me
 
 
 function RecordingPlayerModal({ meeting, onClose }: { meeting: LiveMeeting; onClose: () => void }) {
-  const isNativeVideo = meeting.recordingUrl?.match(/\.(mp4|webm|ogg)$/i);
+  const rawUrl = meeting.recordingUrl || '';
+  const isNativeVideo = rawUrl.match(/\.(mp4|webm|ogg|mov)$/i);
   
-  // Convert Google Drive view URL to preview URL for iframe embedding
-  let embedUrl = meeting.recordingUrl || '';
-  if (!isNativeVideo && embedUrl.includes('drive.google.com') && embedUrl.includes('/view')) {
-    embedUrl = embedUrl.replace(/\/view.*$/, '/preview');
+  let embedUrl = rawUrl;
+  if (rawUrl) {
+    if (rawUrl.includes('youtube.com/watch?v=')) {
+      const videoId = rawUrl.split('watch?v=')[1]?.split('&')[0];
+      if (videoId) {
+        embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
+      }
+    } else if (rawUrl.includes('youtu.be/')) {
+      const videoId = rawUrl.split('youtu.be/')[1]?.split('?')[0];
+      if (videoId) {
+        embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
+      }
+    } else if (rawUrl.includes('loom.com/share/')) {
+      const loomId = rawUrl.split('loom.com/share/')[1]?.split('?')[0];
+      if (loomId) {
+        embedUrl = `https://www.loom.com/embed/${loomId}`;
+      }
+    } else if (!isNativeVideo && rawUrl.includes('drive.google.com') && rawUrl.includes('/view')) {
+      embedUrl = rawUrl.replace(/\/view.*$/, '/preview');
+    }
   }
 
+  const [copied, setCopied] = useState(false);
+
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/90 sm:p-6 backdrop-blur-md animate-fade-in" onClick={onClose}>
-      <div className="w-full h-full sm:h-auto sm:max-w-5xl sm:rounded-[2rem] bg-slate-900 sm:p-1.5 shadow-2xl sm:border border-slate-800/60 relative overflow-hidden ring-1 ring-white/10 flex flex-col" onClick={(e) => e.stopPropagation()}>
-        {/* Subtle glowing effects behind the player */}
-        <div className="hidden sm:block absolute -top-40 -right-40 h-96 w-96 rounded-full bg-indigo-500/20 blur-3xl pointer-events-none" />
-        <div className="hidden sm:block absolute -bottom-40 -left-40 h-96 w-96 rounded-full bg-amber-500/10 blur-3xl pointer-events-none" />
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/95 p-0 sm:p-4 md:p-6 backdrop-blur-xl animate-fade-in" onClick={onClose}>
+      <div className="w-full h-full sm:h-auto sm:max-w-5xl sm:rounded-3xl bg-slate-950 shadow-2xl border border-slate-800/80 relative overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+        {/* Glow ambient effects */}
+        <div className="absolute -top-32 -right-32 h-80 w-80 rounded-full bg-indigo-500/15 blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-32 -left-32 h-80 w-80 rounded-full bg-amber-500/10 blur-3xl pointer-events-none" />
         
-        <div className="relative z-10 flex items-center justify-between px-4 py-3 sm:px-6 sm:py-5 bg-slate-900/90 sm:bg-slate-900/50 backdrop-blur-xl sm:rounded-t-[1.75rem] border-b sm:border-b-0 border-slate-800 shrink-0">
-          <div className="flex items-center gap-3 sm:gap-4 min-w-0">
-            <div className="hidden sm:flex items-center justify-center shrink-0 w-12 h-12 rounded-2xl bg-indigo-500/20 border border-indigo-500/30">
-              <Play className="w-5 h-5 text-indigo-400 fill-indigo-400" />
+        {/* Header bar */}
+        <div className="relative z-10 flex items-center justify-between px-4 py-3.5 sm:px-6 sm:py-4 bg-slate-900/90 backdrop-blur-xl border-b border-slate-800/80 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex items-center justify-center shrink-0 w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-indigo-500/20 border border-indigo-500/30 text-indigo-400">
+              <Play className="w-5 h-5 fill-current" />
             </div>
             <div className="flex flex-col min-w-0">
-              <h3 className="text-base sm:text-xl font-bold text-white tracking-tight truncate">{meeting.title}</h3>
-              <p className="text-xs sm:text-sm font-medium text-slate-400 mt-0.5 truncate">
-                Recording • <span className="text-slate-500">{new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(meeting.startedAt)}</span>
+              <h3 className="text-sm sm:text-lg font-bold text-white tracking-tight truncate">{meeting.title}</h3>
+              <p className="text-[11px] sm:text-xs font-medium text-slate-400 truncate mt-0.5">
+                Class Recording • <span className="text-slate-500">{new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(meeting.startedAt)}</span>
               </p>
             </div>
           </div>
           
-          <div className="flex items-center gap-1 sm:gap-2 shrink-0 pl-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {meeting.recordingUrl && (
-              <a 
-                href={meeting.recordingUrl} 
-                target="_blank" 
-                rel="noopener noreferrer" 
-                title="Open in new tab (Download / Full Options)"
-                className="flex items-center justify-center gap-2 rounded-full h-10 px-3 sm:px-4 text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800 hover:text-white transition-all bg-slate-800/50 border border-slate-700/50"
-              >
-                <ExternalLink className="h-4 w-4" />
-                <span className="hidden sm:inline">Open</span>
-              </a>
+              <>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(meeting.recordingUrl!);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  }}
+                  className="hidden md:flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-300 hover:bg-slate-800 hover:text-white transition-all bg-slate-900 border border-slate-700/60"
+                  title="Copy video URL"
+                >
+                  <Copy className="w-3.5 h-3.5 text-slate-400" />
+                  <span>{copied ? 'Copied!' : 'Copy Link'}</span>
+                </button>
+                <a 
+                  href={meeting.recordingUrl} 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  title="Open in new tab / download"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-indigo-300 hover:bg-indigo-600/20 hover:text-indigo-200 transition-all bg-indigo-600/10 border border-indigo-500/30"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Open in Tab</span>
+                </a>
+              </>
             )}
-            <button onClick={onClose} className="flex items-center justify-center rounded-full h-10 w-10 text-slate-400 hover:bg-slate-800 hover:text-white transition-all bg-slate-800/50 border border-slate-700/50">
-              <X className="h-5 w-5" />
+            <button 
+              onClick={onClose} 
+              className="flex items-center justify-center rounded-xl h-9 w-9 text-slate-400 hover:bg-slate-800 hover:text-white transition-all bg-slate-900 border border-slate-700/60"
+              title="Close player"
+            >
+              <X className="w-4 h-4" />
             </button>
           </div>
         </div>
         
-        <div className="relative z-10 w-full flex-1 sm:flex-none sm:aspect-video bg-black sm:rounded-[1.5rem] overflow-hidden sm:border border-slate-800 sm:shadow-inner flex flex-col">
+        {/* Video Player Stage */}
+        <div className="relative z-10 w-full flex-1 sm:aspect-video bg-black flex flex-col items-center justify-center overflow-hidden">
           {embedUrl ? (
             isNativeVideo ? (
               <video 
                 src={embedUrl}
                 controls
-                className="w-full h-full object-contain"
+                className="w-full h-full max-h-[80vh] object-contain"
                 autoPlay
                 playsInline
               />
             ) : (
               <iframe 
                 src={embedUrl}
-                className="w-full h-full flex-1 border-0"
-                allow="autoplay; fullscreen; picture-in-picture"
+                className="w-full h-full border-0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                 allowFullScreen
               />
             )
           ) : (
-            <div className="flex flex-col items-center justify-center flex-1 sm:h-full text-slate-500 bg-slate-900 p-6 text-center">
-              <Video className="w-12 h-12 mb-3 opacity-20" />
-              <p className="font-medium text-base sm:text-lg text-slate-400">No valid recording URL provided.</p>
-              <p className="text-xs sm:text-sm text-slate-500 mt-1">Please make sure the link is correctly pasted.</p>
+            <div className="flex flex-col items-center justify-center h-full p-8 text-center bg-slate-950">
+              <Video className="w-14 h-14 mb-4 text-slate-700 animate-pulse" />
+              <p className="font-bold text-lg text-slate-300">No valid recording URL provided</p>
+              <p className="text-xs text-slate-500 mt-1 max-w-sm">Please paste a valid YouTube, Google Drive, Loom, or direct video link to enable playback.</p>
             </div>
           )}
         </div>

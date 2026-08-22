@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { StorageService } from '../../lib/storage';
 import { Batch } from '../../types';
-import { Layers, Plus, Calendar, Clock, Trash2, Users, Edit2 } from 'lucide-react';
+import { Layers, Plus, Calendar, Clock, Trash2, Users, Edit2, TrendingUp } from 'lucide-react';
 
 export const AdminBatches: React.FC = () => {
   const [batches, setBatches] = useState<Batch[]>(() => StorageService.getBatches());
@@ -35,6 +35,32 @@ export const AdminBatches: React.FC = () => {
     setTime(batch.time);
     setFees(batch.fees);
     setSelectedDays(batch.days);
+  };
+
+  const handlePromoteBatch = (batch: Batch) => {
+    let nextClass = batch.className;
+    if (batch.className.includes('9')) nextClass = 'Class 10';
+    else if (batch.className.includes('10')) nextClass = 'Class 11';
+    else if (batch.className.includes('11')) nextClass = 'Class 12';
+    else if (batch.className.includes('12')) nextClass = 'Repeater';
+    else return;
+
+    const newTitle = batch.title.replace(batch.className, nextClass);
+
+    StorageService.updateBatch(batch.id, {
+      className: nextClass,
+      title: newTitle !== batch.title ? newTitle : `${nextClass} - ${batch.title}`
+    });
+
+    const allStudents = StorageService.getStudents();
+    const updatedStudents = allStudents.map(s => {
+      if (s.batchId === batch.id) {
+        return { ...s, className: nextClass };
+      }
+      return s;
+    });
+    StorageService.saveStudents(updatedStudents);
+    refreshData();
   };
 
   const cancelEdit = () => {
@@ -208,7 +234,14 @@ export const AdminBatches: React.FC = () => {
                       <h4 className="text-base font-bold text-slate-900 mt-1">{b.title}</h4>
                     </div>
 
-                    <div className="flex items-center">
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handlePromoteBatch(b)}
+                        className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-extrabold rounded-lg text-xs transition-colors flex items-center gap-1 border border-indigo-200"
+                        title="Promote batch to next class"
+                      >
+                        <TrendingUp className="w-3.5 h-3.5" /> Promote
+                      </button>
                       <button
                         onClick={() => handleEditBatch(b)}
                         className="p-1.5 text-slate-400 hover:text-indigo-600 transition-colors"

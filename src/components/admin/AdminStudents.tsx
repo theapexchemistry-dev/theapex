@@ -21,6 +21,7 @@ export const AdminStudents: React.FC = () => {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedBatchFilter, setSelectedBatchFilter] = useState('ALL');
+  const [activeStudentTab, setActiveStudentTab] = useState<'all' | 'pending'>('all');
 
   // Create Student Modal State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -156,14 +157,19 @@ export const AdminStudents: React.FC = () => {
     refreshData();
   };
 
+  // Pending count
+  const pendingCount = students.filter(s => s.status === 'pending' || s.batchId === 'PENDING_BATCH').length;
+
   // Main list filters
   const filteredStudents = students.filter(s => {
+    const isPending = s.status === 'pending' || s.batchId === 'PENDING_BATCH';
+    const matchesTab = activeStudentTab === 'all' || (activeStudentTab === 'pending' && isPending);
     const matchesSearch =
       s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       s.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
       s.phone.includes(searchTerm);
     const matchesBatch = selectedBatchFilter === 'ALL' || s.batchId === selectedBatchFilter;
-    return matchesSearch && matchesBatch;
+    return matchesTab && matchesSearch && matchesBatch;
   });
 
   return (
@@ -186,6 +192,35 @@ export const AdminStudents: React.FC = () => {
           className="px-5 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-sm rounded-xl shadow-lg shadow-indigo-600/20 transition-all flex items-center justify-center gap-2"
         >
           <UserPlus className="w-5 h-5 stroke-[2.5]" /> Register New Student
+        </button>
+      </div>
+
+      {/* Tabs for All vs Pending Batch Assignment */}
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-3">
+        <button
+          onClick={() => setActiveStudentTab('all')}
+          className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
+            activeStudentTab === 'all'
+              ? 'bg-slate-900 text-white shadow-md'
+              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+          }`}
+        >
+          All Students ({students.length})
+        </button>
+        <button
+          onClick={() => setActiveStudentTab('pending')}
+          className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${
+            activeStudentTab === 'pending'
+              ? 'bg-amber-500 text-slate-950 shadow-md'
+              : 'bg-white text-amber-700 hover:bg-amber-50 border border-amber-200'
+          }`}
+        >
+          <span>Pending Batch Assignment</span>
+          {pendingCount > 0 && (
+            <span className="px-1.5 py-0.5 rounded-full bg-slate-900 text-white text-[10px] font-mono">
+              {pendingCount}
+            </span>
+          )}
         </button>
       </div>
 
@@ -268,7 +303,19 @@ export const AdminStudents: React.FC = () => {
                       </div>
                     </td>
                     <td className="p-3.5 font-extrabold text-indigo-600">₹{student.fees.toLocaleString()}</td>
-                    <td className="p-3.5 text-slate-500 font-mono">{student.joiningDate}</td>
+                    <td className="p-3.5 text-slate-500 font-mono">
+                      <div className="flex items-center gap-3">
+                        <span>{student.joiningDate}</span>
+                        {(student.status === 'pending' || student.batchId === 'PENDING_BATCH') && (
+                          <button
+                            onClick={() => openEditModal(student)}
+                            className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-lg text-[10px] tracking-wider uppercase shadow-sm transition-all"
+                          >
+                            Assign Batch
+                          </button>
+                        )}
+                      </div>
+                    </td>
                     <td className="p-3.5 text-right space-x-2">
                       <button
                         onClick={() => {

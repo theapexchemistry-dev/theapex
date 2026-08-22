@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Student, Batch } from '../../types';
+import { Student, Batch, Announcement } from '../../types';
 import { StorageService } from '../../lib/storage';
 import {
   Calendar as CalendarIcon,
@@ -12,7 +12,8 @@ import {
   Sparkles,
   Trophy,
   IndianRupee,
-  Bell
+  Bell,
+  Megaphone
 } from 'lucide-react';
 
 interface StudentDashboardProps {
@@ -38,6 +39,39 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const totalFeesAmount = student.fees * feeRecords.length;
   const paidFeesAmount = feeRecords.filter(f => f.status === 'paid').reduce((a, b) => a + b.amount, 0);
   const dueFeesAmount = totalFeesAmount - paidFeesAmount;
+
+  const [announcements, setAnnouncements] = useState<Announcement[]>(() => StorageService.getAnnouncements());
+  const studentAnnouncements = announcements.filter(
+    ann => ann.targetAudience === 'all' || ann.targetAudience === student.batchId
+  );
+
+  const handleReact = (annId: string, emoji: string) => {
+    const all = StorageService.getAnnouncements();
+    const updated = all.map(ann => {
+      if (ann.id === annId) {
+        const reactions = { ...(ann.reactions || { '👍': 0, '❤️': 0, '💡': 0, '🔥': 0, '🙌': 0 }) };
+        const userReactions = { ...(ann.userReactions || {}) };
+
+        const previousEmoji = userReactions[student.id];
+        if (previousEmoji === emoji) {
+          reactions[emoji] = Math.max(0, (reactions[emoji] || 1) - 1);
+          delete userReactions[student.id];
+        } else {
+          if (previousEmoji) {
+            reactions[previousEmoji] = Math.max(0, (reactions[previousEmoji] || 1) - 1);
+          }
+          reactions[emoji] = (reactions[emoji] || 0) + 1;
+          userReactions[student.id] = emoji;
+        }
+
+        return { ...ann, reactions, userReactions };
+      }
+      return ann;
+    });
+
+    StorageService.saveAnnouncements(updated);
+    setAnnouncements(StorageService.getAnnouncements());
+  };
 
     // ===== REAL SYNCED CALENDAR =====
   const scheduledDays = studentBatch?.days || ['Mon', 'Wed', 'Fri'];
@@ -228,6 +262,68 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Announcements & Broadcasts Stream */}
+      {studentAnnouncements.length > 0 && (
+        <div className="bg-white p-6 rounded-3xl border border-indigo-100 shadow-sm space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <Megaphone className="w-5 h-5 text-indigo-600" /> Institute Announcements & Notices
+            </h3>
+            <span className="text-xs bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full font-bold">
+              {studentAnnouncements.length} New
+            </span>
+          </div>
+
+          <div className="space-y-4">
+            {studentAnnouncements.map(ann => {
+              const myReaction = ann.userReactions?.[student.id];
+              return (
+                <div key={ann.id} className="p-4 rounded-2xl bg-gradient-to-br from-slate-50 to-indigo-50/30 border border-slate-200/80 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase ${
+                      ann.type === 'Tests' ? 'bg-amber-100 text-amber-800' : ann.type === 'Reminder' ? 'bg-orange-100 text-orange-800' : 'bg-indigo-100 text-indigo-800'
+                    }`}>
+                      {ann.type || 'Notice'}
+                    </span>
+                    <span className="text-[11px] text-slate-400">{ann.createdAt}</span>
+                  </div>
+
+                  <h4 className="text-sm font-bold text-slate-900">{ann.title}</h4>
+                  <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed">{ann.message}</p>
+
+                  {ann.imageUrl && (
+                    <img src={ann.imageUrl} alt="Announcement attachment" className="rounded-2xl max-h-60 object-cover w-full border border-slate-200 shadow-sm" />
+                  )}
+
+                  {/* Emoji Reactions bar for students to interact with admin */}
+                  <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200/60">
+                    <span className="text-[11px] font-bold text-slate-500 mr-1">React:</span>
+                    {(['👍', '❤️', '💡', '🔥', '🙌'] as const).map(emoji => {
+                      const count = ann.reactions?.[emoji] || 0;
+                      const isSelected = myReaction === emoji;
+                      return (
+                        <button
+                          key={emoji}
+                          onClick={() => handleReact(ann.id, emoji)}
+                          className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all ${
+                            isSelected
+                              ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-300'
+                              : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 shadow-sm'
+                          }`}
+                        >
+                          <span>{emoji}</span>
+                          <span>{count > 0 ? count : ''}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Main Grid: Calendar & Fee Overview */}
       <div className="grid lg:grid-cols-12 gap-6">

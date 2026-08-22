@@ -15,6 +15,7 @@ export interface Student {
   password?: string; // Student password (kept hidden in profile view)
   name: string;
   className: string; // "Class 9", "Class 10", "Class 11", "Class 12"
+  board?: string; // e.g. "CBSE", "ICSE", "ISC", "State Board"
   batchId: string;
   batchTitle?: string;
   phone: string;
@@ -152,10 +153,13 @@ export interface SupportRequest {
 
 export interface Announcement {
   id: string;
+  type: 'Reminder' | 'Notice' | 'Tests';
   title: string;
   message: string;
-  targetAudience: 'all' | string; // 'all' or specific batchId
+  targetAudience: 'all' | string; // 'all' or batchId
   createdAt: string;
-  sentVia: 'portal' | 'email' | 'whatsapp';
+  imageUrl?: string;
+  reactions?: Record<string, number>; // emoji -> count
+  userReactions?: Record<string, string>; // studentId -> emoji
 }
 

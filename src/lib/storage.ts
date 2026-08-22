@@ -214,7 +214,7 @@ export class StorageService {
     return newBatch;
   }
 
-  static updateBatch(id: string, batchData: Omit<Batch, 'id' | 'createdAt'>): Batch | null {
+  static updateBatch(id: string, batchData: Partial<Omit<Batch, 'id' | 'createdAt'>>): Batch | null {
     const batches = this.getBatches();
     let updatedBatch: Batch | null = null;
     const updated = batches.map(b => {

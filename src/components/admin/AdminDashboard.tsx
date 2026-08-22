@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { StorageService } from '../../lib/storage';
 import { subscribeToSupportRequests } from '../../lib/firebaseSync';
-import { Student, Batch, NotificationItem, FeeRecord, Doubt, Note } from '../../types';
+import { Student, Batch, NotificationItem, FeeRecord, Doubt, Note, Announcement } from '../../types';
 import {
   Users,
   Layers,
@@ -21,7 +21,10 @@ import {
   AlertCircle,
   TrendingUp,
   ChevronRight,
-  Search
+  Search,
+  Megaphone,
+  Send,
+  Trash2
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -48,6 +51,62 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [supportRequests, setSupportRequests] = useState(() => StorageService.getSupportRequests());
   const [showAllNotificationsModal, setShowAllNotificationsModal] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const [announcements, setAnnouncements] = useState<Announcement[]>(() => StorageService.getAnnouncements());
+  const [announcementType, setAnnouncementType] = useState<'Reminder' | 'Notice' | 'Tests'>('Notice');
+  const [announcementTitle, setAnnouncementTitle] = useState('');
+  const [announcementMessage, setAnnouncementMessage] = useState('');
+  const [announcementImage, setAnnouncementImage] = useState<string | null>(null);
+  const [announcementImageName, setAnnouncementImageName] = useState('');
+  const [showTargetModal, setShowTargetModal] = useState(false);
+
+  const handleAnnouncementImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setAnnouncementImageName(file.name);
+      try {
+        const { default: imageCompression } = await import('browser-image-compression');
+        const options = { maxSizeMB: 0.5, maxWidthOrHeight: 1024, useWebWorker: true };
+        const compressedFile = await imageCompression(file, options);
+        const base64Data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.readAsDataURL(compressedFile);
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = error => reject(error);
+        });
+        setAnnouncementImage(base64Data);
+      } catch (err) {
+        console.error('Error compressing image:', err);
+        alert('Failed to process image. Please try again.');
+      }
+    }
+  };
+
+  const handlePostAnnouncement = (targetAudience: string) => {
+    if (!announcementTitle.trim() || !announcementMessage.trim()) {
+      alert('Please enter both title and message for the announcement.');
+      return;
+    }
+    const newAnn: Announcement = {
+      id: `ann-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      type: announcementType,
+      title: announcementTitle.trim(),
+      message: announcementMessage.trim(),
+      targetAudience,
+      createdAt: new Date().toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }),
+      imageUrl: announcementImage || undefined,
+      reactions: { '👍': 0, '❤️': 0, '💡': 0, '🔥': 0, '🙌': 0 },
+      userReactions: {}
+    };
+
+    StorageService.addAnnouncement(newAnn);
+    setAnnouncements(StorageService.getAnnouncements());
+    setAnnouncementTitle('');
+    setAnnouncementMessage('');
+    setAnnouncementImage(null);
+    setAnnouncementImageName('');
+    setShowTargetModal(false);
+  };
 
   // Listen for storage updates and subscribe to support requests
   useEffect(() => {
@@ -384,47 +443,142 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         </div>
 
-        {/* Recent Notifications — takes 1 column */}
+        {/* Admin Announcements Chat & Creator Panel */}
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
           <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
             <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <Bell className="w-4 h-4 text-amber-500" /> Recent Notifications
+              <Megaphone className="w-5 h-5 text-indigo-600" /> Admin Announcements
             </h3>
-            <button
-              onClick={() => setShowAllNotificationsModal(true)}
-              className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-0.5 transition-colors"
-            >
-              View All <ChevronRight className="w-3.5 h-3.5" />
-            </button>
+            <span className="text-[11px] bg-indigo-50 text-indigo-700 px-2.5 py-0.5 rounded-full font-bold">
+              Chat Broadcast
+            </span>
           </div>
 
-          <div className="space-y-2.5 flex-1 overflow-y-auto max-h-80 pr-1">
-            {recentNotifications.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-10 text-center">
-                <Bell className="w-10 h-10 text-slate-300 mb-2" />
-                <p className="text-xs font-semibold text-slate-500">No recent activity</p>
-                <p className="text-[11px] text-slate-400">Notifications will appear here</p>
+          {/* Chat Input / Creator Box (Only Admin Input) */}
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 mb-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">Create Broadcast</span>
+              {/* 3 Options: Notice, Reminder, Tests */}
+              <div className="flex gap-1">
+                {(['Notice', 'Reminder', 'Tests'] as const).map(t => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setAnnouncementType(t)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                      announcementType === t
+                        ? t === 'Tests' ? 'bg-amber-500 text-slate-950 shadow-sm' : t === 'Reminder' ? 'bg-orange-500 text-white shadow-sm' : 'bg-indigo-600 text-white shadow-sm'
+                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                    }`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <input
+              type="text"
+              placeholder="Announcement Title (e.g. Chemistry Test on Sunday)"
+              value={announcementTitle}
+              onChange={e => setAnnouncementTitle(e.target.value)}
+              className="w-full px-3 py-2 text-xs font-medium border border-slate-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+
+            <textarea
+              placeholder="Type announcement message here..."
+              value={announcementMessage}
+              onChange={e => setAnnouncementMessage(e.target.value)}
+              rows={2}
+              className="w-full px-3 py-2 text-xs font-medium border border-slate-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+            />
+
+            {announcementImage && (
+              <div className="flex items-center gap-3 bg-white p-2 rounded-xl border border-slate-200">
+                <img src={announcementImage} alt="Attachment" className="w-12 h-12 object-cover rounded-lg" />
+                <span className="text-xs font-medium text-slate-600 truncate flex-1">{announcementImageName || 'Attached Image'}</span>
+                <button
+                  type="button"
+                  onClick={() => { setAnnouncementImage(null); setAnnouncementImageName(''); }}
+                  className="text-slate-400 hover:text-rose-600 p-1"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between pt-1">
+              <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-bold border border-slate-200 transition-all shadow-sm">
+                <Plus className="w-4 h-4 text-indigo-600" />
+                <span>{announcementImageName ? 'Change Image' : 'Add Image'}</span>
+                <input type="file" accept="image/*" onChange={handleAnnouncementImageUpload} className="hidden" />
+              </label>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (!announcementTitle.trim() || !announcementMessage.trim()) {
+                    alert('Please enter both title and message.');
+                    return;
+                  }
+                  setShowTargetModal(true);
+                }}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md transition-all"
+              >
+                <Send className="w-3.5 h-3.5" /> Send Announcement
+              </button>
+            </div>
+          </div>
+
+          {/* Announcement Feed / Chat Stream */}
+          <div className="space-y-3 flex-1 overflow-y-auto max-h-80 pr-1">
+            {announcements.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-8 text-center text-slate-400">
+                <Megaphone className="w-8 h-8 mb-2 opacity-30" />
+                <p className="text-xs font-medium">No announcements broadcasted yet.</p>
               </div>
             ) : (
-              recentNotifications.map(n => (
-                <div
-                  key={n.id}
-                  className={`p-3 rounded-xl border ${getNotificationBg(n.type, n.read)} cursor-pointer transition-all hover:shadow-sm`}
-                  onClick={() => handleMarkAsRead(n.id)}
-                >
-                  <div className="flex items-start gap-2.5">
-                    <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center shrink-0 border border-slate-200">
-                      {getNotificationIcon(n.type)}
+              announcements.map(ann => (
+                <div key={ann.id} className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2 relative group">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase ${
+                        ann.type === 'Tests' ? 'bg-amber-100 text-amber-800' : ann.type === 'Reminder' ? 'bg-orange-100 text-orange-800' : 'bg-indigo-100 text-indigo-800'
+                      }`}>
+                        {ann.type || 'Notice'}
+                      </span>
+                      <span className="text-[10px] bg-slate-200 text-slate-700 px-2 py-0.5 rounded-md font-bold">
+                        {ann.targetAudience === 'all' ? 'All Batches' : batches.find(b => b.id === ann.targetAudience)?.title || ann.targetAudience}
+                      </span>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-xs font-bold text-slate-900 leading-tight">{n.title}</p>
-                        {!n.read && <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0 mt-1" />}
-                      </div>
-                      <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed line-clamp-2">{n.message}</p>
-                      <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
-                        <Clock className="w-3 h-3" /> {getTimestampFromId(n.id) ? timeAgo(getTimestampFromId(n.id)) : n.timestamp}
-                      </p>
+                    <button
+                      onClick={() => {
+                        const updated = announcements.filter(a => a.id !== ann.id);
+                        StorageService.saveAnnouncements(updated);
+                        setAnnouncements(StorageService.getAnnouncements());
+                      }}
+                      className="text-slate-400 hover:text-rose-600 transition-colors p-1"
+                      title="Delete announcement"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  <h4 className="text-xs font-bold text-slate-900">{ann.title}</h4>
+                  <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed">{ann.message}</p>
+
+                  {ann.imageUrl && (
+                    <img src={ann.imageUrl} alt="Announcement attachment" className="rounded-xl max-h-40 object-cover w-full border border-slate-200" />
+                  )}
+
+                  <div className="flex items-center justify-between pt-1 text-[10px] text-slate-400 border-t border-slate-200/60">
+                    <span>{ann.createdAt}</span>
+                    <div className="flex items-center gap-1.5">
+                      {ann.reactions && Object.entries(ann.reactions).map(([emoji, count]) => (
+                        <span key={emoji} className="bg-white px-2 py-0.5 rounded-full border border-slate-200 font-bold text-slate-700 shadow-sm">
+                          {emoji} {count}
+                        </span>
+                      ))}
                     </div>
                   </div>
                 </div>
@@ -432,6 +586,64 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             )}
           </div>
         </div>
+
+        {/* Target Audience Modal when clicking Send */}
+        {showTargetModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
+            <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h3 className="text-base font-black text-slate-900">Select Announcement Audience</h3>
+                <button onClick={() => setShowTargetModal(false)} className="text-slate-400 hover:text-slate-700">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-500">Choose whether to broadcast this announcement to all students across the institute or target a specific batch.</p>
+
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => handlePostAnnouncement('all')}
+                  className="w-full p-3.5 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-2xl flex items-center justify-between text-left transition-all"
+                >
+                  <div>
+                    <p className="text-xs font-extrabold text-indigo-950">Send to All Students & Batches</p>
+                    <p className="text-[11px] text-indigo-700/80">Broadcast to every enrolled student in the institute</p>
+                  </div>
+                  <CheckCircle2 className="w-5 h-5 text-indigo-600" />
+                </button>
+
+                <div className="pt-2">
+                  <p className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-2">Or Select Specific Batch:</p>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {batches.map(b => (
+                      <button
+                        key={b.id}
+                        type="button"
+                        onClick={() => handlePostAnnouncement(b.id)}
+                        className="w-full p-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl flex items-center justify-between text-left transition-all"
+                      >
+                        <div>
+                          <p className="text-xs font-bold text-slate-900">{b.title}</p>
+                          <p className="text-[10px] text-slate-500">{b.className} • {b.timing || b.time}</p>
+                        </div>
+                        <span className="text-xs font-bold text-indigo-600">Select</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowTargetModal(false)}
+                className="w-full py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-all"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Recent Doubts Table — matching the screenshot */}

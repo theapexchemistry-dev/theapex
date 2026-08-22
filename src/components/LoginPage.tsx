@@ -35,14 +35,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     lastName: '',
     phone: '',
     email: '',
-    className: 'Class 11'
+    className: 'Class 11',
+    board: 'CBSE'
   });
   const [createSuccess, setCreateSuccess] = useState('');
   const [generatedId, setGeneratedId] = useState('');
   const [generatedPass, setGeneratedPass] = useState('');
+  const [copiedId, setCopiedId] = useState(false);
+  const [copiedPass, setCopiedPass] = useState(false);
 
   const handleOpenCreateModal = () => {
-    setCreateData({ firstName: '', lastName: '', phone: '', email: '', className: 'Class 11' });
+    setCreateData({ firstName: '', lastName: '', phone: '', email: '', className: 'Class 11', board: 'CBSE' });
     setCreateSuccess('');
     setGeneratedId('');
     setGeneratedPass('');
@@ -61,6 +64,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         phone: createData.phone,
         email: createData.email,
         className: createData.className,
+        board: createData.board,
         batchId: 'PENDING_BATCH', // placeholder until assigned
         batchTitle: 'Unassigned',
         fees: 0,
@@ -593,91 +597,151 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
               {createSuccess ? (
                 <div className="space-y-4">
-                  <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-sm font-bold flex flex-col gap-2 text-center">
-                    <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto" />
-                    <span>{createSuccess}</span>
-                  </div>
-                  <div className="bg-slate-100 p-4 rounded-xl space-y-2">
-                    <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Your Login Credentials</div>
-                    <div className="flex justify-between items-center bg-white p-2 rounded border border-slate-200">
-                      <span className="text-xs font-semibold text-slate-500">Student ID:</span>
-                      <span className="text-sm font-bold text-slate-900">{generatedId}</span>
+                  <div className="p-4 bg-gradient-to-br from-indigo-900 to-slate-900 text-white rounded-2xl shadow-xl border border-indigo-500/30 text-center space-y-2 relative overflow-hidden">
+                    <div className="absolute -top-10 -right-10 w-28 h-28 bg-indigo-500/20 rounded-full blur-2xl" />
+                    <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto border border-emerald-500/30 shadow-sm">
+                      <CheckCircle2 className="w-6 h-6" />
                     </div>
-                    <div className="flex justify-between items-center bg-white p-2 rounded border border-slate-200">
-                      <span className="text-xs font-semibold text-slate-500">Password:</span>
-                      <span className="text-sm font-bold text-slate-900">{generatedPass}</span>
+                    <h4 className="font-black text-base text-white tracking-tight">Account Registered Successfully!</h4>
+                    <p className="text-xs text-indigo-200/90 leading-relaxed font-medium px-2">
+                      Request sent to <strong className="text-white font-bold">Mr. Subhamoy Mondal</strong>. Your account will be approved & assigned a batch within <span className="text-amber-400 font-bold">24 hours</span>.
+                    </p>
+                  </div>
+
+                  <div className="bg-slate-50 border border-slate-200/80 p-4 rounded-2xl space-y-3 shadow-inner">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">Your Secure Credentials</span>
+                      <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-bold">Save these now</span>
+                    </div>
+
+                    <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+                      <div>
+                        <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Student ID</span>
+                        <span className="text-sm font-black text-slate-900 font-mono tracking-tight">{generatedId}</span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(generatedId);
+                          setCopiedId(true);
+                          setTimeout(() => setCopiedId(false), 2000);
+                        }}
+                        className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-all flex items-center gap-1"
+                      >
+                        {copiedId ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : null}
+                        {copiedId ? 'Copied' : 'Copy ID'}
+                      </button>
+                    </div>
+
+                    <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+                      <div>
+                        <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Password</span>
+                        <span className="text-sm font-black text-slate-900 font-mono tracking-tight">{generatedPass}</span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(generatedPass);
+                          setCopiedPass(true);
+                          setTimeout(() => setCopiedPass(false), 2000);
+                        }}
+                        className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-all flex items-center gap-1"
+                      >
+                        {copiedPass ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : null}
+                        {copiedPass ? 'Copied' : 'Copy Password'}
+                      </button>
                     </div>
                   </div>
+
                   <button
                     onClick={() => setShowCreateModal(false)}
-                    className="w-full py-3 text-xs font-extrabold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors"
+                    className="w-full py-3.5 text-xs font-black text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-lg shadow-indigo-600/30 uppercase tracking-wider"
                   >
-                    Close
+                    Got It, Return to Login
                   </button>
                 </div>
               ) : (
-                <form onSubmit={handleCreateAccount} className="space-y-4 pt-1">
+                <form onSubmit={handleCreateAccount} className="space-y-3.5 pt-1">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-extrabold text-slate-700 mb-1.5 uppercase tracking-wider">First Name</label>
+                      <label className="block text-[11px] font-extrabold text-slate-700 mb-1 uppercase tracking-wider">First Name *</label>
                       <input
                         type="text"
                         required
+                        placeholder="Subham"
                         value={createData.firstName}
                         onChange={e => setCreateData({...createData, firstName: e.target.value})}
-                        className="w-full px-3 py-2 text-xs font-medium border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-slate-50 focus:bg-white transition-all"
+                        className="w-full px-3.5 py-2.5 text-xs font-medium border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-600 bg-slate-50/50 focus:bg-white transition-all shadow-sm"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-extrabold text-slate-700 mb-1.5 uppercase tracking-wider">Last Name</label>
+                      <label className="block text-[11px] font-extrabold text-slate-700 mb-1 uppercase tracking-wider">Last Name *</label>
                       <input
                         type="text"
                         required
+                        placeholder="Mondal"
                         value={createData.lastName}
                         onChange={e => setCreateData({...createData, lastName: e.target.value})}
-                        className="w-full px-3 py-2 text-xs font-medium border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-slate-50 focus:bg-white transition-all"
+                        className="w-full px-3.5 py-2.5 text-xs font-medium border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-600 bg-slate-50/50 focus:bg-white transition-all shadow-sm"
                       />
                     </div>
                   </div>
                   
                   <div>
-                    <label className="block text-xs font-extrabold text-slate-700 mb-1.5 uppercase tracking-wider">Mobile Number</label>
+                    <label className="block text-[11px] font-extrabold text-slate-700 mb-1 uppercase tracking-wider">Mobile Number *</label>
                     <input
                       type="tel"
                       required
+                      placeholder="9876543210"
                       value={createData.phone}
                       onChange={e => setCreateData({...createData, phone: e.target.value})}
-                      className="w-full px-3 py-2 text-xs font-medium border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-slate-50 focus:bg-white transition-all"
+                      className="w-full px-3.5 py-2.5 text-xs font-medium border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-600 bg-slate-50/50 focus:bg-white transition-all shadow-sm"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-extrabold text-slate-700 mb-1.5 uppercase tracking-wider">Email ID</label>
+                    <label className="block text-[11px] font-extrabold text-slate-700 mb-1 uppercase tracking-wider">Email ID *</label>
                     <input
                       type="email"
                       required
+                      placeholder="student@example.com"
                       value={createData.email}
                       onChange={e => setCreateData({...createData, email: e.target.value})}
-                      className="w-full px-3 py-2 text-xs font-medium border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-slate-50 focus:bg-white transition-all"
+                      className="w-full px-3.5 py-2.5 text-xs font-medium border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-600 bg-slate-50/50 focus:bg-white transition-all shadow-sm"
                     />
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-extrabold text-slate-700 mb-1.5 uppercase tracking-wider">Class</label>
-                    <select
-                      value={createData.className}
-                      onChange={e => setCreateData({...createData, className: e.target.value})}
-                      className="w-full px-3 py-2 text-xs font-medium border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-slate-50 focus:bg-white transition-all"
-                    >
-                      <option value="Class 9">Class 9</option>
-                      <option value="Class 10">Class 10</option>
-                      <option value="Class 11">Class 11</option>
-                      <option value="Class 12">Class 12</option>
-                      <option value="Repeater">Repeater</option>
-                    </select>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-extrabold text-slate-700 mb-1 uppercase tracking-wider">Class *</label>
+                      <select
+                        value={createData.className}
+                        onChange={e => setCreateData({...createData, className: e.target.value})}
+                        className="w-full px-3.5 py-2.5 text-xs font-medium border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-600 bg-slate-50/50 focus:bg-white transition-all shadow-sm"
+                      >
+                        <option value="Class 9">Class 9</option>
+                        <option value="Class 10">Class 10</option>
+                        <option value="Class 11">Class 11</option>
+                        <option value="Class 12">Class 12</option>
+                        <option value="Repeater">Repeater</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-extrabold text-slate-700 mb-1 uppercase tracking-wider">Board *</label>
+                      <select
+                        value={createData.board}
+                        onChange={e => setCreateData({...createData, board: e.target.value})}
+                        className="w-full px-3.5 py-2.5 text-xs font-medium border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-600 bg-slate-50/50 focus:bg-white transition-all shadow-sm"
+                      >
+                        <option value="CBSE">CBSE</option>
+                        <option value="ICSE">ICSE</option>
+                        <option value="ISC">ISC</option>
+                        <option value="WBCHSE">WBCHSE (State)</option>
+                        <option value="Other Board">Other Board</option>
+                      </select>
+                    </div>
                   </div>
 
-                  <div className="flex gap-2 pt-2">
+                  <div className="flex gap-2 pt-3">
                     <button
                       type="button"
                       onClick={() => setShowCreateModal(false)}
@@ -687,9 +751,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     </button>
                     <button
                       type="submit"
-                      className="flex-1 py-3 text-xs font-extrabold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-md"
+                      className="flex-1 py-3 text-xs font-black text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-md shadow-indigo-600/20 uppercase tracking-wider"
                     >
-                      Create Account
+                      Submit Request
                     </button>
                   </div>
                 </form>
