@@ -285,6 +285,7 @@ export class StorageService {
 
     const updated = [newStudent, ...students];
     this.saveStudents(updated);
+    syncDocToFirestore('students', newStudent.id, newStudent);
 
     const currentMonth = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
     this.addFeeRecord({
@@ -309,13 +310,37 @@ export class StorageService {
       if (batch) updatedBatchTitle = batch.title;
     }
 
+    let updatedStudentObj: Student | null = null;
     const updated = students.map(s => {
       if (s.id === id) {
-        return { ...s, ...studentData, batchTitle: updatedBatchTitle || s.batchTitle };
+        updatedStudentObj = { ...s, ...studentData, batchTitle: updatedBatchTitle || s.batchTitle };
+        return updatedStudentObj;
       }
       return s;
     });
     this.saveStudents(updated);
+
+    if (updatedStudentObj) {
+      syncDocToFirestore('students', id, updatedStudentObj);
+
+      // If this student is now active with fees assigned, ensure they have a fee record for the current month
+      const activeObj = updatedStudentObj as Student;
+      if (activeObj.status === 'active' && activeObj.fees > 0 && activeObj.batchId !== 'PENDING_BATCH') {
+        const currentMonth = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
+        const allFees = this.getFeeRecords();
+        const hasFee = allFees.some(f => f.studentId === id && f.month === currentMonth);
+        if (!hasFee) {
+          this.addFeeRecord({
+            studentId: activeObj.id,
+            studentName: activeObj.name,
+            batchId: activeObj.batchId,
+            month: currentMonth,
+            amount: activeObj.fees,
+            status: 'unpaid'
+          });
+        }
+      }
+    }
   }
 
   static deleteStudent(id: string): void {

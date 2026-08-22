@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StorageService } from '../../lib/storage';
+import { fetchDataFromFirestore } from '../../lib/firebaseSync';
 import { Student, Batch } from '../../types';
 import { ShareCredentialsModal } from '../ShareCredentialsModal';
 import {
@@ -12,12 +13,17 @@ import {
   Share2,
   Check,
   X,
-  Edit2
+  Edit2,
+  RefreshCw,
+  Clock,
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
 
 export const AdminStudents: React.FC = () => {
   const [students, setStudents] = useState<Student[]>(() => StorageService.getStudents());
   const [batches, setBatches] = useState<Batch[]>(() => StorageService.getBatches());
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedBatchFilter, setSelectedBatchFilter] = useState('ALL');
@@ -50,6 +56,31 @@ export const AdminStudents: React.FC = () => {
   const refreshData = () => {
     setStudents(StorageService.getStudents());
     setBatches(StorageService.getBatches());
+  };
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      refreshData();
+    };
+    window.addEventListener('apex_storage_updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+
+    return () => {
+      window.removeEventListener('apex_storage_updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+    };
+  }, []);
+
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await fetchDataFromFirestore();
+      refreshData();
+    } catch (e) {
+      console.error('Failed to sync students from cloud:', e);
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   // Filter batches in modal
@@ -181,18 +212,29 @@ export const AdminStudents: React.FC = () => {
           <p className="text-sm text-slate-500">Manage student accounts, enrollment, and credential distribution.</p>
         </div>
 
-        <button
-          onClick={() => {
-            setIsCreateModalOpen(true);
-            if (batches.length > 0 && !selectedBatchId) {
-              setSelectedBatchId(batches[0].id);
-              setStudentFees(batches[0].fees);
-            }
-          }}
-          className="px-5 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-sm rounded-xl shadow-lg shadow-indigo-600/20 transition-all flex items-center justify-center gap-2"
-        >
-          <UserPlus className="w-5 h-5 stroke-[2.5]" /> Register New Student
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleManualRefresh}
+            disabled={isRefreshing}
+            className="px-3.5 py-3 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs rounded-xl border border-slate-200 shadow-sm transition-all flex items-center justify-center gap-1.5 disabled:opacity-60"
+            title="Fetch latest student registrations from Cloud Firestore"
+          >
+            <RefreshCw className={`w-4 h-4 text-slate-600 ${isRefreshing ? 'animate-spin' : ''}`} />
+            {isRefreshing ? 'Syncing...' : 'Sync Cloud'}
+          </button>
+          <button
+            onClick={() => {
+              setIsCreateModalOpen(true);
+              if (batches.length > 0 && !selectedBatchId) {
+                setSelectedBatchId(batches[0].id);
+                setStudentFees(batches[0].fees);
+              }
+            }}
+            className="px-5 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-sm rounded-xl shadow-lg shadow-indigo-600/20 transition-all flex items-center justify-center gap-2"
+          >
+            <UserPlus className="w-5 h-5 stroke-[2.5]" /> Register New Student
+          </button>
+        </div>
       </div>
 
       {/* Tabs for All vs Pending Batch Assignment */}

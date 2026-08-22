@@ -2,97 +2,76 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Check if the user is authenticated as an admin
-    function isAdmin() {
-      return request.auth != null; 
-    }
-    
-    // Students Collection
+    // Students Collection (Allows students to register accounts & admin to manage them)
     match /students/{studentId} {
-      allow read: if true; 
-      allow write: if isAdmin();
+      allow read, write: if true;
     }
     
     // Batches Collection
     match /batches/{batchId} {
-      allow read: if true;
-      allow write: if isAdmin();
+      allow read, write: if true;
     }
     
     // Fee Records Collection
     match /feeRecords/{recordId} {
-      allow read: if true;
-      allow write: if true; // Students can upload payment proofs
+      allow read, write: if true;
     }
     
     // Notes Collection
     match /notes/{noteId} {
-      allow read: if true;
-      allow write: if isAdmin();
+      allow read, write: if true;
     }
     
     // Note Files (Chunks) Collection
     match /fileChunks/{fileId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
       
       match /chunks/{chunkId} {
-        allow read: if true;
-        allow write: if true;
+        allow read, write: if true;
       }
     }
 
     match /note_files/{fileId} {
-      allow read: if true;
-      allow write: if isAdmin();
+      allow read, write: if true;
       
       match /chunks/{chunkId} {
-        allow read: if true;
-        allow write: if isAdmin();
+        allow read, write: if true;
       }
     }
     
     // Doubts Collection
     match /doubts/{doubtId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
     
     // Tests Collection
     match /tests/{testId} {
-      allow read: if true;
-      allow write: if isAdmin();
+      allow read, write: if true;
     }
     
     // Notifications Collection
     match /notifications/{notificationId} {
-      allow read: if true;
-      allow write: if true; // Both students and admins can update read status
+      allow read, write: if true;
     }
 
     // FCM Push Tokens
     match /pushTokens/{token} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
 
     // FCM Push Queue
     match /pushQueue/{notifId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
 
     // Site Settings Collection (logo, name, tagline, deleted student IDs)
-    // Public read so the logo shows for all visitors; admin-only write.
     match /siteSettings/{docId} {
-      allow read: if true;
-      allow write: if isAdmin();
+      allow read, write: if true;
     }
 
     // Support Requests Collection
     match /supportRequests/{requestId} {
-      allow read: if true;
-      allow write: if true;
+      allow read, write: if true;
     }
 
     // Announcements Collection

@@ -97,7 +97,7 @@ export interface NotificationItem {
   id: string;
   title: string;
   message: string;
-  type: 'doubt' | 'fee_reminder' | 'note' | 'test' | 'payment_received' | 'announcement' | 'support_request';
+  type: 'doubt' | 'fee_reminder' | 'note' | 'test' | 'payment_received' | 'announcement' | 'support_request' | 'student' | 'student_registration';
   timestamp: string;
   targetRole: 'admin' | 'student';
   targetStudentId?: string;

@@ -187,6 +187,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   // Stats calculations
+  const pendingStudents = students.filter(s => s.status === 'pending' || s.batchId === 'PENDING_BATCH');
   const totalStudents = students.length;
   const totalBatches = batches.length;
   const pendingFees = fees.filter(f => f.status === 'unpaid' || f.status === 'pending_verification');
@@ -229,6 +230,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
+      case 'student':
+      case 'student_registration':
+        return <UserPlus className="w-4 h-4 text-amber-600" />;
       case 'support_request':
         return <AlertCircle className="w-4 h-4 text-rose-600" />;
       case 'doubt':
@@ -248,6 +252,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const getNotificationBg = (type: string, read: boolean) => {
     if (read) return 'bg-slate-50 border-slate-200';
     switch (type) {
+      case 'student':
+      case 'student_registration':
+        return 'bg-amber-50 border-amber-200';
       case 'support_request':
         return 'bg-rose-50 border-rose-200';
       case 'doubt':
@@ -379,6 +386,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Pending Student Approvals Banner */}
+      {pendingStudents.length > 0 && (
+        <div
+          onClick={() => onTabChange('students')}
+          className="bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-600 hover:to-amber-500 text-slate-950 p-4 rounded-2xl shadow-md cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all group border border-amber-600/20"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-slate-950 text-amber-400 flex items-center justify-center font-black text-sm shadow-sm group-hover:scale-105 transition-transform shrink-0">
+              <UserPlus className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-sm font-black tracking-tight flex items-center gap-2">
+                {pendingStudents.length} Student Registration{pendingStudents.length > 1 ? 's' : ''} Awaiting Approval
+                <span className="bg-slate-950 text-amber-400 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                  Action Required
+                </span>
+              </h4>
+              <p className="text-xs font-medium text-slate-950/80 mt-0.5">
+                New accounts have been registered by students. Click here to assign batches and approve portal access.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1 font-black text-xs uppercase tracking-wider bg-slate-950 text-amber-400 px-4 py-2 rounded-xl group-hover:bg-slate-900 transition-colors shrink-0 self-end sm:self-auto shadow-sm">
+            Review Now <ChevronRight className="w-4 h-4" />
+          </div>
+        </div>
+      )}
 
       {/* Stats Cards — fully responsive grid up to 6 columns */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">

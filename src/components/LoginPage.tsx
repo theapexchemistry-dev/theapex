@@ -4,6 +4,7 @@ import { ShieldCheck, UserCheck, Lock, User, LogIn, ArrowLeft, Sparkles, Key, Ch
 import { Role, Student } from '../types';
 import { StorageService } from '../lib/storage';
 import { auth, signInWithEmailAndPassword, sendPasswordResetEmail, db, collection, getDocs } from '../lib/firebase';
+import { syncDocToFirestore } from '../lib/firebaseSync';
 import { Logo } from './Logo';
 
 interface LoginPageProps {
@@ -75,6 +76,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       // Ensure we push it to storage and firestore
       const currentStudents = StorageService.getStudents();
       StorageService.saveStudents([newStudent, ...currentStudents]);
+      await syncDocToFirestore('students', newStudent.id, newStudent);
+      
+      StorageService.addNotification({
+        title: 'New Student Registration Pending Approval',
+        message: `${newStudent.name} (${newStudent.className}, ${newStudent.board}) requested an account [${newStudent.id}]. Awaiting batch assignment & approval.`,
+        type: 'student',
+        timestamp: 'Just now',
+        targetRole: 'admin',
+        read: false
+      });
       
       setGeneratedId(newId);
       setGeneratedPass(newPass);
