@@ -48,8 +48,21 @@ export async function askAiAssistant(
   });
 
   if (!res.ok) {
-    const errorData = await res.json().catch(() => ({ error: 'Unknown server error' }));
-    throw new Error(errorData.error || `Server error (${res.status})`);
+    let errorMsg = `Server error (${res.status})`;
+    try {
+      const errorData = await res.json();
+      if (errorData?.error) errorMsg = errorData.error;
+    } catch {
+      const text = await res.text().catch(() => '');
+      if (text) {
+        if (text.includes('GROQ_API_KEY')) {
+          errorMsg = 'GROQ_API_KEY is not configured in Vercel Environment Variables.';
+        } else if (text.length < 200) {
+          errorMsg = text;
+        }
+      }
+    }
+    throw new Error(errorMsg);
   }
 
   const data = await res.json();
@@ -69,8 +82,15 @@ export async function askAiFollowUp(
   });
 
   if (!res.ok) {
-    const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
-    throw new Error(errorData.error || `Server error: ${res.status}`);
+    let errorMsg = `Server error (${res.status})`;
+    try {
+      const errorData = await res.json();
+      if (errorData?.error) errorMsg = errorData.error;
+    } catch {
+      const text = await res.text().catch(() => '');
+      if (text && text.length < 200) errorMsg = text;
+    }
+    throw new Error(errorMsg);
   }
 
   const data = await res.json();
