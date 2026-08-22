@@ -97,8 +97,7 @@ service cloud.firestore {
 
     // Announcements Collection
     match /announcements/{announcementId} {
-      allow read: if true;
-      allow write: if isAdmin();
+      allow read, write: if true;
     }
 
     // Live Meetings Collection
