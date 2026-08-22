@@ -721,49 +721,76 @@ function StudentMeetingCard({ meeting, studentName, studentClass, onJoin }: { me
 
 
 function RecordingPlayerModal({ meeting, onClose }: { meeting: LiveMeeting; onClose: () => void }) {
+  const isNativeVideo = meeting.recordingUrl?.match(/\.(mp4|webm|ogg)$/i);
+  
   // Convert Google Drive view URL to preview URL for iframe embedding
   let embedUrl = meeting.recordingUrl || '';
-  if (embedUrl.includes('drive.google.com') && embedUrl.includes('/view')) {
+  if (!isNativeVideo && embedUrl.includes('drive.google.com') && embedUrl.includes('/view')) {
     embedUrl = embedUrl.replace(/\/view.*$/, '/preview');
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 sm:p-6 backdrop-blur-md animate-fade-in" onClick={onClose}>
-      <div className="w-full max-w-5xl rounded-[2rem] bg-slate-900 p-1.5 shadow-2xl border border-slate-800/60 relative overflow-hidden ring-1 ring-white/10" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/90 sm:p-6 backdrop-blur-md animate-fade-in" onClick={onClose}>
+      <div className="w-full h-full sm:h-auto sm:max-w-5xl sm:rounded-[2rem] bg-slate-900 sm:p-1.5 shadow-2xl sm:border border-slate-800/60 relative overflow-hidden ring-1 ring-white/10 flex flex-col" onClick={(e) => e.stopPropagation()}>
         {/* Subtle glowing effects behind the player */}
-        <div className="absolute -top-40 -right-40 h-96 w-96 rounded-full bg-indigo-500/20 blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-40 -left-40 h-96 w-96 rounded-full bg-amber-500/10 blur-3xl pointer-events-none" />
+        <div className="hidden sm:block absolute -top-40 -right-40 h-96 w-96 rounded-full bg-indigo-500/20 blur-3xl pointer-events-none" />
+        <div className="hidden sm:block absolute -bottom-40 -left-40 h-96 w-96 rounded-full bg-amber-500/10 blur-3xl pointer-events-none" />
         
-        <div className="relative z-10 flex items-center justify-between px-6 py-5 bg-slate-900/50 backdrop-blur-xl rounded-t-[1.75rem]">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-indigo-500/20 border border-indigo-500/30">
+        <div className="relative z-10 flex items-center justify-between px-4 py-3 sm:px-6 sm:py-5 bg-slate-900/90 sm:bg-slate-900/50 backdrop-blur-xl sm:rounded-t-[1.75rem] border-b sm:border-b-0 border-slate-800 shrink-0">
+          <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+            <div className="hidden sm:flex items-center justify-center shrink-0 w-12 h-12 rounded-2xl bg-indigo-500/20 border border-indigo-500/30">
               <Play className="w-5 h-5 text-indigo-400 fill-indigo-400" />
             </div>
-            <div className="flex flex-col">
-              <h3 className="text-xl font-bold text-white tracking-tight">{meeting.title}</h3>
-              <p className="text-sm font-medium text-slate-400 mt-0.5">
-                Class Recording • <span className="text-slate-500">{new Intl.DateTimeFormat('en-US', { dateStyle: 'long' }).format(meeting.startedAt)}</span>
+            <div className="flex flex-col min-w-0">
+              <h3 className="text-base sm:text-xl font-bold text-white tracking-tight truncate">{meeting.title}</h3>
+              <p className="text-xs sm:text-sm font-medium text-slate-400 mt-0.5 truncate">
+                Recording • <span className="text-slate-500">{new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(meeting.startedAt)}</span>
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="rounded-full p-2.5 text-slate-400 hover:bg-slate-800 hover:text-white transition-all bg-slate-800/50">
-            <X className="h-5 w-5" />
-          </button>
+          
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0 pl-2">
+            {meeting.recordingUrl && (
+              <a 
+                href={meeting.recordingUrl} 
+                target="_blank" 
+                rel="noopener noreferrer" 
+                title="Open in new tab (Download / Full Options)"
+                className="flex items-center justify-center gap-2 rounded-full h-10 px-3 sm:px-4 text-xs sm:text-sm font-bold text-slate-300 hover:bg-slate-800 hover:text-white transition-all bg-slate-800/50 border border-slate-700/50"
+              >
+                <ExternalLink className="h-4 w-4" />
+                <span className="hidden sm:inline">Open</span>
+              </a>
+            )}
+            <button onClick={onClose} className="flex items-center justify-center rounded-full h-10 w-10 text-slate-400 hover:bg-slate-800 hover:text-white transition-all bg-slate-800/50 border border-slate-700/50">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </div>
         
-        <div className="relative z-10 w-full aspect-video bg-black/90 rounded-[1.5rem] overflow-hidden border border-slate-800 shadow-inner">
+        <div className="relative z-10 w-full flex-1 sm:flex-none sm:aspect-video bg-black sm:rounded-[1.5rem] overflow-hidden sm:border border-slate-800 sm:shadow-inner flex flex-col">
           {embedUrl ? (
-            <iframe 
-              src={embedUrl}
-              className="w-full h-full border-0"
-              allow="autoplay; fullscreen"
-              allowFullScreen
-            />
+            isNativeVideo ? (
+              <video 
+                src={embedUrl}
+                controls
+                className="w-full h-full object-contain"
+                autoPlay
+                playsInline
+              />
+            ) : (
+              <iframe 
+                src={embedUrl}
+                className="w-full h-full flex-1 border-0"
+                allow="autoplay; fullscreen; picture-in-picture"
+                allowFullScreen
+              />
+            )
           ) : (
-            <div className="flex flex-col items-center justify-center h-full text-slate-500 bg-slate-900">
-              <Video className="w-14 h-14 mb-4 opacity-20" />
-              <p className="font-medium text-lg text-slate-400">No valid recording URL provided.</p>
-              <p className="text-sm text-slate-500 mt-1">Please make sure the link is correctly pasted.</p>
+            <div className="flex flex-col items-center justify-center flex-1 sm:h-full text-slate-500 bg-slate-900 p-6 text-center">
+              <Video className="w-12 h-12 mb-3 opacity-20" />
+              <p className="font-medium text-base sm:text-lg text-slate-400">No valid recording URL provided.</p>
+              <p className="text-xs sm:text-sm text-slate-500 mt-1">Please make sure the link is correctly pasted.</p>
             </div>
           )}
         </div>

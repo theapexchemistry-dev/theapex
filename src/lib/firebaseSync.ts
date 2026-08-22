@@ -522,6 +522,83 @@ export async function deleteMeeting(id: string): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  DOUBTS — real-time sync helpers consumed by AdminDoubts.tsx & StudentDoubts.tsx
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DOUBTS_LS_KEY = 'apex_doubts_v2';
+
+function readLocalDoubts(): any[] {
+  try {
+    const data = localStorage.getItem(DOUBTS_LS_KEY);
+    return data ? JSON.parse(data) : [];
+  } catch (e) {
+    console.debug('readLocalDoubts failed:', e);
+    return [];
+  }
+}
+
+function writeLocalDoubts(arr: any[]): void {
+  try {
+    localStorage.setItem(DOUBTS_LS_KEY, JSON.stringify(arr));
+  } catch (e) {
+    console.debug('writeLocalDoubts failed:', e);
+  }
+}
+
+/**
+ * Subscribe to ALL doubts (local + Firestore) in real time.
+ */
+export function subscribeToDoubts(
+  onNext: (doubts: any[]) => void,
+  onError?: (err: Error) => void
+): () => void {
+  try {
+    onNext(readLocalDoubts());
+  } catch (e) {
+    console.debug('subscribeToDoubts initial emit failed:', e);
+  }
+
+  let unsub: () => void = () => {};
+  try {
+    unsub = onSnapshot(
+      collection(db, 'doubts'),
+      (snapshot) => {
+        const remote: any[] = snapshot.empty
+          ? []
+          : snapshot.docs.map((d) => d.data());
+
+        const local = readLocalDoubts();
+        const map = new Map<string, any>();
+
+        for (const item of local) {
+          if (item && item.id) map.set(item.id, item);
+        }
+        for (const item of remote) {
+          if (item && item.id) map.set(item.id, item);
+        }
+
+        const merged = Array.from(map.values());
+        writeLocalDoubts(merged);
+
+        onNext(merged);
+
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('apex_storage_updated'));
+        }
+      },
+      (err) => {
+        console.debug('subscribeToDoubts snapshot error:', err);
+        if (onError) onError(err);
+      }
+    );
+  } catch (e: any) {
+    console.debug('subscribeToDoubts attach failed:', e);
+    if (onError) onError(e);
+  }
+  return unsub;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  SUPPORT REQUESTS — real-time sync helper consumed by AdminSupport.tsx
 // ─────────────────────────────────────────────────────────────────────────────
 //  This gives AdminSupport.tsx a DIRECT real-time subscription to the

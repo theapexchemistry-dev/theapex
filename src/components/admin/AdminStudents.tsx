@@ -84,14 +84,21 @@ export const AdminStudents: React.FC = () => {
     if (!studentName.trim() || !selectedBatchId) return;
 
     if (editingStudentId) {
-      StorageService.updateStudent(editingStudentId, {
+      const updateData: Partial<Student> = {
         name: studentName,
         className: studentClass,
         batchId: selectedBatchId,
         phone: studentPhone || '9876543210',
         email: studentEmail.trim() || undefined,
         fees: Number(studentFees)
-      });
+      };
+
+      // If they were assigned a real batch, mark them active
+      if (selectedBatchId && selectedBatchId !== 'PENDING_BATCH') {
+        updateData.status = 'active';
+      }
+
+      StorageService.updateStudent(editingStudentId, updateData);
       refreshData();
       setIsCreateModalOpen(false);
       setEditingStudentId(null);
@@ -128,10 +135,19 @@ export const AdminStudents: React.FC = () => {
     setEditingStudentId(student.id);
     setStudentName(student.name);
     setStudentClass(student.className);
-    setSelectedBatchId(student.batchId);
+    
+    // If pending, default to the first real batch if available
+    let bId = student.batchId;
+    if (bId === 'PENDING_BATCH' && batches.length > 0) {
+      bId = batches[0].id;
+      setStudentFees(batches[0].fees);
+    } else {
+      setStudentFees(student.fees);
+    }
+    
+    setSelectedBatchId(bId);
     setStudentPhone(student.phone);
     setStudentEmail(student.email || '');
-    setStudentFees(student.fees);
     setIsCreateModalOpen(true);
   };
 
@@ -238,7 +254,12 @@ export const AdminStudents: React.FC = () => {
                       </div>
                     </td>
                     <td className="p-3.5">
-                      <span className="font-semibold text-slate-800">{student.className}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-slate-800">{student.className}</span>
+                        {student.status === 'pending' && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-800 uppercase tracking-wider">Pending</span>
+                        )}
+                      </div>
                       <p className="text-[11px] text-slate-500">{student.batchTitle}</p>
                     </td>
                     <td className="p-3.5 font-mono text-slate-600">

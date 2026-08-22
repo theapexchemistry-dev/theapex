@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { StorageService } from '../../lib/storage';
 import { SupportRequest } from '../../types';
 import { subscribeToSupportRequests, fetchDataFromFirestore } from '../../lib/firebaseSync';
-import { HelpCircle, CheckCircle2, MessageSquare, Clock, Filter, Search, RefreshCw, AlertTriangle } from 'lucide-react';
+import { HelpCircle, CheckCircle2, MessageSquare, Clock, Filter, Search, RefreshCw, AlertTriangle, Trash2 } from 'lucide-react';
 
 export const AdminSupport: React.FC = () => {
   const [requests, setRequests] = useState<SupportRequest[]>([]);
@@ -52,6 +52,20 @@ export const AdminSupport: React.FC = () => {
     StorageService.resolveSupportRequest(id);
   };
 
+  const handleDelete = (id: string) => {
+    if (confirm('Are you sure you want to delete this support request?')) {
+      StorageService.deleteSupportRequest(id);
+    }
+  };
+
+  const handleClearAll = () => {
+    if (confirm('Are you sure you want to delete ALL support requests from both student and admin ends? This action cannot be undone.')) {
+      requests.forEach(req => {
+        StorageService.deleteSupportRequest(req.id);
+      });
+    }
+  };
+
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
@@ -88,11 +102,21 @@ export const AdminSupport: React.FC = () => {
             </h2>
             <p className="text-sm text-slate-500 mt-1">Manage and resolve issues reported by students</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <div className="px-4 py-2 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2">
               <Clock className="w-5 h-5 text-amber-600" />
               <span className="text-amber-800 font-bold text-sm">{pendingCount} Pending</span>
             </div>
+            {totalCount > 0 && (
+              <button
+                onClick={handleClearAll}
+                className="flex items-center gap-2 px-4 py-2 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-sm font-bold rounded-xl transition-colors"
+                title="Delete all past reports"
+              >
+                <Trash2 className="w-4 h-4" />
+                Clear All
+              </button>
+            )}
             <button
               onClick={handleRefresh}
               disabled={isRefreshing}
@@ -177,15 +201,24 @@ export const AdminSupport: React.FC = () => {
                     {req.studentName} <span className="text-slate-400 font-normal">({req.studentClass})</span>
                   </p>
                 </div>
-                {req.status === 'pending' && (
+                <div className="flex items-center gap-2">
+                  {req.status === 'pending' && (
+                    <button
+                      onClick={() => handleResolve(req.id)}
+                      className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold rounded-xl transition-colors whitespace-nowrap"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      Mark Resolved
+                    </button>
+                  )}
                   <button
-                    onClick={() => handleResolve(req.id)}
-                    className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold rounded-xl transition-colors whitespace-nowrap"
+                    onClick={() => handleDelete(req.id)}
+                    className="flex items-center justify-center p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                    title="Delete ticket globally"
                   >
-                    <CheckCircle2 className="w-4 h-4" />
-                    Mark Resolved
+                    <Trash2 className="w-4 h-4" />
                   </button>
-                )}
+                </div>
               </div>
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
                 <div className="flex items-start gap-3 text-slate-700">

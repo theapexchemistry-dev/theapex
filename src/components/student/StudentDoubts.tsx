@@ -3,11 +3,12 @@ import { Student, Doubt } from '../../types';
 import { StorageService } from '../../lib/storage';
 import {
   HelpCircle, Send, Upload, Image as ImageIcon, CheckCircle2, Clock, Eye, XCircle,
-  Bot, Sparkles, Loader2, AlertTriangle, MessageCircle
+  Bot, Sparkles, Loader2, AlertTriangle, MessageCircle, RefreshCw
 } from 'lucide-react';
 import { uploadFileChunks } from '../../lib/fileChunks';
 import { ChunkedImage } from '../ChunkedImage';
 import { askAiAssistant, askAiFollowUp, type AiAnswerResult } from '../../lib/aiAssistant';
+import { subscribeToDoubts } from '../../lib/firebaseSync';
 
 interface StudentDoubtsProps { student: Student; }
 
@@ -38,19 +39,53 @@ export const StudentDoubts: React.FC<StudentDoubtsProps> = ({ student }) => {
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [followUpInput, setFollowUpInput] = useState('');
   const [lastAiResult, setLastAiResult] = useState<AiAnswerResult | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const mountedRef = useRef(true);
 
   const refreshDoubts = () => {
+    if (!mountedRef.current) return;
     setDoubts(StorageService.getDoubts().filter(d => d.studentId && d.studentId.toLowerCase() === student.id.toLowerCase()));
+  };
+  
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      refreshDoubts();
+      setSyncError(null);
+    } catch (err: any) {
+      setSyncError(err.message || 'Failed to sync with server.');
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 600);
+    }
   };
 
   useEffect(() => {
+    mountedRef.current = true;
     refreshDoubts();
+    
+    // Subscribe to real-time updates directly via Firestore
+    const unsub = subscribeToDoubts(
+      (allDoubts) => {
+        if (!mountedRef.current) return;
+        setDoubts((allDoubts as Doubt[]).filter(d => d.studentId && d.studentId.toLowerCase() === student.id.toLowerCase()));
+        setSyncError(null);
+      },
+      (err) => {
+        if (!mountedRef.current) return;
+        setSyncError(err.message || 'Live sync disconnected. Using local data.');
+        refreshDoubts();
+      }
+    );
+    
     const handleUpdate = () => refreshDoubts();
     window.addEventListener('apex_storage_updated', handleUpdate);
     window.addEventListener('storage', handleUpdate);
     window.addEventListener('focus', handleUpdate);
     return () => {
+      mountedRef.current = false;
+      unsub();
       window.removeEventListener('apex_storage_updated', handleUpdate);
       window.removeEventListener('storage', handleUpdate);
       window.removeEventListener('focus', handleUpdate);
@@ -354,7 +389,31 @@ export const StudentDoubts: React.FC<StudentDoubtsProps> = ({ student }) => {
         </div>
 
         <div className="lg:col-span-7 space-y-4">
-          <h3 className="text-base font-bold text-slate-900">My Submitted Doubts ({doubts.length})</h3>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <h3 className="text-base font-bold text-slate-900">My Submitted Doubts ({doubts.length})</h3>
+            <div className="flex items-center gap-3">
+              <span className="flex items-center gap-1.5 text-xs font-bold text-slate-500">
+                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                Live sync active
+              </span>
+              <button
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                className="flex items-center justify-center gap-2 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors disabled:opacity-60"
+                title="Force-fetch latest doubts from server"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                {isRefreshing ? 'Syncing...' : 'Refresh'}
+              </button>
+            </div>
+          </div>
+
+          {syncError && (
+            <div className="p-3 bg-amber-50 border border-amber-300 text-amber-900 font-semibold text-xs rounded-xl flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>{syncError}</span>
+            </div>
+          )}
 
           <div className="space-y-3">
             {doubts.length === 0 ? (

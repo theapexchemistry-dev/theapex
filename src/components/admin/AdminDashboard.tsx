@@ -170,6 +170,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
+      case 'support_request':
+        return <AlertCircle className="w-4 h-4 text-rose-600" />;
       case 'doubt':
         return <HelpCircle className="w-4 h-4 text-purple-600" />;
       case 'fee_reminder':
@@ -187,6 +189,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const getNotificationBg = (type: string, read: boolean) => {
     if (read) return 'bg-slate-50 border-slate-200';
     switch (type) {
+      case 'support_request':
+        return 'bg-rose-50 border-rose-200';
       case 'doubt':
         return 'bg-purple-50 border-purple-200';
       case 'fee_reminder':

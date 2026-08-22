@@ -426,9 +426,7 @@ export function MeetingDialog({
         >
           {/* Audio Fallback for Students */}
           {!isAdmin && room.adminStream && room.adminStream !== mainStream && (
-            <div className="hidden">
-              <MediaView stream={room.adminStream} muted={false} />
-            </div>
+            <AudioFallback stream={room.adminStream} />
           )}
 
           {/* Fullscreen toggle button */}
@@ -824,6 +822,18 @@ export function MeetingDialog({
       </footer>
     </div>
   );
+}
+
+function AudioFallback({ stream }: { stream: MediaStream | null }) {
+  const ref = useRef<HTMLAudioElement>(null);
+  useEffect(() => {
+    if (ref.current && stream) {
+      ref.current.srcObject = stream;
+      ref.current.play().catch(() => {});
+    }
+  }, [stream]);
+  if (!stream) return null;
+  return <audio ref={ref} autoPlay playsInline muted={false} style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }} />;
 }
 
 // ============================================================================

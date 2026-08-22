@@ -259,7 +259,7 @@ export function useMeetingRoom({
       if (!mainRemoteRef.current) {
         mainRemoteRef.current = stream;
         setAdminStream(stream);
-      } else if (stream !== mainRemoteRef.current) {
+      } else if (stream.id !== mainRemoteRef.current.id) {
         setRemoteScreen(stream);
         e.track.onended = () => { setRemoteScreen(null); };
       }

@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { Student } from '../../types';
-import { MessageSquare, Phone, Send, CheckCircle2, HelpCircle } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Student, SupportRequest } from '../../types';
+import { MessageSquare, Phone, Send, CheckCircle2, HelpCircle, Trash2, Clock } from 'lucide-react';
 import { StorageService } from '../../lib/storage';
+import { subscribeToSupportRequests } from '../../lib/firebaseSync';
 
 interface StudentHelpProps {
   student: Student;
@@ -11,6 +12,51 @@ export const StudentHelp: React.FC<StudentHelpProps> = ({ student }) => {
   const [issueType, setIssueType] = useState('Fee Payment Issue');
   const [message, setMessage] = useState('');
   const [sent, setSent] = useState(false);
+  const [myTickets, setMyTickets] = useState<SupportRequest[]>([]);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    const unsub = subscribeToSupportRequests((allRequests) => {
+      if (!mountedRef.current) return;
+      const my = (allRequests as SupportRequest[]).filter(r => r.studentId === student.id);
+      my.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setMyTickets(my);
+    }, (err) => {
+      if (!mountedRef.current) return;
+      const my = StorageService.getSupportRequests().filter(r => r.studentId === student.id);
+      my.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setMyTickets(my);
+    });
+
+    const onStorageUpdate = () => {
+      if (!mountedRef.current) return;
+      const my = StorageService.getSupportRequests().filter(r => r.studentId === student.id);
+      my.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setMyTickets(my);
+    };
+    window.addEventListener('apex_storage_updated', onStorageUpdate);
+    window.addEventListener('storage', onStorageUpdate);
+
+    return () => {
+      mountedRef.current = false;
+      unsub();
+      window.removeEventListener('apex_storage_updated', onStorageUpdate);
+      window.removeEventListener('storage', onStorageUpdate);
+    };
+  }, [student.id]);
+
+  const handleClearAllMyTickets = () => {
+    if (confirm('Are you sure you want to delete all your past support tickets?')) {
+      myTickets.forEach(req => StorageService.deleteSupportRequest(req.id));
+    }
+  };
+
+  const handleDeleteTicket = (id: string) => {
+    if (confirm('Are you sure you want to delete this support ticket?')) {
+      StorageService.deleteSupportRequest(id);
+    }
+  };
 
   const handleSendIssue = (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,6 +71,14 @@ export const StudentHelp: React.FC<StudentHelpProps> = ({ student }) => {
       message,
       status: 'pending',
       createdAt: new Date().toISOString(),
+    });
+
+    StorageService.addNotification({
+      title: 'New Support Ticket',
+      message: `${student.name} (${student.className}) reported a ${issueType}.`,
+      type: 'support_request',
+      targetRole: 'admin',
+      read: false
     });
 
     setSent(true);
@@ -126,6 +180,63 @@ I need assistance regarding my portal account / class schedule.`;
             <Send className="w-4 h-4" /> Send Ticket to Faculty
           </button>
         </form>
+      </div>
+
+      {/* Past Tickets List */}
+      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+        <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+          <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+            <Clock className="w-5 h-5 text-indigo-600" /> My Past Tickets
+          </h3>
+          {myTickets.length > 0 && (
+            <button
+              onClick={handleClearAllMyTickets}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-bold rounded-lg transition-colors"
+              title="Delete all my past tickets"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Clear All
+            </button>
+          )}
+        </div>
+        
+        {myTickets.length === 0 ? (
+          <div className="text-center py-8 text-slate-500 text-sm">
+            You have no past support tickets.
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {myTickets.map(req => (
+              <div key={req.id} className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3 relative group">
+                <button
+                  onClick={() => handleDeleteTicket(req.id)}
+                  className="absolute top-3 right-3 p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                  title="Delete ticket globally"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+                <div className="pr-8">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${req.status === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                      {req.status}
+                    </span>
+                    <span className="text-xs font-bold text-slate-400">
+                      {new Date(req.createdAt).toLocaleString()}
+                    </span>
+                  </div>
+                  <h4 className="text-sm font-bold text-slate-900">{req.issueType}</h4>
+                  <p className="text-sm text-slate-700 mt-1">{req.message}</p>
+                </div>
+                {req.status === 'resolved' && req.resolvedAt && (
+                  <div className="text-xs font-semibold text-emerald-600 flex items-center gap-1.5 pt-2 border-t border-slate-200">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Resolved on {new Date(req.resolvedAt).toLocaleString()}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

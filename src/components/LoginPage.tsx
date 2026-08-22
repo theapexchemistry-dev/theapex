@@ -28,6 +28,58 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [resetMessage, setResetMessage] = useState('');
   const [resetError, setResetError] = useState('');
 
+  // Create Account State for Student
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createData, setCreateData] = useState({
+    firstName: '',
+    lastName: '',
+    phone: '',
+    email: '',
+    className: 'Class 11'
+  });
+  const [createSuccess, setCreateSuccess] = useState('');
+  const [generatedId, setGeneratedId] = useState('');
+  const [generatedPass, setGeneratedPass] = useState('');
+
+  const handleOpenCreateModal = () => {
+    setCreateData({ firstName: '', lastName: '', phone: '', email: '', className: 'Class 11' });
+    setCreateSuccess('');
+    setGeneratedId('');
+    setGeneratedPass('');
+    setShowCreateModal(true);
+  };
+
+  const handleCreateAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const { id: newId, pass: newPass } = StorageService.generateStudentCredentials();
+
+      const newStudent: Student = {
+        id: newId,
+        password: newPass,
+        name: `${createData.firstName} ${createData.lastName}`.trim(),
+        phone: createData.phone,
+        email: createData.email,
+        className: createData.className,
+        batchId: 'PENDING_BATCH', // placeholder until assigned
+        batchTitle: 'Unassigned',
+        fees: 0,
+        joiningDate: new Date().toISOString(),
+        status: 'pending'
+      };
+
+      // Ensure we push it to storage and firestore
+      const currentStudents = StorageService.getStudents();
+      StorageService.saveStudents([newStudent, ...currentStudents]);
+      
+      setGeneratedId(newId);
+      setGeneratedPass(newPass);
+      setCreateSuccess('Account creation request sent to Mr. Subhamoy Mondal. Come back in 24 hours. Note these credentials:');
+    } catch (err: any) {
+      console.error(err);
+    }
+  };
+
   const handleOpenForgotModal = () => {
     setResetEmail(username.includes('@') ? username.trim() : 'theapexchemistry@gmail.com');
     setResetMessage('');
@@ -116,6 +168,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       );
 
       if (match) {
+        if (match.status === 'pending') {
+          setError('Account creation request sent to Mr. Subhamoy Mondal, come back in 24 hours.');
+          return;
+        }
         onLoginSuccess('student', match);
       } else {
         // Fallback: query Firestore directly. On a fresh/other device the
@@ -158,6 +214,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           });
 
           if (firestoreMatch) {
+            if ((firestoreMatch as Student).status === 'pending') {
+              setError('Account creation request sent to Mr. Subhamoy Mondal, come back in 24 hours.');
+              return;
+            }
             // Persist to localStorage so future logins on this device are instant
             const existing = StorageService.getStudents();
             if (!existing.some(s => s.id === firestoreMatch!.id)) {
@@ -391,6 +451,19 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 )}
                 {loading ? 'Authenticating...' : activeTab === 'admin' ? 'Login as Admin' : 'Login as Student'}
               </motion.button>
+              
+              {activeTab === 'student' && (
+                <div className="text-center pt-2">
+                  <p className="text-xs text-slate-600 font-medium mb-2">Don't have an account?</p>
+                  <button
+                    type="button"
+                    onClick={handleOpenCreateModal}
+                    className="text-xs font-bold text-indigo-600 hover:text-indigo-800 transition-colors"
+                  >
+                    Create an Account
+                  </button>
+                </div>
+              )}
 
               <div className="pt-2 text-center border-t border-slate-100">
                 <p className="text-[11px] font-semibold text-slate-500">
@@ -488,6 +561,139 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Create Account Modal */}
+      <AnimatePresence>
+        {showCreateModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-3xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden relative p-6 space-y-4 max-h-[90vh] overflow-y-auto"
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2 text-slate-900 font-extrabold text-base">
+                  <div className="p-2 bg-indigo-100 text-indigo-800 rounded-xl">
+                    <UserCheck className="w-5 h-5" />
+                  </div>
+                  Create an Account
+                </div>
+                <button
+                  onClick={() => setShowCreateModal(false)}
+                  className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors"
+                >
+                  <XCircle className="w-6 h-6" />
+                </button>
+              </div>
+
+              {createSuccess ? (
+                <div className="space-y-4">
+                  <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-sm font-bold flex flex-col gap-2 text-center">
+                    <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto" />
+                    <span>{createSuccess}</span>
+                  </div>
+                  <div className="bg-slate-100 p-4 rounded-xl space-y-2">
+                    <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Your Login Credentials</div>
+                    <div className="flex justify-between items-center bg-white p-2 rounded border border-slate-200">
+                      <span className="text-xs font-semibold text-slate-500">Student ID:</span>
+                      <span className="text-sm font-bold text-slate-900">{generatedId}</span>
+                    </div>
+                    <div className="flex justify-between items-center bg-white p-2 rounded border border-slate-200">
+                      <span className="text-xs font-semibold text-slate-500">Password:</span>
+                      <span className="text-sm font-bold text-slate-900">{generatedPass}</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowCreateModal(false)}
+                    className="w-full py-3 text-xs font-extrabold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleCreateAccount} className="space-y-4 pt-1">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-extrabold text-slate-700 mb-1.5 uppercase tracking-wider">First Name</label>
+                      <input
+                        type="text"
+                        required
+                        value={createData.firstName}
+                        onChange={e => setCreateData({...createData, firstName: e.target.value})}
+                        className="w-full px-3 py-2 text-xs font-medium border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-slate-50 focus:bg-white transition-all"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-extrabold text-slate-700 mb-1.5 uppercase tracking-wider">Last Name</label>
+                      <input
+                        type="text"
+                        required
+                        value={createData.lastName}
+                        onChange={e => setCreateData({...createData, lastName: e.target.value})}
+                        className="w-full px-3 py-2 text-xs font-medium border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-slate-50 focus:bg-white transition-all"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-xs font-extrabold text-slate-700 mb-1.5 uppercase tracking-wider">Mobile Number</label>
+                    <input
+                      type="tel"
+                      required
+                      value={createData.phone}
+                      onChange={e => setCreateData({...createData, phone: e.target.value})}
+                      className="w-full px-3 py-2 text-xs font-medium border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-slate-50 focus:bg-white transition-all"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-extrabold text-slate-700 mb-1.5 uppercase tracking-wider">Email ID</label>
+                    <input
+                      type="email"
+                      required
+                      value={createData.email}
+                      onChange={e => setCreateData({...createData, email: e.target.value})}
+                      className="w-full px-3 py-2 text-xs font-medium border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-slate-50 focus:bg-white transition-all"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-extrabold text-slate-700 mb-1.5 uppercase tracking-wider">Class</label>
+                    <select
+                      value={createData.className}
+                      onChange={e => setCreateData({...createData, className: e.target.value})}
+                      className="w-full px-3 py-2 text-xs font-medium border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-slate-50 focus:bg-white transition-all"
+                    >
+                      <option value="Class 9">Class 9</option>
+                      <option value="Class 10">Class 10</option>
+                      <option value="Class 11">Class 11</option>
+                      <option value="Class 12">Class 12</option>
+                      <option value="Repeater">Repeater</option>
+                    </select>
+                  </div>
+
+                  <div className="flex gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowCreateModal(false)}
+                      className="flex-1 py-3 text-xs font-extrabold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 py-3 text-xs font-extrabold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-md"
+                    >
+                      Create Account
+                    </button>
+                  </div>
+                </form>
+              )}
             </motion.div>
           </div>
         )}

@@ -3,6 +3,17 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { Server } from "socket.io";
 import { createServer as createHttpServer } from "http";
+import { GoogleGenAI } from "@google/genai";
+
+let ai: GoogleGenAI | null = null;
+function getAiClient() {
+  if (!ai) {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) throw new Error("GEMINI_API_KEY is not set.");
+    ai = new GoogleGenAI({ apiKey: key });
+  }
+  return ai;
+}
 
 async function startServer() {
   const app = express();
@@ -169,9 +180,89 @@ async function startServer() {
     }
   }, 60 * 1000);
 
+  app.use(express.json());
+
   // API routes FIRST
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
+  });
+
+  const SYSTEM_PROMPT = `You are "Apex AI", a chemistry teaching assistant working for THE APEX WORLD — an Indian chemistry tuition portal run by Mr. Subhamoy Mondal. Your role is to help students in classes 9-12 (and JEE/NEET aspirants) with Physical, Organic, and Inorganic chemistry doubts.
+
+RULES:
+1. Answer in clear, simple English a Class 11 student can understand.
+2. Show step-by-step working for numerical problems (units, formulas, substitutions, final answer with correct units).
+3. For reaction mechanisms, draw out the steps textually with arrow notation (->).
+4. Always explain the underlying concept in 1-2 lines before giving the answer.
+5. Keep the answer under ~250 words unless the question genuinely needs more.
+6. Use plain text notation for formulas when helpful, e.g. H2O, CH3COOH, n = PV/RT.
+7. If you are unsure, or the question requires seeing a specific exam/paper, or the student's question is unclear, set needsFaculty=true and briefly explain what the faculty should clarify.
+8. End every answer with one short follow-up question that probes the student's deeper understanding (e.g. "Can you tell me why the carbocation forms at the more substituted carbon?").
+9. NEVER invent factual data. If a number is uncertain, say so.
+
+OUTPUT FORMAT — return STRICT JSON only, no markdown fences, no extra text:
+{
+  "answer": "your step-by-step explanation here",
+  "confidence": "high | medium | low",
+  "followUpQuestion": "one short probing question",
+  "needsFaculty": false
+}`;
+
+  app.post("/api/ai/ask", async (req, res) => {
+    try {
+      const { question, subject, className } = req.body;
+      const userPrompt = `Student Class: ${className || 'Class 11-12 (JEE/NEET aspirant)'}\nSubject Area: ${subject}\n\nStudent Question:\n"""\n ${question}\n"""\n\nAnswer as Apex AI. Follow the rules and output format strictly. Return JSON only.`;
+      
+      const client = getAiClient();
+      const response = await client.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: [
+          { role: "user", parts: [{ text: userPrompt }] }
+        ],
+        config: {
+          systemInstruction: SYSTEM_PROMPT,
+          temperature: 0.4,
+          responseMimeType: "application/json",
+        }
+      });
+      
+      res.json({ content: response.text });
+    } catch (err: any) {
+      console.error("[AI] Error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/ai/follow-up", async (req, res) => {
+    try {
+      const { history, newQuestion, subject, className } = req.body;
+      const contents = history.map((m: any) => ({
+        role: m.role === 'user' ? 'user' : 'model',
+        parts: [{ text: m.text }]
+      }));
+      contents.push({
+        role: "user",
+        parts: [{
+          text: `Subject Area: ${subject}\nStudent Class: ${className || 'Class 11-12'}\n\nNEW MESSAGE FROM STUDENT:\n"""\n ${newQuestion}\n"""\n\nAnswer as Apex AI. Be concise (≤200 words) and reference what was discussed earlier if relevant. Output STRICT JSON in the same format.`
+        }]
+      });
+      
+      const client = getAiClient();
+      const response = await client.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents,
+        config: {
+          systemInstruction: SYSTEM_PROMPT,
+          temperature: 0.4,
+          responseMimeType: "application/json",
+        }
+      });
+      
+      res.json({ content: response.text });
+    } catch (err: any) {
+      console.error("[AI] Error:", err);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // Vite middleware for development

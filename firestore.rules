@@ -89,6 +89,18 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Support Requests Collection
+    match /supportRequests/{requestId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Announcements Collection
+    match /announcements/{announcementId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     // Live Meetings Collection
     match /liveMeetings/{meetingId} {
       allow read, write: if true;

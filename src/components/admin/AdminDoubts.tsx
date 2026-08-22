@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { StorageService } from '../../lib/storage';
 import { Doubt, Batch } from '../../types';
-import { HelpCircle, CheckCircle2, Clock, MessageSquare, Send, Image as ImageIcon, Eye, XCircle, Bot, AlertTriangle, Loader2 } from 'lucide-react';
+import { HelpCircle, CheckCircle2, Clock, MessageSquare, Send, Image as ImageIcon, Eye, XCircle, Bot, AlertTriangle, Loader2, RefreshCw } from 'lucide-react';
 import { ChunkedImage } from '../ChunkedImage';
 import { uploadFileChunks } from '../../lib/fileChunks';
+import { subscribeToDoubts } from '../../lib/firebaseSync';
 
 export const AdminDoubts: React.FC = () => {
   const [batches] = useState<Batch[]>(() => StorageService.getBatches());
@@ -21,17 +22,51 @@ export const AdminDoubts: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [imageModalOpen, setImageModalOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
 
   const refreshDoubts = () => {
+    if (!mountedRef.current) return;
     setDoubts(StorageService.getDoubts());
+  };
+  
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      refreshDoubts();
+      setSyncError(null);
+    } catch (err: any) {
+      setSyncError(err.message || 'Failed to sync with server.');
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 600); // Visual feedback
+    }
   };
 
   useEffect(() => {
+    mountedRef.current = true;
+    
+    // Subscribe to real-time updates directly via Firestore
+    const unsub = subscribeToDoubts(
+      (allDoubts) => {
+        if (!mountedRef.current) return;
+        setDoubts(allDoubts as Doubt[]);
+        setSyncError(null);
+      },
+      (err) => {
+        if (!mountedRef.current) return;
+        setSyncError(err.message || 'Live sync disconnected. Using local data.');
+        refreshDoubts();
+      }
+    );
+    
     const handleUpdate = () => refreshDoubts();
     window.addEventListener('apex_storage_updated', handleUpdate);
     window.addEventListener('storage', handleUpdate);
     window.addEventListener('focus', handleUpdate);
     return () => {
+      mountedRef.current = false;
+      unsub();
       window.removeEventListener('apex_storage_updated', handleUpdate);
       window.removeEventListener('storage', handleUpdate);
       window.removeEventListener('focus', handleUpdate);
@@ -120,7 +155,7 @@ export const AdminDoubts: React.FC = () => {
           <p className="text-sm text-slate-500">Review chemistry questions and image attachments submitted by students.</p>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+        <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto items-center">
           {/* BATCH SELECTOR DROPDOWN */}
           <select
             value={selectedBatchId}
@@ -148,7 +183,32 @@ export const AdminDoubts: React.FC = () => {
             <option value="ANSWERED">Answered by Faculty</option>
             {/* ─── /PATCH C ─── */}
           </select>
+
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="w-full sm:w-auto flex justify-center items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors disabled:opacity-60"
+            title="Force-fetch latest doubts from server"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+            {isRefreshing ? 'Syncing...' : 'Refresh'}
+          </button>
         </div>
+      </div>
+
+      {syncError && (
+        <div className="p-4 bg-amber-50 border border-amber-300 text-amber-900 font-semibold text-xs rounded-2xl flex items-center gap-2">
+          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+          <span>{syncError}</span>
+        </div>
+      )}
+
+      <div className="flex items-center gap-4 text-xs font-bold text-slate-500 mb-4 px-2">
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+          Live sync active
+        </span>
+        <span>{filteredDoubts.length} record{filteredDoubts.length !== 1 ? 's' : ''} shown</span>
       </div>
 
       {/* Doubts List Grid */}

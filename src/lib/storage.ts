@@ -833,6 +833,14 @@ export class StorageService {
     }
   }
 
+  static deleteSupportRequest(requestId: string): void {
+    const requests = this.getSupportRequests();
+    const updated = requests.filter(r => r.id !== requestId);
+    setItem(KEYS.SUPPORT_REQUESTS, updated);
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('apex_storage_updated'));
+    deleteFromFirestore('supportRequests', requestId);
+  }
+
   // -------- Announcements --------
   static getAnnouncements(): Announcement[] {
     return getItem<Announcement[]>(KEYS.ANNOUNCEMENTS, []);
