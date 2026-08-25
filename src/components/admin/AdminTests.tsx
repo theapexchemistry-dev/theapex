@@ -325,6 +325,19 @@ export const AdminTests: React.FC = () => {
     }
   };
 
+  const handleEditQuestion = (idx: number) => {
+    if (creationMode !== 'manual') return;
+    const qToEdit = manualQuestions[idx];
+    setCurrentManualQ({
+      question: qToEdit.question,
+      imageUrl: qToEdit.imageUrl || '',
+      options: [...qToEdit.options] as [string, string, string, string],
+      correctOption: qToEdit.correctOption,
+      explanation: qToEdit.explanation || ''
+    });
+    handleRemoveQuestion(idx);
+  };
+
   const handleScoreChange = (studentId: string, value: number) => {
     setStudentMarksMap(prev => ({
       ...prev,
@@ -1006,14 +1019,24 @@ export const AdminTests: React.FC = () => {
                                 <img src={q.imageUrl} alt="Context" className="max-h-24 object-contain rounded-lg border border-slate-200" onError={(e) => (e.target as HTMLImageElement).style.display = 'none'} />
                               )}
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveQuestion(idx)}
-                              className="text-slate-400 hover:text-red-600 p-1"
-                              title="Delete Question"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleEditQuestion(idx)}
+                                className="text-slate-400 hover:text-indigo-600 p-1"
+                                title="Edit Question"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveQuestion(idx)}
+                                className="text-slate-400 hover:text-red-600 p-1"
+                                title="Delete Question"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
 
                           <div className="grid grid-cols-2 gap-1 text-[11px]">

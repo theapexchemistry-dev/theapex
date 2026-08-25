@@ -843,6 +843,7 @@ OUTPUT FORMAT — return STRICT JSON only, no markdown fences, no extra text:
       }
 
       const count = Math.min(Math.max(Number(numQuestions) || 10, 1), 30);
+      const randomSeed = Math.floor(Math.random() * 1000000);
 
       const prompt = `You are a Senior Chemistry Professor and Exam Designer at THE APEX CHEMISTRY (created by Mr. Subhamoy Mondal).
 Generate a high-quality, scientifically accurate Chemistry Multiple Choice Question (MCQ) paper for:
@@ -850,6 +851,7 @@ Generate a high-quality, scientifically accurate Chemistry Multiple Choice Quest
 - Class / Target: "${className || 'Class 11 / 12 & JEE/NEET'}"
 - Number of Questions: ${count}
 - Difficulty Level: "${difficulty}"
+- Random Generation Seed: ${randomSeed} (Ensure this specific batch of questions is completely unique and different from standard textbook examples or previous generations)
 ${customInstructions ? `- Specific Instructions / Focus Areas: "${customInstructions.trim()}"` : ''}
 
 RULES FOR QUESTIONS:
