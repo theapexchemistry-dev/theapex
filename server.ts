@@ -854,6 +854,16 @@ Generate a high-quality, scientifically accurate Chemistry Multiple Choice Quest
 - Random Generation Seed: ${randomSeed} (Ensure this specific batch of questions is completely unique and different from standard textbook examples or previous generations)
 ${customInstructions ? `- Specific Instructions / Focus Areas: "${customInstructions.trim()}"` : ''}
 
+CRITICAL REQUIREMENT FOR IMAGES:
+- You MUST include a valid, direct image URL in the "imageUrl" field for at least 30-50% of the questions.
+- Use standard, public Wikimedia Commons image URLs for chemical structures, graphs, or laboratory setups.
+- Examples of valid URLs you can use or adapt:
+  - Benzene: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/03/Benzene_Representations.svg/200px-Benzene_Representations.svg.png"
+  - DNA: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/DNA_chemical_structure.svg/300px-DNA_chemical_structure.svg.png"
+  - Water: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/66/Water_molecule_dimensions.svg/200px-Water_molecule_dimensions.svg.png"
+  - General lab/graph placeholders if needed: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Laboratory_glassware.svg/300px-Laboratory_glassware.svg.png"
+- ONLY include the "imageUrl" field if you provide a valid URL. If no image is needed, omit the field.
+
 RULES FOR QUESTIONS:
 1. Generate exactly ${count} multiple choice questions.
 2. Each question MUST have:
@@ -942,6 +952,7 @@ OUTPUT FORMAT: Return STRICT JSON ONLY (no markdown code blocks, no backticks, n
           let opts: [string, string, string, string] = ["", "", "", ""];
           let correct = 0;
           let exp = "";
+          let img = "";
 
           const variantNum = i;
           if (/kinetics|rate|order/i.test(fallbackTopic)) {
@@ -951,6 +962,7 @@ OUTPUT FORMAT: Return STRICT JSON ONLY (no markdown code blocks, no backticks, n
             opts = [`${halfLife} s`, `${Number(halfLife) * 2} s`, `${Number(halfLife) * 1.5} s`, `${Number(halfLife) * 0.5} s`];
             correct = 0;
             exp = `Using t₁/₂ = 0.693 / k = 0.693 / (${kVal} × 10⁻³) ≈ ${halfLife} seconds.`;
+            img = "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Laboratory_glassware.svg/300px-Laboratory_glassware.svg.png";
           } else if (/thermo|enthalpy|entropy|gibbs/i.test(fallbackTopic)) {
             const deltaH = i * 15;
             const deltaS = i * 10;
@@ -991,6 +1003,7 @@ OUTPUT FORMAT: Return STRICT JSON ONLY (no markdown code blocks, no backticks, n
           synthesized.push({
             id: `q-${i}`,
             question: qText,
+            imageUrl: img || undefined,
             options: opts,
             correctOption: correct,
             explanation: exp,

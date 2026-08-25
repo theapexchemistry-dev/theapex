@@ -44,6 +44,7 @@ function generateLocalChemistryQuestions(params: GenerateQuestionsParams): Quest
     opts: [string, string, string, string];
     correct: number;
     exp: string;
+    img?: string;
   }> = [];
 
   if (isKinetics) {
@@ -342,6 +343,7 @@ function generateLocalChemistryQuestions(params: GenerateQuestionsParams): Quest
     questions.push({
       id: `ai-q-${Date.now()}-${qNum}`,
       question: qText,
+      imageUrl: template.img || "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Laboratory_glassware.svg/300px-Laboratory_glassware.svg.png",
       options: mixedOpts,
       correctOption: mixedCorrect,
       explanation: `${expText} [Curriculum Level: ${className} • Difficulty: ${difficulty}]`,
@@ -391,7 +393,7 @@ export async function generateAiTestQuestions(params: GenerateQuestionsParams): 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-    const res = await fetch('/api/ai/generate-questions', {
+    const res = await fetch('/api/generate-questions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -405,6 +407,7 @@ export async function generateAiTestQuestions(params: GenerateQuestionsParams): 
         return data.questions.map((q: any, idx: number) => ({
           id: q.id || `ai-q-${Date.now()}-${idx + 1}`,
           question: String(q.question || `Question ${idx + 1}`).trim(),
+          imageUrl: q.imageUrl ? String(q.imageUrl).trim() : undefined,
           options: [
             String(q.options?.[0] || 'Option A'),
             String(q.options?.[1] || 'Option B'),
