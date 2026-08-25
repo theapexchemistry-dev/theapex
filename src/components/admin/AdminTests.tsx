@@ -30,7 +30,10 @@ import {
   Loader2,
   Edit3,
   Flame,
-  ShieldAlert
+  ShieldAlert,
+  Share2,
+  MessageCircle,
+  Copy
 } from 'lucide-react';
 
 export const AdminTests: React.FC = () => {
@@ -113,6 +116,10 @@ export const AdminTests: React.FC = () => {
   // Delete Confirmation Modal State
   const [testToDelete, setTestToDelete] = useState<Test | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
+
+  // WhatsApp Share & Direct Link Modal State
+  const [createdTestForShare, setCreatedTestForShare] = useState<Test | null>(null);
+  const [copiedLink, setCopiedLink] = useState<boolean>(false);
 
   const refreshTests = () => {
     setTests(StorageService.getTests());
@@ -355,7 +362,7 @@ export const AdminTests: React.FC = () => {
       }
     }
 
-    StorageService.addTest(
+    const newTest = StorageService.addTest(
       {
         title: title.trim(),
         topic: topic.trim() || aiTopic.trim() || 'General Chemistry',
@@ -379,6 +386,7 @@ export const AdminTests: React.FC = () => {
     );
 
     refreshTests();
+    setCreatedTestForShare(newTest);
 
     // Reset Form
     setTitle('');
@@ -391,7 +399,6 @@ export const AdminTests: React.FC = () => {
     setStudentMarksMap({});
     setAiSuccessMessage(null);
     setAiError(null);
-    alert('🎯 Test successfully hosted & published with AI questions and live ranking!');
   };
 
   const handleDeleteTest = (t: Test) => {
@@ -1690,6 +1697,105 @@ export const AdminTests: React.FC = () => {
                   </>
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* WhatsApp Share & Direct Link Modal */}
+      {createdTestForShare && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-5 border border-emerald-100 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+              <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                <Share2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900">Test Published & Ready to Share!</h3>
+                <p className="text-xs text-slate-500">Share instantly on WhatsApp with students</p>
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5 text-xs">
+              <div className="flex items-start justify-between">
+                <div>
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                    {createdTestForShare.topic}
+                  </span>
+                  <h4 className="font-black text-slate-900 text-sm mt-1">{createdTestForShare.title}</h4>
+                </div>
+                <span className="text-right text-slate-500 font-mono text-[11px]">
+                  {createdTestForShare.totalMarks} Marks • {createdTestForShare.durationMinutes}m
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-200/60 text-slate-600 font-medium">
+                <div>Batch: <strong className="text-slate-900">{createdTestForShare.batchTitle || 'Assigned Batch'}</strong></div>
+                <div>Scheduled: <strong className="text-slate-900">{createdTestForShare.scheduledStartTime ? new Date(createdTestForShare.scheduledStartTime).toLocaleString() : 'Live Now'}</strong></div>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center justify-between">
+                <span>Direct Test Link</span>
+                <span className="text-[10px] text-emerald-600 font-normal lowercase">opens test directly for students</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={`${window.location.origin}${window.location.pathname}?testId=${createdTestForShare.id}`}
+                  className="w-full bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-700 select-all"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const link = `${window.location.origin}${window.location.pathname}?testId=${createdTestForShare.id}`;
+                    navigator.clipboard.writeText(link);
+                    setCopiedLink(true);
+                    setTimeout(() => setCopiedLink(false), 2500);
+                  }}
+                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition-all shrink-0 flex items-center gap-1.5"
+                >
+                  {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedLink ? 'Copied!' : 'Copy'}</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-emerald-50/80 border border-emerald-200 rounded-2xl text-xs text-emerald-900 space-y-1">
+              <p className="font-bold">WhatsApp Message Preview:</p>
+              <p className="text-[11px] text-slate-700 font-mono bg-white p-2.5 rounded-xl border border-emerald-100 whitespace-pre-line leading-relaxed">
+{`📚 *The Apex Chemistry - New Test Announcement* 🧪
+
+*Topic:* ${createdTestForShare.topic}
+*Test Title:* ${createdTestForShare.title}
+*Scheduled Time:* ${createdTestForShare.scheduledStartTime ? new Date(createdTestForShare.scheduledStartTime).toLocaleString() : 'Live Now'}
+*Duration:* ${createdTestForShare.durationMinutes} Minutes
+
+👉 *Attempt the test directly here:*
+${window.location.origin}${window.location.pathname}?testId=${createdTestForShare.id}`}
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setCreatedTestForShare(null)}
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all"
+              >
+                Close
+              </button>
+              <a
+                href={`https://api.whatsapp.com/send?text=${encodeURIComponent(
+                  `📚 *The Apex Chemistry - New Test Announcement* 🧪\n\n*Topic:* ${createdTestForShare.topic}\n*Test Title:* ${createdTestForShare.title}\n*Scheduled Time:* ${createdTestForShare.scheduledStartTime ? new Date(createdTestForShare.scheduledStartTime).toLocaleString() : 'Live Now'}\n*Duration:* ${createdTestForShare.durationMinutes} Minutes\n\n👉 *Attempt the test directly here:* \n${window.location.origin}${window.location.pathname}?testId=${createdTestForShare.id}`
+                )}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-600/25 flex items-center gap-2 transition-all"
+              >
+                <MessageCircle className="w-4 h-4 fill-white text-emerald-600" />
+                <span>Share on WhatsApp</span>
+              </a>
             </div>
           </div>
         </div>

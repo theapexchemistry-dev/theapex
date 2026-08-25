@@ -64,6 +64,17 @@ export const StudentTests: React.FC<StudentTestsProps> = ({ student }) => {
       setNow(new Date());
     }, 10000);
 
+    // Check for pending test id redirection from WhatsApp/direct link
+    const pendingId = localStorage.getItem('apex_pending_test_id');
+    if (pendingId) {
+      localStorage.removeItem('apex_pending_test_id');
+      const allTests = StorageService.getTests();
+      const target = allTests.find(t => t.id === pendingId);
+      if (target) {
+        setActiveExamTest(target);
+      }
+    }
+
     return () => {
       window.removeEventListener('apex_storage_updated', handleStorageUpdate);
       window.removeEventListener('storage', handleStorageUpdate);

@@ -52,9 +52,26 @@ export default function App() {
     setActiveTab('dashboard');
   };
 
+  // Check for testId query parameter on initial load
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const testId = params.get('testId');
+    if (testId) {
+      localStorage.setItem('apex_pending_test_id', testId);
+      const savedRole = localStorage.getItem('apex_session_role');
+      if (savedRole === 'student') {
+        setActiveTab('tests');
+      }
+    }
+  }, []);
+
   const [activeTab, setActiveTab] = useState<string>(() => {
     const savedRole = localStorage.getItem('apex_session_role');
     const savedTab = localStorage.getItem('apex_session_tab');
+    const pendingTestId = localStorage.getItem('apex_pending_test_id');
+    if (savedRole === 'student' && pendingTestId) {
+      return 'tests';
+    }
     if (savedRole && savedRole !== 'guest') {
       return savedTab || 'dashboard';
     }
@@ -80,8 +97,10 @@ export default function App() {
     if (userRole === 'student' && studentObj) {
       setCurrentStudent(studentObj);
       localStorage.setItem('apex_session_student', JSON.stringify(studentObj));
-      setActiveTab('dashboard');
-      localStorage.setItem('apex_session_tab', 'dashboard');
+      const pendingTestId = localStorage.getItem('apex_pending_test_id');
+      const targetTab = pendingTestId ? 'tests' : 'dashboard';
+      setActiveTab(targetTab);
+      localStorage.setItem('apex_session_tab', targetTab);
     } else if (userRole === 'admin') {
       setCurrentStudent(null);
       localStorage.removeItem('apex_session_student');
