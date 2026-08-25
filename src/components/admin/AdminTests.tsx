@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { StorageService } from '../../lib/storage';
 import { Test, Batch, Student, TestResult, Question } from '../../types';
 import { parseQuestionsFromCSV, downloadSampleCSV, getSampleChemistryCSV } from '../../lib/testUtils';
+import { generateAiTestQuestions } from '../../lib/aiQuestionGenerator';
 import {
   Award,
   Plus,
@@ -151,37 +152,17 @@ export const AdminTests: React.FC = () => {
     setAiSuccessMessage(null);
 
     try {
-      const res = await fetch('/api/ai/generate-questions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          topic: targetTopic,
-          className: aiClassName || className,
-          numQuestions: aiNumQuestions,
-          difficulty: aiDifficulty,
-          customInstructions: aiCustomInstructions,
-          marksPerQ,
-          negativeMarksPerQ: negMarksPerQ
-        })
+      const generated = await generateAiTestQuestions({
+        topic: targetTopic,
+        className: aiClassName || className,
+        numQuestions: aiNumQuestions,
+        difficulty: aiDifficulty,
+        customInstructions: aiCustomInstructions,
+        marksPerQ,
+        negativeMarksPerQ: negMarksPerQ
       });
 
-      let data: any = {};
-      const resText = await res.text().catch(() => '');
-      try {
-        data = resText ? JSON.parse(resText) : {};
-      } catch {
-        if (!res.ok) {
-          throw new Error(`Server request error (${res.status}). Please try again in a moment.`);
-        }
-        throw new Error('AI returned an unreadable response format. Please try again.');
-      }
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to generate AI questions');
-      }
-
-      const generated: Question[] = data.questions || [];
-      if (generated.length === 0) {
+      if (!generated || generated.length === 0) {
         throw new Error('AI did not return any questions. Please retry.');
       }
 
@@ -218,36 +199,20 @@ export const AdminTests: React.FC = () => {
     setAiSuccessMessage(null);
 
     try {
-      const res = await fetch('/api/ai/generate-questions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          topic: targetTopic,
-          className: aiClassName || className,
-          numQuestions: aiNumQuestions,
-          difficulty: aiDifficulty,
-          customInstructions: aiCustomInstructions,
-          marksPerQ,
-          negativeMarksPerQ: negMarksPerQ
-        })
+      const generated = await generateAiTestQuestions({
+        topic: targetTopic,
+        className: aiClassName || className,
+        numQuestions: aiNumQuestions,
+        difficulty: aiDifficulty,
+        customInstructions: aiCustomInstructions,
+        marksPerQ,
+        negativeMarksPerQ: negMarksPerQ
       });
 
-      let data: any = {};
-      const resText = await res.text().catch(() => '');
-      try {
-        data = resText ? JSON.parse(resText) : {};
-      } catch {
-        if (!res.ok) {
-          throw new Error(`Server request error (${res.status}). Please try again in a moment.`);
-        }
-        throw new Error('AI returned an unreadable response format. Please retry.');
+      if (!generated || generated.length === 0) {
+        throw new Error('AI was unable to generate questions. Please try again.');
       }
 
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to generate AI questions');
-      }
-
-      const generated: Question[] = data.questions || [];
       setParsedQuestions(generated);
       setTotalMarks(generated.length * marksPerQ);
 
