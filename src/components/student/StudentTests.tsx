@@ -22,7 +22,9 @@ import {
   ChevronRight,
   TrendingUp,
   RotateCcw,
-  Users
+  Users,
+  ShieldAlert,
+  AlertCircle
 } from 'lucide-react';
 
 interface StudentTestsProps {
@@ -105,7 +107,12 @@ export const StudentTests: React.FC<StudentTestsProps> = ({ student }) => {
 
   // Check if test is currently started/live
   const isTestLiveNow = (t: Test) => {
-    if (t.status === 'live') return true;
+    if (t.status === 'live') {
+      if (t.scheduledStartTime) {
+        return now >= new Date(t.scheduledStartTime);
+      }
+      return true;
+    }
     if (t.scheduledStartTime) {
       const startTime = new Date(t.scheduledStartTime);
       return now >= startTime && t.status !== 'completed';
@@ -113,12 +120,18 @@ export const StudentTests: React.FC<StudentTestsProps> = ({ student }) => {
     return false;
   };
 
+  // Check if test window is expired
+  const isTestExpired = (t: Test) => {
+    if (!t.expiryDateTime) return false;
+    return now > new Date(t.expiryDateTime);
+  };
+
   // Get countdown string for scheduled tests
   const getScheduleCountdown = (scheduledTimeStr?: string) => {
     if (!scheduledTimeStr) return null;
     const target = new Date(scheduledTimeStr);
     const diffMs = target.getTime() - now.getTime();
-    if (diffMs <= 0) return 'Starts Now';
+    if (diffMs <= 0) return 'Live Now';
 
     const diffMins = Math.floor(diffMs / (1000 * 60));
     const hours = Math.floor(diffMins / 60);
@@ -126,6 +139,23 @@ export const StudentTests: React.FC<StudentTestsProps> = ({ student }) => {
 
     if (hours > 0) return `Starts in ${hours}h ${mins}m`;
     return `Starts in ${mins} mins`;
+  };
+
+  // Get expiry countdown string
+  const getExpiryCountdown = (expiryTimeStr?: string) => {
+    if (!expiryTimeStr) return null;
+    const target = new Date(expiryTimeStr);
+    const diffMs = target.getTime() - now.getTime();
+    if (diffMs <= 0) return 'Expired';
+
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const hours = Math.floor(diffMins / 60);
+    const mins = diffMins % 60;
+    const days = Math.floor(hours / 24);
+
+    if (days > 0) return `Closes in ${days}d ${hours % 24}h`;
+    if (hours > 0) return `Closes in ${hours}h ${mins}m`;
+    return `Closes in ${mins} mins`;
   };
 
   // If student is currently taking an exam, show the full-screen player
@@ -209,14 +239,18 @@ export const StudentTests: React.FC<StudentTestsProps> = ({ student }) => {
               const myResult = t.results.find(r => r.studentId === student.id);
               const isAttempted = !!mySubmission || !!myResult;
               const isLive = isTestLiveNow(t);
+              const isExpired = isTestExpired(t);
               const countdown = getScheduleCountdown(t.scheduledStartTime);
+              const expiryCountdown = getExpiryCountdown(t.expiryDateTime);
 
               return (
                 <div
                   key={t.id}
                   className={`bg-white rounded-3xl border p-6 shadow-sm transition-all relative overflow-hidden space-y-5 ${
-                    isLive && !isAttempted
+                    isLive && !isAttempted && !isExpired
                       ? 'border-indigo-300 ring-2 ring-indigo-500/10'
+                      : isExpired && !isAttempted
+                      ? 'border-slate-200 opacity-90'
                       : 'border-slate-200'
                   }`}
                 >
@@ -226,6 +260,10 @@ export const StudentTests: React.FC<StudentTestsProps> = ({ student }) => {
                       {isAttempted ? (
                         <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
                           <CheckCircle2 className="w-3.5 h-3.5" /> Exam Completed & Submitted
+                        </span>
+                      ) : isExpired ? (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-red-50 text-red-700 border border-red-200">
+                          <AlertCircle className="w-3.5 h-3.5" /> EXAM WINDOW CLOSED / EXPIRED
                         </span>
                       ) : isLive ? (
                         <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-red-50 text-red-600 border border-red-200 animate-pulse">
@@ -248,13 +286,26 @@ export const StudentTests: React.FC<StudentTestsProps> = ({ student }) => {
                           {t.questions.length} MCQ Questions
                         </span>
                       )}
+
+                      {/* Expiry Badge */}
+                      {t.expiryDateTime && (
+                        <span
+                          className={`text-xs font-bold px-2.5 py-1 rounded-lg border ${
+                            isExpired
+                              ? 'bg-red-50 text-red-700 border-red-200'
+                              : 'bg-amber-50 text-amber-700 border-amber-200'
+                          }`}
+                        >
+                          ⏳ {isExpired ? 'Expired' : expiryCountdown}
+                        </span>
+                      )}
                     </div>
 
-                    {t.scheduledStartTime && (
-                      <span className="text-xs text-slate-400 font-mono">
-                        Date: {t.date}
-                      </span>
-                    )}
+                    <div className="text-xs text-slate-400 font-mono flex items-center gap-3">
+                      {t.scheduledStartTime && (
+                        <span>Starts: {t.scheduledStartTime.replace('T', ' ')}</span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Test Details */}
@@ -265,8 +316,13 @@ export const StudentTests: React.FC<StudentTestsProps> = ({ student }) => {
                       </span>
                       <h3 className="text-xl font-black text-slate-900">{t.title}</h3>
                       <p className="text-xs text-slate-500">
-                        Marking Scheme: +{t.marksPerQuestion || 4} for correct, -{t.negativeMarksPerQuestion !== undefined ? t.negativeMarksPerQuestion : 1} for incorrect. Auto-submits on time limit.
+                        Marking Scheme: +{t.marksPerQuestion || 4} for correct, -{t.negativeMarksPerQuestion !== undefined ? t.negativeMarksPerQuestion : 1} for incorrect. Auto-submits on leaving window.
                       </p>
+                      {t.expiryDateTime && (
+                        <p className="text-xs text-amber-700 font-semibold">
+                          Closing Deadline: {t.expiryDateTime.replace('T', ' ')}
+                        </p>
+                      )}
                     </div>
 
                     {/* Action Buttons */}
@@ -292,6 +348,14 @@ export const StudentTests: React.FC<StudentTestsProps> = ({ student }) => {
                             <Download className="w-4 h-4 text-amber-400" /> Download PDF Report
                           </button>
                         </>
+                      ) : isExpired ? (
+                        <div className="p-3 bg-red-50 text-red-700 rounded-2xl border border-red-200 text-xs font-bold text-center">
+                          Exam window expired. You cannot start this exam now.
+                        </div>
+                      ) : !isLive ? (
+                        <div className="p-3 bg-slate-100 text-slate-600 rounded-2xl border border-slate-200 text-xs font-bold flex items-center gap-1.5">
+                          <Clock className="w-4 h-4 text-indigo-600" /> Exam starts at scheduled time ({countdown})
+                        </div>
                       ) : (
                         <button
                           type="button"
@@ -469,6 +533,17 @@ export const StudentTests: React.FC<StudentTestsProps> = ({ student }) => {
                 </button>
               </div>
             </div>
+
+            {/* Auto Submitted Warning Banner */}
+            {viewingSubmission?.autoSubmitted && (
+              <div className="p-3.5 bg-amber-50 rounded-2xl border border-amber-300 text-amber-950 text-xs flex items-center gap-2.5 shrink-0">
+                <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0" />
+                <div>
+                  <strong className="block font-black">Auto-Submitted by Proctor System</strong>
+                  <span>Reason: {viewingSubmission.autoSubmittedReason || 'Tab switch or window unfocused during live exam.'}</span>
+                </div>
+              </div>
+            )}
 
             {/* Scorecard Overview Bar */}
             {viewingSubmission && (

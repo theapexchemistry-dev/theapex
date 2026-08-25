@@ -14,7 +14,11 @@ import {
   BookOpen,
   RotateCcw,
   Sparkles,
-  ShieldAlert
+  ShieldAlert,
+  ShieldCheck,
+  EyeOff,
+  LayoutGrid,
+  X
 } from 'lucide-react';
 
 interface LiveExamPlayerProps {
@@ -62,6 +66,9 @@ export const LiveExamPlayer: React.FC<LiveExamPlayerProps> = ({
 
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [showSubmitModal, setShowSubmitModal] = useState<boolean>(false);
+  const [showMobilePalette, setShowMobilePalette] = useState<boolean>(false);
+  const [autoSubmittedAlert, setAutoSubmittedAlert] = useState<{ isTriggered: boolean; reason: string } | null>(null);
+
   const isAutoSubmittedRef = useRef<boolean>(false);
 
   // Save answers to sessionStorage
@@ -86,7 +93,7 @@ export const LiveExamPlayer: React.FC<LiveExamPlayerProps> = ({
           clearInterval(timer);
           if (!isAutoSubmittedRef.current) {
             isAutoSubmittedRef.current = true;
-            handleFinalSubmit(true);
+            handleFinalSubmit(true, false, 'Time limit expired');
           }
           return 0;
         }
@@ -95,6 +102,48 @@ export const LiveExamPlayer: React.FC<LiveExamPlayerProps> = ({
     }, 1000);
 
     return () => clearInterval(timer);
+  }, []);
+
+  // Anti-Cheating: Auto-submit on Tab switch, Window blur, or Page leave
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden && !isAutoSubmittedRef.current) {
+        isAutoSubmittedRef.current = true;
+        setAutoSubmittedAlert({
+          isTriggered: true,
+          reason: 'Exam automatically submitted because you switched tabs or minimized the browser window.'
+        });
+        handleFinalSubmit(false, true, 'Left exam tab / minimized window');
+      }
+    };
+
+    const handleWindowBlur = () => {
+      if (!isAutoSubmittedRef.current && document.hidden) {
+        isAutoSubmittedRef.current = true;
+        setAutoSubmittedAlert({
+          isTriggered: true,
+          reason: 'Exam automatically submitted because you switched applications or windows.'
+        });
+        handleFinalSubmit(false, true, 'Left exam application window');
+      }
+    };
+
+    const handlePageHide = () => {
+      if (!isAutoSubmittedRef.current) {
+        isAutoSubmittedRef.current = true;
+        handleFinalSubmit(false, true, 'Page navigation / exam tab closed');
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleWindowBlur);
+    window.addEventListener('pagehide', handlePageHide);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleWindowBlur);
+      window.removeEventListener('pagehide', handlePageHide);
+    };
   }, []);
 
   const currentQ = questions[currentIdx];
@@ -135,13 +184,13 @@ export const LiveExamPlayer: React.FC<LiveExamPlayerProps> = ({
     }
   };
 
-  const calculateResults = () => {
+  const calculateResults = (isAutoSubmit = false, autoReason?: string) => {
     let correctCount = 0;
     let wrongCount = 0;
     let unansweredCount = 0;
     let score = 0;
 
-    // Use test marks distribution or default (+4, -1) or equal share
+    // Use test marks distribution or default (+4, -1)
     const marksPerQ = test.marksPerQuestion || (totalQuestions > 0 ? Math.round(test.totalMarks / totalQuestions) : 4);
     const negMarksPerQ = test.negativeMarksPerQuestion !== undefined ? test.negativeMarksPerQuestion : 1;
 
@@ -176,18 +225,20 @@ export const LiveExamPlayer: React.FC<LiveExamPlayerProps> = ({
       correctCount,
       wrongCount,
       unansweredCount,
-      accuracy
+      accuracy,
+      autoSubmitted: isAutoSubmit,
+      autoSubmittedReason: autoReason
     };
 
     return submission;
   };
 
-  const handleFinalSubmit = (isTimeOver = false) => {
+  const handleFinalSubmit = (isTimeOver = false, isTabLeave = false, reason = '') => {
     if (isSubmitting) return;
     setIsSubmitting(true);
     setShowSubmitModal(false);
 
-    const submission = calculateResults();
+    const submission = calculateResults(isTimeOver || isTabLeave, reason || (isTimeOver ? 'Time expired' : undefined));
 
     try {
       sessionStorage.removeItem(`apex_exam_answers_${test.id}_${student.id}`);
@@ -238,31 +289,48 @@ export const LiveExamPlayer: React.FC<LiveExamPlayerProps> = ({
   return (
     <div className="fixed inset-0 z-50 bg-slate-900 flex flex-col select-none overflow-hidden font-sans">
       {/* 1. Exam Top Navigation Bar */}
-      <header className="bg-slate-950/90 backdrop-blur-md border-b border-slate-800 px-4 sm:px-6 py-3 flex items-center justify-between gap-4 text-white shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-400 to-indigo-600 flex items-center justify-center font-black text-slate-950 text-base shadow-lg shadow-indigo-500/20">
+      <header className="bg-slate-950/95 backdrop-blur-md border-b border-slate-800 px-3 sm:px-6 py-2.5 sm:py-3 flex items-center justify-between gap-2 sm:gap-4 text-white shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-amber-400 to-indigo-600 flex items-center justify-center font-black text-slate-950 text-sm sm:text-base shadow-lg shadow-indigo-500/20 shrink-0">
             A
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-black tracking-wider uppercase px-2 py-0.5 rounded-md bg-amber-400/10 text-amber-400 border border-amber-400/20">
-                LIVE EXAM
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[9px] sm:text-[10px] font-black tracking-wider uppercase px-1.5 py-0.5 rounded-md bg-amber-400/10 text-amber-400 border border-amber-400/20">
+                LIVE
               </span>
-              <span className="text-xs text-slate-400 font-mono hidden sm:inline">
-                {test.batchTitle || 'Chemistry'}
+              <span className="text-[11px] sm:text-xs text-indigo-300 font-bold">
+                Q {currentIdx + 1}/{totalQuestions}
               </span>
             </div>
-            <h1 className="text-sm sm:text-base font-extrabold text-white truncate max-w-xs sm:max-w-md">
+            <h1 className="text-xs sm:text-base font-extrabold text-white truncate max-w-[130px] sm:max-w-md">
               {test.title}
             </h1>
           </div>
         </div>
 
-        {/* Timer & Submit Header Controls */}
-        <div className="flex items-center gap-3 sm:gap-4">
+        {/* Proctoring & Timer & Submit Header Controls */}
+        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+          {/* Mobile Question Palette Trigger Button */}
+          <button
+            type="button"
+            onClick={() => setShowMobilePalette(true)}
+            className="lg:hidden px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm"
+            title="Open Question Palette"
+          >
+            <LayoutGrid className="w-4 h-4 text-indigo-400" />
+            <span className="text-[11px] font-mono">{answeredCount}/{totalQuestions}</span>
+          </button>
+
+          {/* Anti-Cheating Shield Badge (Desktop only) */}
+          <div className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-bold">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Anti-Cheat Proctor Active</span>
+          </div>
+
           {/* Live Countdown Timer */}
           <div
-            className={`flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl font-mono text-sm sm:text-base font-black transition-all border ${
+            className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-xl font-mono text-xs sm:text-base font-black transition-all border ${
               isCritical
                 ? 'bg-red-500/20 text-red-400 border-red-500/40 animate-pulse shadow-lg shadow-red-500/20'
                 : isUrgent
@@ -270,60 +338,73 @@ export const LiveExamPlayer: React.FC<LiveExamPlayerProps> = ({
                 : 'bg-slate-800 text-indigo-300 border-slate-700'
             }`}
           >
-            <Clock className={`w-4 h-4 sm:w-5 sm:h-5 ${isCritical ? 'text-red-400 animate-spin' : 'text-amber-400'}`} />
+            <Clock className={`w-3.5 h-3.5 sm:w-5 sm:h-5 ${isCritical ? 'text-red-400 animate-spin' : 'text-amber-400'}`} />
             <span>{formatTime(timeLeft)}</span>
           </div>
 
           <button
             onClick={() => setShowSubmitModal(true)}
-            className="px-3 sm:px-4 py-1.5 sm:py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-1.5 transition-all"
+            className="px-3 sm:px-4 py-1.5 sm:py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-1 sm:gap-1.5 transition-all"
           >
             <Send className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-            <span>Submit Test</span>
+            <span>Submit</span>
           </button>
         </div>
       </header>
 
+      {/* Anti-Cheating Notice Ribbon */}
+      <div className="bg-amber-500/15 border-b border-amber-500/30 px-3 sm:px-4 py-1 sm:py-1.5 flex items-center justify-between text-[10px] sm:text-[11px] text-amber-200 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 truncate">
+          <ShieldAlert className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <span className="font-semibold truncate">
+            <strong>Warning:</strong> Do not leave this tab or minimize the app. Switching tabs will trigger instant auto-submission.
+          </span>
+        </div>
+        <span className="text-[10px] font-mono text-amber-300/70 hidden sm:inline">
+          Proctored Session
+        </span>
+      </div>
+
       {/* 2. Main Content Area */}
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden bg-slate-900 text-slate-100">
-        {/* Left / Center: Question Panel */}
-        <main className="flex-1 flex flex-col p-4 sm:p-6 lg:p-8 overflow-y-auto">
-          <div className="max-w-4xl w-full mx-auto flex-1 flex flex-col justify-between space-y-6">
+        {/* Left / Center: Question Panel (Takes 100% full width and height on mobile) */}
+        <main className="flex-1 flex flex-col p-3 sm:p-6 lg:p-8 overflow-y-auto">
+          <div className="max-w-4xl w-full mx-auto flex-1 flex flex-col justify-between space-y-4 sm:space-y-6">
             
             {/* Question Header Card */}
-            <div className="bg-slate-800/80 rounded-3xl border border-slate-700/80 p-5 sm:p-7 shadow-xl space-y-6">
-              <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-700">
-                <div className="flex items-center gap-2.5">
-                  <span className="w-8 h-8 rounded-xl bg-indigo-600 text-white font-black text-sm flex items-center justify-center shadow-md">
+            <div className="bg-slate-800/90 rounded-2xl sm:rounded-3xl border border-slate-700/80 p-4 sm:p-7 shadow-xl space-y-4 sm:space-y-6">
+              <div className="flex items-center justify-between gap-2 pb-3 sm:pb-4 border-b border-slate-700">
+                <div className="flex items-center gap-2">
+                  <span className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl bg-indigo-600 text-white font-black text-xs sm:text-sm flex items-center justify-center shadow-md">
                     Q{currentIdx + 1}
                   </span>
                   <span className="text-xs font-bold text-slate-400">
                     of {totalQuestions} Questions
                   </span>
                   {markedForReview[currentQ.id] && (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                      <Bookmark className="w-3 h-3 fill-purple-300" /> Marked for Review
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[9px] sm:text-[10px] font-black uppercase bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                      <Bookmark className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-purple-300" /> Review
                     </span>
                   )}
                 </div>
 
-                <div className="flex items-center gap-2 text-xs">
-                  <span className="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold font-mono">
+                <div className="flex items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs">
+                  <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold font-mono">
                     +{test.marksPerQuestion || 4} Marks
                   </span>
-                  <span className="px-2.5 py-1 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 font-bold font-mono">
+                  <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 font-bold font-mono">
                     -{test.negativeMarksPerQuestion !== undefined ? test.negativeMarksPerQuestion : 1} Mark
                   </span>
                 </div>
               </div>
 
               {/* Question Text */}
-              <div className="text-base sm:text-lg font-semibold text-slate-100 leading-relaxed font-sans select-text">
+              <div className="text-sm sm:text-lg font-semibold text-slate-100 leading-relaxed font-sans select-text">
                 {currentQ.question}
               </div>
 
               {/* 4 Options Grid */}
-              <div className="space-y-3 pt-2">
+              <div className="space-y-2.5 sm:space-y-3 pt-1 sm:pt-2">
                 {currentQ.options.map((optionText, optIdx) => {
                   const isSelected = answers[currentQ.id] === optIdx;
                   return (
@@ -331,14 +412,14 @@ export const LiveExamPlayer: React.FC<LiveExamPlayerProps> = ({
                       key={optIdx}
                       type="button"
                       onClick={() => handleSelectOption(optIdx)}
-                      className={`w-full text-left p-4 rounded-2xl border-2 transition-all flex items-start gap-3.5 group ${
+                      className={`w-full text-left p-3.5 sm:p-4 rounded-xl sm:rounded-2xl border-2 transition-all flex items-start gap-3 group active:scale-[0.99] ${
                         isSelected
-                          ? 'bg-indigo-600/20 border-indigo-500 text-white shadow-lg shadow-indigo-500/10'
+                          ? 'bg-indigo-600/20 border-indigo-500 text-white shadow-lg shadow-indigo-500/10 ring-1 ring-indigo-400/50'
                           : 'bg-slate-800/40 border-slate-700 hover:border-slate-600 hover:bg-slate-800/80 text-slate-200'
                       }`}
                     >
                       <span
-                        className={`w-7 h-7 rounded-xl flex items-center justify-center font-black text-xs shrink-0 transition-all ${
+                        className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg sm:rounded-xl flex items-center justify-center font-black text-xs shrink-0 transition-all ${
                           isSelected
                             ? 'bg-indigo-500 text-white shadow-md'
                             : 'bg-slate-700 text-slate-300 group-hover:bg-slate-600'
@@ -346,7 +427,7 @@ export const LiveExamPlayer: React.FC<LiveExamPlayerProps> = ({
                       >
                         {optionLetters[optIdx]}
                       </span>
-                      <span className="text-sm sm:text-base font-medium flex-1 pt-0.5 select-text">
+                      <span className="text-xs sm:text-base font-medium flex-1 pt-0.5 select-text leading-snug">
                         {optionText}
                       </span>
                     </button>
@@ -356,46 +437,58 @@ export const LiveExamPlayer: React.FC<LiveExamPlayerProps> = ({
             </div>
 
             {/* Bottom Action Controls */}
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-800">
-              <div className="flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3 pt-2 border-t border-slate-800 shrink-0 pb-1">
+              <div className="flex items-center justify-between sm:justify-start gap-2">
                 <button
                   type="button"
-                  onClick={handlePrev}
-                  disabled={currentIdx === 0}
-                  className="px-3 sm:px-4 py-2.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-300 font-bold text-xs sm:text-sm rounded-xl border border-slate-700 flex items-center gap-1.5 transition-all"
+                  onClick={toggleMarkForReview}
+                  className={`flex-1 sm:flex-none px-3 sm:px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm border transition-all flex items-center justify-center gap-1.5 ${
+                    markedForReview[currentQ.id]
+                      ? 'bg-purple-600 text-white border-purple-500 shadow-md shadow-purple-600/20'
+                      : 'bg-slate-800 hover:bg-slate-700 text-purple-300 border-purple-500/40'
+                  }`}
                 >
-                  <ChevronLeft className="w-4 h-4" /> Previous
+                  <Bookmark className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  <span>{markedForReview[currentQ.id] ? 'Unmark Review' : 'Mark for Review'}</span>
                 </button>
 
+                {answers[currentQ.id] !== -1 && (
+                  <button
+                    type="button"
+                    onClick={handleClearOption}
+                    className="px-3 sm:px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border border-slate-700 transition-all flex items-center justify-center gap-1.5"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    <span>Clear</span>
+                  </button>
+                )}
+
+                {/* Mobile Palette Button inside bottom bar as well */}
                 <button
                   type="button"
-                  onClick={handleClearOption}
-                  disabled={answers[currentQ.id] === -1}
-                  className="px-3 sm:px-4 py-2.5 bg-slate-800/80 hover:bg-slate-700 disabled:opacity-30 text-slate-400 hover:text-slate-200 font-semibold text-xs sm:text-sm rounded-xl border border-slate-700 flex items-center gap-1.5 transition-all"
+                  onClick={() => setShowMobilePalette(true)}
+                  className="sm:hidden px-3 py-2.5 bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1"
                 >
-                  <RotateCcw className="w-3.5 h-3.5" /> Clear Selection
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span>Palette</span>
                 </button>
               </div>
 
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={toggleMarkForReview}
-                  className={`px-3 sm:px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm border flex items-center gap-1.5 transition-all ${
-                    markedForReview[currentQ.id]
-                      ? 'bg-purple-600 text-white border-purple-500 shadow-md shadow-purple-600/30'
-                      : 'bg-purple-950/40 text-purple-300 border-purple-800/50 hover:bg-purple-900/50'
-                  }`}
+                  disabled={currentIdx === 0}
+                  onClick={handlePrev}
+                  className="flex-1 sm:flex-none px-3 sm:px-4 py-2.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:pointer-events-none text-white font-bold text-xs sm:text-sm rounded-xl border border-slate-700 transition-all flex items-center justify-center gap-1"
                 >
-                  <Bookmark className="w-3.5 h-3.5" />
-                  <span>{markedForReview[currentQ.id] ? 'Unmark Review' : 'Mark for Review'}</span>
+                  <ChevronLeft className="w-4 h-4" /> Prev
                 </button>
 
                 {currentIdx < totalQuestions - 1 ? (
                   <button
                     type="button"
                     onClick={handleNext}
-                    className="px-4 sm:px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-lg shadow-indigo-600/30 flex items-center gap-1.5 transition-all"
+                    className="flex-1 sm:flex-none px-4 sm:px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-1 transition-all"
                   >
                     Save & Next <ChevronRight className="w-4 h-4" />
                   </button>
@@ -403,7 +496,7 @@ export const LiveExamPlayer: React.FC<LiveExamPlayerProps> = ({
                   <button
                     type="button"
                     onClick={() => setShowSubmitModal(true)}
-                    className="px-4 sm:px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-1.5 transition-all"
+                    className="flex-1 sm:flex-none px-4 sm:px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-1.5 transition-all"
                   >
                     Submit Test <Send className="w-4 h-4" />
                   </button>
@@ -414,8 +507,8 @@ export const LiveExamPlayer: React.FC<LiveExamPlayerProps> = ({
           </div>
         </main>
 
-        {/* Right Sidebar: Question Palette & Student Info */}
-        <aside className="w-full lg:w-80 bg-slate-950/80 border-t lg:border-t-0 lg:border-l border-slate-800 p-4 sm:p-5 flex flex-col justify-between shrink-0 space-y-4">
+        {/* Right Sidebar: Question Palette & Student Info (DESKTOP ONLY: hidden on mobile, shown on lg screens) */}
+        <aside className="hidden lg:flex lg:w-80 bg-slate-950/80 border-l border-slate-800 p-5 flex-col justify-between shrink-0 space-y-4 overflow-y-auto">
           <div className="space-y-4">
             {/* Student Info Box */}
             <div className="bg-slate-900 p-3.5 rounded-2xl border border-slate-800 flex items-center gap-3">
@@ -495,12 +588,115 @@ export const LiveExamPlayer: React.FC<LiveExamPlayerProps> = ({
               <Sparkles className="w-3.5 h-3.5 text-amber-400" /> Important Instructions:
             </p>
             <p>• The exam auto-submits when timer reaches 00:00.</p>
-            <p>• Marks, rank, and solutions are generated immediately upon submission.</p>
+            <p>• Auto-submits immediately if you switch tabs or minimize the window.</p>
+            <p>• Marks, rank, and solutions are generated instantly upon submission.</p>
           </div>
         </aside>
       </div>
 
-      {/* 3. Submit Confirmation Modal */}
+      {/* 3. Mobile Question Palette Bottom Sheet / Modal */}
+      {showMobilePalette && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-t-3xl sm:rounded-3xl p-5 w-full max-w-lg shadow-2xl space-y-4 animate-in slide-in-from-bottom sm:zoom-in-95 duration-200 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 flex items-center justify-center">
+                  <LayoutGrid className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white">Question Palette</h3>
+                  <p className="text-[11px] text-slate-400 font-mono">
+                    {student.name} • {student.id}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowMobilePalette(false)}
+                className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Question Palette Legend */}
+            <div className="bg-slate-950/60 p-3 rounded-2xl border border-slate-800/80 grid grid-cols-2 gap-2 text-[11px] font-semibold text-slate-300 shrink-0">
+              <div className="flex items-center gap-1.5">
+                <span className="w-4 h-4 rounded-md bg-emerald-500 text-slate-950 font-black text-[9px] flex items-center justify-center">✓</span>
+                <span>Answered ({answeredCount})</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-4 h-4 rounded-md bg-slate-700 text-slate-300 font-black text-[9px] flex items-center justify-center">0</span>
+                <span>Unanswered ({unansweredCount})</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-4 h-4 rounded-md bg-purple-500 text-white font-black text-[9px] flex items-center justify-center">★</span>
+                <span>Review ({reviewCount})</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-4 h-4 rounded-md bg-indigo-600 ring-2 ring-indigo-400 text-white font-black text-[9px] flex items-center justify-center">●</span>
+                <span>Current (Q{currentIdx + 1})</span>
+              </div>
+            </div>
+
+            {/* Questions Grid */}
+            <div className="flex-1 overflow-y-auto pr-1">
+              <div className="grid grid-cols-5 gap-2.5">
+                {questions.map((q, idx) => {
+                  const isCurrent = currentIdx === idx;
+                  const isAnswered = answers[q.id] !== -1 && answers[q.id] !== undefined;
+                  const isReview = !!markedForReview[q.id];
+
+                  let btnBg = 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700';
+                  if (isAnswered && isReview) {
+                    btnBg = 'bg-purple-600 text-white border-purple-400 ring-1 ring-purple-300';
+                  } else if (isAnswered) {
+                    btnBg = 'bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-600/20';
+                  } else if (isReview) {
+                    btnBg = 'bg-purple-900/70 text-purple-200 border-purple-600';
+                  } else if (visited[idx]) {
+                    btnBg = 'bg-slate-800 text-slate-300 border-slate-600';
+                  }
+
+                  return (
+                    <button
+                      key={q.id}
+                      type="button"
+                      onClick={() => {
+                        setCurrentIdx(idx);
+                        setShowMobilePalette(false);
+                      }}
+                      className={`h-11 rounded-xl font-black text-sm transition-all border flex items-center justify-center relative active:scale-95 ${btnBg} ${
+                        isCurrent ? 'ring-2 ring-amber-400 ring-offset-2 ring-offset-slate-900 scale-105 z-10' : ''
+                      }`}
+                    >
+                      {idx + 1}
+                      {isReview && (
+                        <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-amber-400 rounded-full border border-slate-900" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-800 flex items-center justify-between shrink-0">
+              <span className="text-[11px] text-slate-400 font-mono">
+                Tap number to jump
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowMobilePalette(false)}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl"
+              >
+                Back to Question
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. Submit Confirmation Modal */}
       {showSubmitModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-5 animate-in fade-in zoom-in duration-200">

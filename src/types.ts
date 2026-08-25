@@ -98,6 +98,8 @@ export interface StudentSubmission {
   unansweredCount: number;
   accuracy: number;
   rank?: number;
+  autoSubmitted?: boolean;
+  autoSubmittedReason?: string;
 }
 
 export interface TestResult {
@@ -126,6 +128,7 @@ export interface Test {
   negativeMarksPerQuestion?: number;
   date: string; // YYYY-MM-DD
   scheduledStartTime?: string; // ISO or YYYY-MM-DDTHH:mm
+  expiryDateTime?: string; // ISO or YYYY-MM-DDTHH:mm (Test window closing deadline)
   status?: 'scheduled' | 'live' | 'completed';
   testType?: 'live' | 'offline_marks';
   questions?: Question[];

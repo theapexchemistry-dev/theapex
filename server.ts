@@ -4,6 +4,19 @@ import { createServer as createViteServer } from "vite";
 import { Server } from "socket.io";
 import { createServer as createHttpServer } from "http";
 import Groq from "groq-sdk";
+import { GoogleGenAI } from "@google/genai";
+
+let geminiClient: GoogleGenAI | null = null;
+function getGeminiClient(): GoogleGenAI | null {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) {
+    return null;
+  }
+  if (!geminiClient) {
+    geminiClient = new GoogleGenAI({ apiKey: key });
+  }
+  return geminiClient;
+}
 
 let groqClient: Groq | null = null;
 function getGroqClient(): Groq {
@@ -673,6 +686,154 @@ OUTPUT FORMAT — return STRICT JSON only, no markdown fences, no extra text:
       console.error("[Groq AI] Follow-up Error:", err);
       const errMsg = err?.message || "Failed to generate AI follow-up response from Groq";
       res.status(500).json({ error: errMsg });
+    }
+  });
+
+  // ---------- AI Exam Question Paper Generator ----------
+  app.post("/api/ai/generate-questions", async (req, res) => {
+    try {
+      const {
+        topic,
+        className,
+        numQuestions = 10,
+        difficulty = "medium",
+        customInstructions,
+        marksPerQ = 4,
+        negativeMarksPerQ = 1
+      } = req.body || {};
+
+      if (!topic || typeof topic !== "string" || !topic.trim()) {
+        return res.status(400).json({ error: "Exam topic is required to generate questions." });
+      }
+
+      const count = Math.min(Math.max(Number(numQuestions) || 10, 1), 30);
+
+      const prompt = `You are a Senior Chemistry Professor and Exam Designer at THE APEX CHEMISTRY (created by Mr. Subhamoy Mondal).
+Generate a high-quality, scientifically accurate Chemistry Multiple Choice Question (MCQ) paper for:
+- Exam Topic: "${topic.trim()}"
+- Class / Target: "${className || 'Class 11 / 12 & JEE/NEET'}"
+- Number of Questions: ${count}
+- Difficulty Level: "${difficulty}"
+${customInstructions ? `- Specific Instructions / Focus Areas: "${customInstructions.trim()}"` : ''}
+
+RULES FOR QUESTIONS:
+1. Generate exactly ${count} multiple choice questions.
+2. Each question MUST have:
+   - "id": unique identifier (e.g. "q-1", "q-2", ...)
+   - "question": clear, unambiguous chemistry question with standard IUPAC / chemical notations (e.g. [Fe(CN)6]4-, H2SO4, ΔH, sp3d, etc.).
+   - "options": EXACTLY 4 distinct option strings [Option A, Option B, Option C, Option D]. Ensure only ONE is scientifically true/correct.
+   - "correctOption": 0 for Option A, 1 for Option B, 2 for Option C, 3 for Option D.
+   - "explanation": 1-2 sentence detailed step-by-step conceptual or numerical explanation justifying the correct option.
+   - "marks": ${marksPerQ}
+   - "negativeMarks": ${negativeMarksPerQ}
+3. Distribute the correct options fairly (do not make all of them option A or B).
+
+OUTPUT FORMAT: Return STRICT JSON ONLY (no markdown code blocks, no backticks, no trailing comments):
+{
+  "topic": "${topic.trim()}",
+  "questions": [
+    {
+      "id": "q-1",
+      "question": "Question text here...",
+      "options": ["Option A text", "Option B text", "Option C text", "Option D text"],
+      "correctOption": 0,
+      "explanation": "Explanation here..."
+    }
+  ]
+}`;
+
+      let rawOutput = "";
+      const gemini = getGeminiClient();
+
+      if (gemini) {
+        try {
+          console.log(`[AI Question Generator] Generating ${count} questions on "${topic}" using Gemini 3.7 Flash...`);
+          const geminiResponse = await gemini.models.generateContent({
+            model: "gemini-3.7-flash",
+            contents: prompt,
+            config: {
+              responseMimeType: "application/json",
+              temperature: 0.3
+            }
+          });
+          rawOutput = geminiResponse.text || "";
+        } catch (geminiErr: any) {
+          console.warn("[AI Question Generator] Gemini error, trying Groq fallback:", geminiErr.message);
+        }
+      }
+
+      if (!rawOutput) {
+        try {
+          console.log(`[AI Question Generator] Generating with Groq fallback...`);
+          const groq = getGroqClient();
+          const targetModel = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
+          const completion = await groq.chat.completions.create({
+            model: targetModel,
+            messages: [
+              {
+                role: "system",
+                content: "You are an expert Chemistry exam question creator. Always respond with strict valid JSON only."
+              },
+              { role: "user", content: prompt }
+            ],
+            temperature: 0.3,
+            response_format: { type: "json_object" }
+          });
+          rawOutput = completion.choices[0]?.message?.content || "";
+        } catch (groqErr: any) {
+          console.error("[AI Question Generator] Groq error:", groqErr);
+          throw new Error("Both Gemini and Groq AI services were unable to generate questions. " + groqErr.message);
+        }
+      }
+
+      // Parse JSON from output
+      let cleaned = rawOutput.trim();
+      if (cleaned.startsWith("```json")) {
+        cleaned = cleaned.replace(/^```json\s*/, "").replace(/\s*```$/, "");
+      } else if (cleaned.startsWith("```")) {
+        cleaned = cleaned.replace(/^```\s*/, "").replace(/\s*```$/, "");
+      }
+
+      const parsedData = JSON.parse(cleaned);
+      const generatedQuestions = Array.isArray(parsedData.questions) ? parsedData.questions : [];
+
+      // Validate & clean questions
+      const validatedQuestions = generatedQuestions.map((q: any, idx: number) => {
+        const rawOpts = Array.isArray(q.options) ? q.options : [];
+        const finalOptions: [string, string, string, string] = [
+          String(rawOpts[0] || "Option A"),
+          String(rawOpts[1] || "Option B"),
+          String(rawOpts[2] || "Option C"),
+          String(rawOpts[3] || "Option D")
+        ];
+
+        let correct = typeof q.correctOption === "number" ? q.correctOption : 0;
+        if (correct < 0 || correct > 3) correct = 0;
+
+        return {
+          id: `ai-q-${Date.now()}-${idx + 1}`,
+          question: String(q.question || `Question ${idx + 1}`).trim(),
+          options: finalOptions,
+          correctOption: correct,
+          explanation: String(q.explanation || "").trim(),
+          marks: marksPerQ,
+          negativeMarks: negativeMarksPerQ
+        };
+      });
+
+      if (validatedQuestions.length === 0) {
+        return res.status(500).json({ error: "AI failed to produce valid questions. Please try again." });
+      }
+
+      res.json({
+        success: true,
+        topic: topic.trim(),
+        count: validatedQuestions.length,
+        questions: validatedQuestions
+      });
+    } catch (err: any) {
+      console.error("[AI Question Generator] Error:", err);
+      res.status(500).json({ error: err.message || "Failed to generate AI questions" });
     }
   });
 
