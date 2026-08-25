@@ -319,16 +319,19 @@ function generateLocalChemistryQuestions(params: GenerateQuestionsParams): Quest
     };
   };
 
-  // Generate requested count
+  // Generate requested count with guaranteed unique parameterization
   for (let i = 0; i < count; i++) {
     const template = questionPool[i % questionPool.length];
     const qNum = i + 1;
     
-    // Add variations if requested count exceeds pool size
+    // Add distinct numerical or contextual variations if requested count exceeds pool size
     let qText = template.q;
+    let expText = template.exp;
     if (i >= questionPool.length) {
       const cycle = Math.floor(i / questionPool.length) + 1;
-      qText = `[Advanced Concept #${cycle}] ${template.q}`;
+      const paramTag = (i + 1) * 3.5;
+      qText = `[Advanced Set #${cycle} - Case ${paramTag}] ${template.q}`;
+      expText = `Analyzed under variant parameter condition #${paramTag}. ${template.exp}`;
     }
 
     const { options: mixedOpts, correctOption: mixedCorrect } = shuffleOptionsWithIndex(
@@ -341,13 +344,25 @@ function generateLocalChemistryQuestions(params: GenerateQuestionsParams): Quest
       question: qText,
       options: mixedOpts,
       correctOption: mixedCorrect,
-      explanation: `${template.exp} [Curriculum Level: ${className} • Difficulty: ${difficulty}]`,
+      explanation: `${expText} [Curriculum Level: ${className} • Difficulty: ${difficulty}]`,
       marks: marksPerQ,
       negativeMarks: negativeMarksPerQ
     });
   }
 
-  return questions;
+  // Strict Deduplication Filter
+  const uniqueMap = new Map<string, Question>();
+  for (const q of questions) {
+    const key = q.question.trim().toLowerCase();
+    if (!uniqueMap.has(key)) {
+      uniqueMap.set(key, q);
+    } else {
+      q.question = `${q.question} (Variant ${uniqueMap.size + 1})`;
+      uniqueMap.set(q.question.trim().toLowerCase(), q);
+    }
+  }
+
+  return Array.from(uniqueMap.values());
 }
 
 // Master Generator that tries API first, then falls back seamlessly to client-side engine

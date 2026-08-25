@@ -399,8 +399,20 @@ export const LiveExamPlayer: React.FC<LiveExamPlayerProps> = ({
               </div>
 
               {/* Question Text */}
-              <div className="text-sm sm:text-lg font-semibold text-slate-100 leading-relaxed font-sans select-text">
-                {currentQ.question}
+              <div className="text-sm sm:text-lg font-semibold text-slate-100 leading-relaxed font-sans select-text space-y-4">
+                <p>{currentQ.question}</p>
+                {currentQ.imageUrl && (
+                  <div className="bg-white/5 p-2 rounded-xl border border-slate-700/50 max-w-2xl mx-auto">
+                    <img 
+                      src={currentQ.imageUrl} 
+                      alt="Question Context" 
+                      className="w-full max-h-64 object-contain rounded-lg"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  </div>
+                )}
               </div>
 
               {/* 4 Options Grid */}

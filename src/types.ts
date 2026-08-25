@@ -78,6 +78,7 @@ export interface Doubt {
 export interface Question {
   id: string;
   question: string;
+  imageUrl?: string;
   options: string[]; // [Option A, Option B, Option C, Option D]
   correctOption: number; // 0=A, 1=B, 2=C, 3=D
   explanation?: string;

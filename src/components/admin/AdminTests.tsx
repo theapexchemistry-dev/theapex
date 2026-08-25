@@ -94,11 +94,13 @@ export const AdminTests: React.FC = () => {
   const [manualQuestions, setManualQuestions] = useState<Question[]>([]);
   const [currentManualQ, setCurrentManualQ] = useState<{
     question: string;
+    imageUrl: string;
     options: [string, string, string, string];
     correctOption: number;
     explanation: string;
   }>({
     question: '',
+    imageUrl: '',
     options: ['', '', '', ''],
     correctOption: 0,
     explanation: ''
@@ -294,6 +296,7 @@ export const AdminTests: React.FC = () => {
     const newQ: Question = {
       id: 'mq-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
       question: currentManualQ.question.trim(),
+      imageUrl: currentManualQ.imageUrl.trim() || undefined,
       options: [...currentManualQ.options] as [string, string, string, string],
       correctOption: currentManualQ.correctOption,
       explanation: currentManualQ.explanation.trim() || undefined
@@ -303,6 +306,7 @@ export const AdminTests: React.FC = () => {
     setTotalMarks((manualQuestions.length + 1) * marksPerQ);
     setCurrentManualQ({
       question: '',
+      imageUrl: '',
       options: ['', '', '', ''],
       correctOption: 0,
       explanation: ''
@@ -907,6 +911,14 @@ export const AdminTests: React.FC = () => {
                     onChange={e => setCurrentManualQ({ ...currentManualQ, question: e.target.value })}
                     className="w-full text-xs px-3 py-2 bg-white border border-slate-300 rounded-xl outline-none focus:ring-1 focus:ring-indigo-600"
                   />
+                  
+                  <input
+                    type="url"
+                    placeholder="Image URL (Optional) - e.g. https://example.com/image.png"
+                    value={currentManualQ.imageUrl}
+                    onChange={e => setCurrentManualQ({ ...currentManualQ, imageUrl: e.target.value })}
+                    className="w-full text-xs px-3 py-2 bg-white border border-slate-300 rounded-xl outline-none focus:ring-1 focus:ring-indigo-600"
+                  />
 
                   <div className="grid grid-cols-2 gap-2">
                     {['A', 'B', 'C', 'D'].map((letter, i) => (
@@ -986,9 +998,14 @@ export const AdminTests: React.FC = () => {
                       {manualQuestions.map((q, idx) => (
                         <div key={q.id} className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-xs space-y-2 relative group">
                           <div className="flex justify-between items-start gap-2">
-                            <p className="font-bold text-slate-900">
-                              Q{idx + 1}. {q.question}
-                            </p>
+                            <div className="space-y-2">
+                              <p className="font-bold text-slate-900">
+                                Q{idx + 1}. {q.question}
+                              </p>
+                              {q.imageUrl && (
+                                <img src={q.imageUrl} alt="Context" className="max-h-24 object-contain rounded-lg border border-slate-200" onError={(e) => (e.target as HTMLImageElement).style.display = 'none'} />
+                              )}
+                            </div>
                             <button
                               type="button"
                               onClick={() => handleRemoveQuestion(idx)}
@@ -1070,7 +1087,7 @@ export const AdminTests: React.FC = () => {
                     {csvFileName ? `Selected: ${csvFileName}` : 'Click to Browse or Drag & Drop Question Paper CSV'}
                   </p>
                   <p className="text-[11px] text-slate-400">
-                    Format: Question, Option A, Option B, Option C, Option D, Correct Option (A/B/C/D), Explanation
+                    Format: Question, Option A, Option B, Option C, Option D, Correct Option (A/B/C/D), Explanation, Image URL
                   </p>
                 </div>
 
@@ -1082,7 +1099,7 @@ export const AdminTests: React.FC = () => {
                     rows={4}
                     value={csvText}
                     onChange={e => handleCsvTextChange(e.target.value)}
-                    placeholder="Question,Option A,Option B,Option C,Option D,Correct Option,Explanation..."
+                    placeholder="Question,Option A,Option B,Option C,Option D,Correct Option,Explanation,Image URL..."
                     className="w-full text-xs font-mono p-3 bg-slate-900 text-slate-100 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
@@ -1464,6 +1481,9 @@ export const AdminTests: React.FC = () => {
               {(previewTest.questions || []).map((q, idx) => (
                 <div key={q.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5 text-xs">
                   <p className="font-bold text-slate-900 text-sm">Q{idx + 1}. {q.question}</p>
+                  {q.imageUrl && (
+                    <img src={q.imageUrl} alt="Context" className="max-h-32 object-contain rounded-lg border border-slate-200" onError={(e) => (e.target as HTMLImageElement).style.display = 'none'} />
+                  )}
                   <div className="grid grid-cols-2 gap-2">
                     {q.options.map((opt, optIdx) => (
                       <div

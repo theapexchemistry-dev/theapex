@@ -3,7 +3,7 @@ import { Question } from '../types';
 /**
  * Parses questions from CSV text.
  * Expected columns:
- * Question, Option A, Option B, Option C, Option D, Correct Option, Explanation (optional)
+ * Question, Option A, Option B, Option C, Option D, Correct Option, Explanation (optional), Image URL (optional)
  * Correct Option can be: 'A', 'B', 'C', 'D' or '1', '2', '3', '4' or option text.
  */
 export function parseQuestionsFromCSV(csvText: string): { questions: Question[]; errors: string[] } {
@@ -67,6 +67,7 @@ export function parseQuestionsFromCSV(csvText: string): { questions: Question[];
     const optD = cols[4] || '';
     const rawCorrect = (cols[5] || 'A').trim();
     const explanation = cols[6] || '';
+    const imageUrl = cols[7] || '';
 
     if (!qText) {
       errors.push(`Row ${i + 1}: Missing question text.`);
@@ -97,6 +98,7 @@ export function parseQuestionsFromCSV(csvText: string): { questions: Question[];
     questions.push({
       id: 'q-' + (i + 1) + '-' + Math.random().toString(36).substring(2, 7),
       question: qText,
+      imageUrl: imageUrl.trim() || undefined,
       options: [optA || 'Option A', optB || 'Option B', optC || 'Option C', optD || 'Option D'],
       correctOption: correctIdx,
       explanation: explanation || undefined
@@ -110,9 +112,9 @@ export function parseQuestionsFromCSV(csvText: string): { questions: Question[];
  * Sample Chemistry Test CSV Data for Admin download
  */
 export function getSampleChemistryCSV(): string {
-  return `Question,Option A,Option B,Option C,Option D,Correct Option,Explanation
-"Which of the following molecules has a linear molecular geometry according to VSEPR theory?","H2O","CO2","NH3","SO2","B","CO2 has 2 bonding pairs and 0 lone pairs on the central carbon atom resulting in a 180° bond angle (linear shape)."
-"The oxidation number of Chromium in K2Cr2O7 is:","+3","+6","+5","+4","B","Let oxidation state of Cr be x: 2(+1) + 2(x) + 7(-2) = 0 => 2 + 2x - 14 = 0 => 2x = 12 => x = +6."
+  return `Question,Option A,Option B,Option C,Option D,Correct Option,Explanation,Image URL
+"Which of the following molecules has a linear molecular geometry according to VSEPR theory?","H2O","CO2","NH3","SO2","B","CO2 has 2 bonding pairs and 0 lone pairs on the central carbon atom resulting in a 180° bond angle (linear shape).",""
+"Identify the compound shown in the image:","Benzene","Phenol","Toluene","Aniline","A","The image shows a standard benzene ring.","https://upload.wikimedia.org/wikipedia/commons/thumb/0/03/Benzene_Representations.svg/200px-Benzene_Representations.svg.png"
 "Which gas law states that volume is directly proportional to temperature at constant pressure?","Boyle's Law","Charles's Law","Gay-Lussac's Law","Avogadro's Law","B","Charles's law states that V ∝ T when pressure (P) and amount of gas (n) remain constant."
 "What is the IUPAC name of CH3-CH(OH)-CH3?","Propan-1-ol","Propan-2-ol","Propanoic acid","Methoxyethane","B","The longest carbon chain contains 3 carbons with -OH substituent on C2, hence Propan-2-ol."
 "Which of the following orbital has a spherical node?","1s","2s","2p","3d","B","The number of radial (spherical) nodes is given by (n - l - 1). For 2s: n=2, l=0 => 2 - 0 - 1 = 1 node."
