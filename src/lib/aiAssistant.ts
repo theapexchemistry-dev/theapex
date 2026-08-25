@@ -47,26 +47,26 @@ export async function askAiAssistant(
     body: JSON.stringify({ question, subject, className, image })
   });
 
+  const resText = await res.text().catch(() => '');
+  let data: any = {};
+  try {
+    data = resText ? JSON.parse(resText) : {};
+  } catch {
+    if (!res.ok) {
+      throw new Error(`AI service encountered a network error (${res.status}). Please try again.`);
+    }
+    return parseAiResponse(resText);
+  }
+
   if (!res.ok) {
-    let errorMsg = `Server error (${res.status})`;
-    try {
-      const errorData = await res.json();
-      if (errorData?.error) errorMsg = errorData.error;
-    } catch {
-      const text = await res.text().catch(() => '');
-      if (text) {
-        if (text.includes('GROQ_API_KEY')) {
-          errorMsg = 'GROQ_API_KEY is not configured in Vercel Environment Variables.';
-        } else if (text.length < 200) {
-          errorMsg = text;
-        }
-      }
+    let errorMsg = data?.error || `Server error (${res.status})`;
+    if (typeof errorMsg === 'string' && errorMsg.includes('GROQ_API_KEY')) {
+      errorMsg = 'AI service key is being configured. Please try again shortly.';
     }
     throw new Error(errorMsg);
   }
 
-  const data = await res.json();
-  return parseAiResponse(data.content);
+  return parseAiResponse(data.content || resText);
 }
 
 export async function askAiFollowUp(
@@ -81,18 +81,21 @@ export async function askAiFollowUp(
     body: JSON.stringify({ history, newQuestion, subject, className })
   });
 
-  if (!res.ok) {
-    let errorMsg = `Server error (${res.status})`;
-    try {
-      const errorData = await res.json();
-      if (errorData?.error) errorMsg = errorData.error;
-    } catch {
-      const text = await res.text().catch(() => '');
-      if (text && text.length < 200) errorMsg = text;
+  const resText = await res.text().catch(() => '');
+  let data: any = {};
+  try {
+    data = resText ? JSON.parse(resText) : {};
+  } catch {
+    if (!res.ok) {
+      throw new Error(`AI service encountered a network error (${res.status}). Please try again.`);
     }
+    return parseAiResponse(resText);
+  }
+
+  if (!res.ok) {
+    const errorMsg = data?.error || `Server error (${res.status})`;
     throw new Error(errorMsg);
   }
 
-  const data = await res.json();
-  return parseAiResponse(data.content);
+  return parseAiResponse(data.content || resText);
 }

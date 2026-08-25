@@ -542,17 +542,50 @@ async function startServer() {
     }
   });
 
-  const SYSTEM_PROMPT = `You are "Apex AI", a chemistry teaching assistant working for THE APEX WORLD — an Indian chemistry tuition portal run by Mr. Subhamoy Mondal. Your role is to help students in classes 9-12 (and JEE/NEET aspirants) with Physical, Organic, and Inorganic chemistry doubts.
+  // Helper to safely extract JSON from LLM outputs
+  function safeExtractJson<T = any>(raw: string): T {
+    let cleaned = (raw || "").trim();
+    if (cleaned.startsWith("```json")) {
+      cleaned = cleaned.replace(/^```json\s*/i, "").replace(/\s*```$/i, "");
+    } else if (cleaned.startsWith("```")) {
+      cleaned = cleaned.replace(/^```\s*/i, "").replace(/\s*```$/i, "");
+    }
+    cleaned = cleaned.trim();
+
+    try {
+      return JSON.parse(cleaned);
+    } catch {
+      // Find { ... }
+      const startBrace = cleaned.indexOf("{");
+      const endBrace = cleaned.lastIndexOf("}");
+      if (startBrace !== -1 && endBrace > startBrace) {
+        try {
+          return JSON.parse(cleaned.slice(startBrace, endBrace + 1));
+        } catch {}
+      }
+      // Find [ ... ]
+      const startArr = cleaned.indexOf("[");
+      const endArr = cleaned.lastIndexOf("]");
+      if (startArr !== -1 && endArr > startArr) {
+        try {
+          return JSON.parse(cleaned.slice(startArr, endArr + 1));
+        } catch {}
+      }
+      throw new Error("Unable to parse structured JSON from AI output. Please try again.");
+    }
+  }
+
+  const SYSTEM_PROMPT = `You are "Apex AI", an expert chemistry teaching assistant working for THE APEX CHEMISTRY — an Indian chemistry coaching institute run by Mr. Subhamoy Mondal. Your role is to help students in classes 9-12 (and JEE/NEET aspirants) with Physical, Organic, and Inorganic chemistry doubts.
 
 RULES:
-1. Answer in clear, simple English a Class 11 student can understand.
+1. Answer in clear, simple English a Class 11/12 student can understand.
 2. Show step-by-step working for numerical problems (units, formulas, substitutions, final answer with correct units).
 3. For reaction mechanisms, draw out the steps textually with arrow notation (->).
 4. Always explain the underlying concept in 1-2 lines before giving the answer.
 5. Keep the answer under ~250 words unless the question genuinely needs more.
 6. Use plain text notation for formulas when helpful, e.g. H2O, CH3COOH, n = PV/RT.
 7. If you are unsure, or the question requires seeing a specific exam/paper, or the student's question is unclear, set needsFaculty=true and briefly explain what the faculty should clarify.
-8. End every answer with one short follow-up question that probes the student's deeper understanding (e.g. "Can you tell me why the carbocation forms at the more substituted carbon?").
+8. End every answer with one short follow-up question that probes the student's deeper understanding.
 9. NEVER invent factual data. If a number is uncertain, say so.
 
 OUTPUT FORMAT — return STRICT JSON only, no markdown fences, no extra text:
@@ -572,65 +605,91 @@ OUTPUT FORMAT — return STRICT JSON only, no markdown fences, no extra text:
 
       const userPrompt = `Student Class: ${className || 'Class 11-12 (JEE/NEET aspirant)'}\nSubject Area: ${subject || 'Chemistry'}\n\nStudent Question:\n"""\n${question || 'Please analyze and solve the chemistry problem shown in the attached image.'}\n"""\n\nAnswer as Apex AI. Follow the rules and output format strictly. Return JSON only.`;
       
-      const groq = getGroqClient();
-      const hasImage = image && typeof image === 'string' && image.startsWith('data:image/');
-      const targetModel = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
-      
-      let messages: any[];
-      let model = targetModel;
+      let responseContent = "";
+      const gemini = getGeminiClient();
 
-      if (hasImage) {
-        model = 'llama-3.2-11b-vision-preview';
-        messages = [
-          { role: "system", content: SYSTEM_PROMPT },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: userPrompt },
-              { type: "image_url", image_url: { url: image } }
-            ]
+      // 1. Try Gemini first if available
+      if (gemini) {
+        try {
+          console.log("[AI Doubt] Processing doubt with Gemini 3.7 Flash...");
+          const contents: any[] = [];
+          if (image && typeof image === 'string' && image.startsWith('data:image/')) {
+            const match = image.match(/^data:([^;]+);base64,(.*)$/);
+            if (match) {
+              contents.push({
+                inlineData: {
+                  mimeType: match[1],
+                  data: match[2]
+                }
+              });
+            }
           }
-        ];
-      } else {
-        messages = [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userPrompt }
-        ];
+          contents.push(userPrompt);
+
+          const geminiRes = await gemini.models.generateContent({
+            model: "gemini-3.7-flash",
+            contents: contents,
+            config: {
+              systemInstruction: SYSTEM_PROMPT,
+              responseMimeType: "application/json",
+              temperature: 0.3
+            }
+          });
+          responseContent = geminiRes.text || "";
+        } catch (geminiErr: any) {
+          console.warn("[AI Doubt] Gemini attempt failed, trying Groq fallback:", geminiErr.message);
+        }
       }
 
-      let responseContent = "";
-      try {
-        const completion = await groq.chat.completions.create({
-          model,
-          messages,
-          temperature: 0.4,
-          response_format: { type: "json_object" }
-        });
-        responseContent = completion.choices[0]?.message?.content || "{}";
-      } catch (err: any) {
-        // Fallback mechanism if vision or specific model is unavailable
-        console.warn(`[Groq AI] Request with model ${model} failed (${err.message}). Attempting fallback.`);
-        const fallbackModel = (model === targetModel) ? 'llama-3.3-70b-versatile' : targetModel;
+      // 2. Groq fallback if Gemini did not produce output
+      if (!responseContent) {
         try {
-          const fallbackCompletion = await groq.chat.completions.create({
-            model: fallbackModel,
-            messages: [
+          const groq = getGroqClient();
+          const hasImage = image && typeof image === 'string' && image.startsWith('data:image/');
+          const targetModel = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+          let messages: any[];
+          let model = targetModel;
+
+          if (hasImage) {
+            model = 'llama-3.2-11b-vision-preview';
+            messages = [
+              { role: "system", content: SYSTEM_PROMPT },
+              {
+                role: "user",
+                content: [
+                  { type: "text", text: userPrompt },
+                  { type: "image_url", image_url: { url: image } }
+                ]
+              }
+            ];
+          } else {
+            messages = [
               { role: "system", content: SYSTEM_PROMPT },
               { role: "user", content: userPrompt }
-            ],
+            ];
+          }
+
+          const completion = await groq.chat.completions.create({
+            model,
+            messages,
             temperature: 0.4,
             response_format: { type: "json_object" }
           });
-          responseContent = fallbackCompletion.choices[0]?.message?.content || "{}";
-        } catch (fbErr: any) {
-          throw err;
+          responseContent = completion.choices[0]?.message?.content || "{}";
+        } catch (groqErr: any) {
+          console.error("[AI Doubt] Groq error:", groqErr);
+          if (!gemini) {
+            throw new Error("AI services unavailable. Please configure GEMINI_API_KEY or GROQ_API_KEY.");
+          }
+          throw new Error("AI assistance currently unavailable. Please try again.");
         }
       }
-      
-      res.json({ content: responseContent });
+
+      const parsedJson = safeExtractJson(responseContent);
+      res.json({ content: JSON.stringify(parsedJson) });
     } catch (err: any) {
-      console.error("[Groq AI] Error:", err);
-      const errMsg = err?.message || "Failed to generate AI response from Groq";
+      console.error("[AI Doubt] Error:", err);
+      const errMsg = err?.message || "Failed to generate AI response";
       res.status(500).json({ error: errMsg });
     }
   });
@@ -642,27 +701,53 @@ OUTPUT FORMAT — return STRICT JSON only, no markdown fences, no extra text:
         return res.status(400).json({ error: "Follow-up question is required." });
       }
 
-      const groq = getGroqClient();
-      const messages: any[] = [
-        { role: "system", content: SYSTEM_PROMPT }
-      ];
-
-      (Array.isArray(history) ? history : []).forEach((m: any) => {
-        messages.push({
-          role: m.role === 'user' ? 'user' : 'assistant',
-          content: m.text || ''
-        });
-      });
-
-      messages.push({
-        role: "user",
-        content: `Subject Area: ${subject || 'Chemistry'}\nStudent Class: ${className || 'Class 11-12'}\n\nNEW MESSAGE FROM STUDENT:\n"""\n${newQuestion}\n"""\n\nAnswer as Apex AI. Be concise (≤200 words) and reference what was discussed earlier if relevant. Output STRICT JSON in the same format.`
-      });
+      const promptText = `Subject Area: ${subject || 'Chemistry'}\nStudent Class: ${className || 'Class 11-12'}\n\nNEW MESSAGE FROM STUDENT:\n"""\n${newQuestion}\n"""\n\nAnswer as Apex AI. Be concise (≤200 words) and reference what was discussed earlier if relevant. Output STRICT JSON in the same format.`;
       
-      const targetModel = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
-      let content = "{}";
+      let content = "";
+      const gemini = getGeminiClient();
 
-      try {
+      if (gemini) {
+        try {
+          const contents: any[] = [];
+          (Array.isArray(history) ? history : []).forEach((m: any) => {
+            contents.push(`${m.role === 'user' ? 'Student' : 'Apex AI'}: ${m.text || ''}`);
+          });
+          contents.push(promptText);
+
+          const geminiRes = await gemini.models.generateContent({
+            model: "gemini-3.7-flash",
+            contents: contents.join("\n\n"),
+            config: {
+              systemInstruction: SYSTEM_PROMPT,
+              responseMimeType: "application/json",
+              temperature: 0.3
+            }
+          });
+          content = geminiRes.text || "";
+        } catch (gErr: any) {
+          console.warn("[AI Follow-Up] Gemini failed, trying Groq fallback:", gErr.message);
+        }
+      }
+
+      if (!content) {
+        const groq = getGroqClient();
+        const messages: any[] = [
+          { role: "system", content: SYSTEM_PROMPT }
+        ];
+
+        (Array.isArray(history) ? history : []).forEach((m: any) => {
+          messages.push({
+            role: m.role === 'user' ? 'user' : 'assistant',
+            content: m.text || ''
+          });
+        });
+
+        messages.push({
+          role: "user",
+          content: promptText
+        });
+        
+        const targetModel = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
         const completion = await groq.chat.completions.create({
           model: targetModel,
           messages,
@@ -670,21 +755,13 @@ OUTPUT FORMAT — return STRICT JSON only, no markdown fences, no extra text:
           response_format: { type: "json_object" }
         });
         content = completion.choices[0]?.message?.content || "{}";
-      } catch (err: any) {
-        console.warn(`[Groq AI] Follow-up with model ${targetModel} failed (${err.message}). Trying fallback.`);
-        const fallbackCompletion = await groq.chat.completions.create({
-          model: "llama-3.3-70b-versatile",
-          messages,
-          temperature: 0.4,
-          response_format: { type: "json_object" }
-        });
-        content = fallbackCompletion.choices[0]?.message?.content || "{}";
       }
-      
-      res.json({ content });
+
+      const parsedJson = safeExtractJson(content);
+      res.json({ content: JSON.stringify(parsedJson) });
     } catch (err: any) {
-      console.error("[Groq AI] Follow-up Error:", err);
-      const errMsg = err?.message || "Failed to generate AI follow-up response from Groq";
+      console.error("[AI Follow-Up] Error:", err);
+      const errMsg = err?.message || "Failed to generate AI follow-up response";
       res.status(500).json({ error: errMsg });
     }
   });
@@ -786,16 +863,9 @@ OUTPUT FORMAT: Return STRICT JSON ONLY (no markdown code blocks, no backticks, n
         }
       }
 
-      // Parse JSON from output
-      let cleaned = rawOutput.trim();
-      if (cleaned.startsWith("```json")) {
-        cleaned = cleaned.replace(/^```json\s*/, "").replace(/\s*```$/, "");
-      } else if (cleaned.startsWith("```")) {
-        cleaned = cleaned.replace(/^```\s*/, "").replace(/\s*```$/, "");
-      }
-
-      const parsedData = JSON.parse(cleaned);
-      const generatedQuestions = Array.isArray(parsedData.questions) ? parsedData.questions : [];
+      // Safely extract JSON from raw output
+      const parsedData = safeExtractJson<{ topic?: string; questions?: any[] }>(rawOutput);
+      const generatedQuestions = Array.isArray(parsedData?.questions) ? parsedData.questions : [];
 
       // Validate & clean questions
       const validatedQuestions = generatedQuestions.map((q: any, idx: number) => {

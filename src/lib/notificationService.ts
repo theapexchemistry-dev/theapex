@@ -41,10 +41,13 @@ export async function autoDispatchCredentials(
       body: JSON.stringify(payload)
     });
     if (res.ok) {
-      const data = await res.json();
-      if (data.results) {
-        serverResult = data.results;
-      }
+      const resText = await res.text().catch(() => '');
+      try {
+        const data = resText ? JSON.parse(resText) : {};
+        if (data.results) {
+          serverResult = data.results;
+        }
+      } catch {}
     }
   } catch (err: any) {
     console.warn('[Auto-Dispatch] Backend notification request error:', err);
