@@ -75,20 +75,61 @@ export interface Doubt {
   createdAt: string;
 }
 
+export interface Question {
+  id: string;
+  question: string;
+  options: string[]; // [Option A, Option B, Option C, Option D]
+  correctOption: number; // 0=A, 1=B, 2=C, 3=D
+  explanation?: string;
+  marks?: number;
+  negativeMarks?: number;
+}
+
+export interface StudentSubmission {
+  studentId: string;
+  studentName: string;
+  submittedAt: string;
+  timeSpentSeconds?: number;
+  answers: Record<string, number>; // questionId -> selectedOption index (0, 1, 2, 3) or -1
+  score: number;
+  totalMarks: number;
+  correctCount: number;
+  wrongCount: number;
+  unansweredCount: number;
+  accuracy: number;
+  rank?: number;
+}
+
 export interface TestResult {
   studentId: string;
   studentName: string;
   marksObtained: number;
   rank?: number;
+  correctCount?: number;
+  wrongCount?: number;
+  unansweredCount?: number;
+  timeSpentSeconds?: number;
+  submittedAt?: string;
+  submission?: StudentSubmission;
 }
 
 export interface Test {
   id: string;
   title: string; // e.g. "Chemical Bonding & Molecular Structure Test 1"
+  topic?: string;
+  className?: string;
   batchId: string;
   batchTitle?: string;
   totalMarks: number;
+  durationMinutes: number; // e.g. 10, 15, 20, 30, 45, 60, 90, 120
+  marksPerQuestion?: number;
+  negativeMarksPerQuestion?: number;
   date: string; // YYYY-MM-DD
+  scheduledStartTime?: string; // ISO or YYYY-MM-DDTHH:mm
+  status?: 'scheduled' | 'live' | 'completed';
+  testType?: 'live' | 'offline_marks';
+  questions?: Question[];
+  submissions?: Record<string, StudentSubmission>; // studentId -> submission
   results: TestResult[];
   createdAt: string;
 }

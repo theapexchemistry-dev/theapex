@@ -16,6 +16,8 @@ import {
   Doubt,
   Test,
   TestResult,
+  Question,
+  StudentSubmission,
   NotificationItem,
   SupabaseConfig,
   SupportRequest,
@@ -739,6 +741,13 @@ export class StorageService {
   static saveTests(tests: Test[]): void {
     setItem(KEYS.TESTS, tests);
     syncArrayToFirestore('tests', tests);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('apex_storage_updated'));
+    }
+  }
+
+  static getTestById(id: string): Test | undefined {
+    return this.getTests().find(t => t.id === id);
   }
 
   static calculateRanks(results: TestResult[]): TestResult[] {
@@ -756,27 +765,38 @@ export class StorageService {
     });
   }
 
-  static addTest(testData: Omit<Test, 'id' | 'createdAt' | 'results'>, results: TestResult[]): Test {
+  static addTest(testData: Omit<Test, 'id' | 'createdAt' | 'results'> & { results?: TestResult[] }, results: TestResult[] = []): Test {
     const tests = this.getTests();
     const batches = this.getBatches();
     const batch = batches.find(b => b.id === testData.batchId);
 
-    const rankedResults = this.calculateRanks(results);
+    const initialResults = results && results.length > 0 ? results : (testData.results || []);
+    const rankedResults = this.calculateRanks(initialResults);
 
     const newTest: Test = {
       ...testData,
       id: 't-' + Date.now().toString(36),
       batchTitle: batch ? batch.title : testData.batchTitle,
+      durationMinutes: testData.durationMinutes || 20,
+      totalMarks: testData.totalMarks || 100,
+      status: testData.status || (testData.testType === 'live' ? 'live' : 'completed'),
+      testType: testData.testType || 'live',
+      questions: testData.questions || [],
+      submissions: testData.submissions || {},
       results: rankedResults,
       createdAt: new Date().toISOString().split('T')[0]
     };
 
     const updated = [newTest, ...tests];
     this.saveTests(updated);
+    syncDocToFirestore('tests', newTest.id, newTest);
 
+    const isLive = newTest.testType === 'live';
     this.addNotification({
-      title: 'New Test Results Published',
-      message: `Scores and Ranks for "${newTest.title}" have been released by Admin!`,
+      title: isLive ? '🎯 New Live Chemistry Test Hosted!' : 'New Test Results Published',
+      message: isLive
+        ? `"${newTest.title}" (${newTest.durationMinutes} mins, ${newTest.totalMarks} Marks) is now hosted for ${newTest.batchTitle || 'your batch'}.`
+        : `Scores and Ranks for "${newTest.title}" have been released by Admin!`,
       type: 'test',
       timestamp: 'Just now',
       targetRole: 'student',
@@ -784,6 +804,107 @@ export class StorageService {
     });
 
     return newTest;
+  }
+
+  static updateTest(id: string, updates: Partial<Test>): void {
+    const tests = this.getTests();
+    let updatedDoc: Test | null = null;
+
+    const updated = tests.map(t => {
+      if (t.id === id) {
+        let results = updates.results !== undefined ? updates.results : t.results;
+        if (updates.results) {
+          results = this.calculateRanks(results);
+        }
+        updatedDoc = { ...t, ...updates, results };
+        return updatedDoc;
+      }
+      return t;
+    });
+
+    this.saveTests(updated);
+    if (updatedDoc) {
+      syncDocToFirestore('tests', id, updatedDoc);
+    }
+  }
+
+  static deleteTest(id: string): void {
+    deleteFromFirestore('tests', id);
+    const tests = this.getTests().filter(t => t.id !== id);
+    this.saveTests(tests);
+  }
+
+  /**
+   * Submits a student's live exam response, calculates scores, accuracy,
+   * updates the class leaderboard and recalculates class ranks immediately.
+   */
+  static submitLiveTest(testId: string, submission: StudentSubmission): { test: Test; myResult: TestResult } {
+    const tests = this.getTests();
+    const testIndex = tests.findIndex(t => t.id === testId);
+    if (testIndex === -1) {
+      throw new Error(`Test with ID ${testId} not found.`);
+    }
+
+    const test = tests[testIndex];
+    const submissions = { ...(test.submissions || {}) };
+    submissions[submission.studentId] = submission;
+
+    // Filter out previous result for this student if any
+    const otherResults = (test.results || []).filter(r => r.studentId !== submission.studentId);
+
+    const newResult: TestResult = {
+      studentId: submission.studentId,
+      studentName: submission.studentName,
+      marksObtained: submission.score,
+      correctCount: submission.correctCount,
+      wrongCount: submission.wrongCount,
+      unansweredCount: submission.unansweredCount,
+      timeSpentSeconds: submission.timeSpentSeconds,
+      submittedAt: submission.submittedAt,
+      submission
+    };
+
+    const combinedResults = [...otherResults, newResult];
+    const rankedResults = this.calculateRanks(combinedResults);
+
+    // Update submission object with calculated rank
+    const myRankedResult = rankedResults.find(r => r.studentId === submission.studentId) || newResult;
+    submission.rank = myRankedResult.rank;
+    submissions[submission.studentId] = submission;
+    myRankedResult.submission = submission;
+
+    const updatedTest: Test = {
+      ...test,
+      submissions,
+      results: rankedResults
+    };
+
+    tests[testIndex] = updatedTest;
+    this.saveTests(tests);
+    syncDocToFirestore('tests', testId, updatedTest);
+
+    // Add student notification
+    this.addNotification({
+      title: '🎯 Test Submitted Successfully!',
+      message: `You scored ${submission.score}/${test.totalMarks} in "${test.title}". Your current Class Rank is #${myRankedResult.rank}!`,
+      type: 'test',
+      timestamp: 'Just now',
+      targetRole: 'student',
+      targetStudentId: submission.studentId,
+      read: false
+    });
+
+    // Add admin notification
+    this.addNotification({
+      title: 'Student Test Submission',
+      message: `${submission.studentName} submitted "${test.title}" (Score: ${submission.score}/${test.totalMarks}, Rank #${myRankedResult.rank}).`,
+      type: 'test',
+      timestamp: 'Just now',
+      targetRole: 'admin',
+      read: false
+    });
+
+    return { test: updatedTest, myResult: myRankedResult };
   }
 
   // -------- Notifications --------
