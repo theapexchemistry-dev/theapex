@@ -48,6 +48,8 @@ const KEYS = {
   SITE_NAME: 'apex_site_name',
   TAGLINE: 'apex_tagline',
   DELETED_STUDENT_IDS: 'apex_deleted_student_ids',
+  DELETED_TEST_IDS: 'apex_deleted_test_ids',
+  DELETED_DOUBT_IDS: 'apex_deleted_doubt_ids',
   EMAIL_CONFIG: 'apex_email_config_v2'
 };
 
@@ -237,6 +239,58 @@ export class StorageService {
         });
       } catch (e) {
         console.error('Error syncing deleted student IDs:', e);
+      }
+    }
+  }
+
+  // -------- Deleted test IDs blacklist (prevents restoration from offline sync) --------
+  static getDeletedTestIds(): string[] {
+    try {
+      return JSON.parse(localStorage.getItem(KEYS.DELETED_TEST_IDS) || '[]');
+    } catch {
+      return [];
+    }
+  }
+
+  static async addDeletedTestId(id: string): Promise<void> {
+    const deleted = this.getDeletedTestIds();
+    if (!deleted.includes(id)) {
+      deleted.push(id);
+      localStorage.setItem(KEYS.DELETED_TEST_IDS, JSON.stringify(deleted));
+      try {
+        await syncDocToFirestore('siteSettings', 'deletedTestIds', {
+          id: 'deletedTestIds',
+          ids: deleted,
+          updatedAt: new Date().toISOString()
+        });
+      } catch (e) {
+        console.error('Error syncing deleted test IDs:', e);
+      }
+    }
+  }
+
+  // -------- Deleted doubt IDs blacklist (prevents restoration from offline sync) --------
+  static getDeletedDoubtIds(): string[] {
+    try {
+      return JSON.parse(localStorage.getItem(KEYS.DELETED_DOUBT_IDS) || '[]');
+    } catch {
+      return [];
+    }
+  }
+
+  static async addDeletedDoubtId(id: string): Promise<void> {
+    const deleted = this.getDeletedDoubtIds();
+    if (!deleted.includes(id)) {
+      deleted.push(id);
+      localStorage.setItem(KEYS.DELETED_DOUBT_IDS, JSON.stringify(deleted));
+      try {
+        await syncDocToFirestore('siteSettings', 'deletedDoubtIds', {
+          id: 'deletedDoubtIds',
+          ids: deleted,
+          updatedAt: new Date().toISOString()
+        });
+      } catch (e) {
+        console.error('Error syncing deleted doubt IDs:', e);
       }
     }
   }
@@ -727,10 +781,22 @@ export class StorageService {
     }
   }
 
-  static deleteDoubt(id: string): void {
-    deleteFromFirestore('doubts', id);
+  static async deleteDoubt(id: string): Promise<void> {
+    try {
+      // 1. Blacklist the deleted doubt ID to prevent restoration from stale syncs
+      await this.addDeletedDoubtId(id);
+      // 2. Permanently delete from Firestore 'doubts' collection
+      await deleteFromFirestore('doubts', id);
+    } catch (e) {
+      console.error('Error during remote doubt deletion:', e);
+    }
+    // 3. Remove from local storage
     const doubts = this.getDoubts().filter(d => d.id !== id);
-    this.saveDoubts(doubts);
+    setItem(KEYS.DOUBTS, doubts);
+    // 4. Dispatch global event so all components/tabs refresh immediately
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('apex_storage_updated'));
+    }
   }
 
   // -------- Tests & Automatic Rank Handler --------
@@ -828,10 +894,22 @@ export class StorageService {
     }
   }
 
-  static deleteTest(id: string): void {
-    deleteFromFirestore('tests', id);
+  static async deleteTest(id: string): Promise<void> {
+    try {
+      // 1. Blacklist the deleted test ID to prevent restoration from stale syncs
+      await this.addDeletedTestId(id);
+      // 2. Permanently delete from Firestore 'tests' collection
+      await deleteFromFirestore('tests', id);
+    } catch (e) {
+      console.error('Error during remote test deletion:', e);
+    }
+    // 3. Remove from local storage
     const tests = this.getTests().filter(t => t.id !== id);
     this.saveTests(tests);
+    // 4. Dispatch global event so all components/tabs refresh immediately
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('apex_storage_updated'));
+    }
   }
 
   /**

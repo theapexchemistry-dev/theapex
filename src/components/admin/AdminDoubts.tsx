@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StorageService } from '../../lib/storage';
 import { Doubt, Batch } from '../../types';
-import { HelpCircle, CheckCircle2, Clock, MessageSquare, Send, Image as ImageIcon, Eye, XCircle, Bot, AlertTriangle, Loader2, RefreshCw } from 'lucide-react';
+import { HelpCircle, CheckCircle2, Clock, MessageSquare, Send, Image as ImageIcon, Eye, XCircle, Bot, AlertTriangle, Loader2, RefreshCw, Trash2, ShieldAlert, AlertCircle } from 'lucide-react';
 import { ChunkedImage } from '../ChunkedImage';
 import { uploadFileChunks } from '../../lib/fileChunks';
 import { subscribeToDoubts } from '../../lib/firebaseSync';
@@ -24,6 +24,11 @@ export const AdminDoubts: React.FC = () => {
   const [selectedImage, setSelectedImage] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+
+  // Delete Confirmation Modal State
+  const [doubtToDelete, setDoubtToDelete] = useState<Doubt | null>(null);
+  const [isDeletingDoubt, setIsDeletingDoubt] = useState(false);
+
   const mountedRef = useRef(true);
 
   const refreshDoubts = () => {
@@ -123,14 +128,25 @@ export const AdminDoubts: React.FC = () => {
     }
   };
 
-  const handleDeleteDoubt = () => {
-    if (!activeDoubt) return;
-    StorageService.deleteDoubt(activeDoubt.id);
-    refreshDoubts();
-    setActiveDoubt(null);
-    setAnswerText('');
-    setAnswerImageUrl('');
-    setAnswerImageName('');
+  const handleConfirmDelete = async () => {
+    if (!doubtToDelete) return;
+    setIsDeletingDoubt(true);
+    try {
+      await StorageService.deleteDoubt(doubtToDelete.id);
+      if (activeDoubt?.id === doubtToDelete.id) {
+        setActiveDoubt(null);
+        setAnswerText('');
+        setAnswerImageUrl('');
+        setAnswerImageName('');
+      }
+      refreshDoubts();
+      setDoubtToDelete(null);
+    } catch (err) {
+      console.error('Error deleting doubt:', err);
+      alert('Failed to delete doubt. Please try again.');
+    } finally {
+      setIsDeletingDoubt(false);
+    }
   };
 
   // ─── PATCH B: filter matcher extended with AI_ANSWERED + ESCALATED ──────
@@ -277,7 +293,20 @@ export const AdminDoubts: React.FC = () => {
 
                 <div className="flex justify-between items-center pt-2 border-t border-slate-100 text-[11px] text-slate-400 font-mono">
                   <span>Batch: {d.batchTitle}</span>
-                  <span>{d.createdAt}</span>
+                  <div className="flex items-center gap-3">
+                    <span>{d.createdAt}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDoubtToDelete(d);
+                      }}
+                      className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-200"
+                      title="Permanently delete doubt"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
             ))
@@ -412,17 +441,86 @@ export const AdminDoubts: React.FC = () => {
                 </button>
                 <button
                   type="button"
-                  onClick={handleDeleteDoubt}
+                  onClick={() => setDoubtToDelete(activeDoubt)}
                   disabled={isSubmitting}
-                  className="py-3 px-4 bg-red-50 hover:bg-red-100 disabled:opacity-50 text-red-600 border border-red-200 font-extrabold text-xs rounded-xl transition-all"
+                  className="py-3 px-4 bg-red-50 hover:bg-red-100 disabled:opacity-50 text-red-600 border border-red-200 font-extrabold text-xs rounded-xl transition-all flex items-center gap-1.5"
+                  title="Permanently delete this doubt"
                 >
-                  Delete
+                  <Trash2 className="w-4 h-4" />
+                  <span>Delete</span>
                 </button>
               </div>
             </form>
           </div>
         )}
       </div>
+
+      {/* Delete Doubt Confirmation Modal */}
+      {doubtToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-5 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-red-50 text-red-600 rounded-2xl border border-red-100">
+                <ShieldAlert className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900 tracking-tight">Delete Doubt Permanently?</h3>
+                <p className="text-xs text-slate-500">Confirm permanent deletion from database and student panel.</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-2 text-xs">
+              <div className="flex justify-between items-center text-slate-600 pb-1.5 border-b border-slate-200/60">
+                <span className="font-bold text-slate-800">{doubtToDelete.studentName}</span>
+                <span className="text-[11px] font-mono text-slate-500">{doubtToDelete.studentClass} • {doubtToDelete.subject}</span>
+              </div>
+              <p className="text-slate-700 font-medium line-clamp-3 italic">
+                "{doubtToDelete.question}"
+              </p>
+              <div className="pt-1 text-[11px] text-slate-400 font-mono flex justify-between">
+                <span>Batch: {doubtToDelete.batchTitle}</span>
+                <span>{doubtToDelete.createdAt}</span>
+              </div>
+            </div>
+
+            <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200 flex items-start gap-2.5 text-xs text-amber-900 font-medium">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <span>
+                This doubt will be <strong>permanently removed</strong> from the Firestore database and will disappear from this student's doubt portal immediately.
+              </span>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setDoubtToDelete(null)}
+                disabled={isDeletingDoubt}
+                className="flex-1 py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={isDeletingDoubt}
+                className="flex-1 py-2.5 px-4 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+              >
+                {isDeletingDoubt ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Delete Permanently</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Image Viewer Modal */}
       {imageModalOpen && selectedImage && (

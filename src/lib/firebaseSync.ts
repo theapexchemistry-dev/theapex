@@ -189,16 +189,40 @@ function mergeAndStore(key: string, col: string, remoteItems: any[]): any[] {
     deletedStudentIds = rawDel ? JSON.parse(rawDel) : [];
   } catch {}
 
+  // Load deleted test IDs blacklist
+  let deletedTestIds: string[] = [];
+  try {
+    const rawTestDel = localStorage.getItem('apex_deleted_test_ids');
+    deletedTestIds = rawTestDel ? JSON.parse(rawTestDel) : [];
+  } catch {}
+
+  // Load deleted doubt IDs blacklist
+  let deletedDoubtIds: string[] = [];
+  try {
+    const rawDoubtDel = localStorage.getItem('apex_deleted_doubt_ids');
+    deletedDoubtIds = rawDoubtDel ? JSON.parse(rawDoubtDel) : [];
+  } catch {}
+
   const map = new Map<string, any>();
   for (const item of localItems) {
     if (!item || !item.id) continue;
     if (key === 'students' && deletedStudentIds.includes(item.id)) continue;
+    if (key === 'tests' && deletedTestIds.includes(item.id)) continue;
+    if (key === 'doubts' && deletedDoubtIds.includes(item.id)) continue;
     map.set(item.id, item);
   }
   for (const item of remoteItems) {
     if (!item || !item.id) continue;
     if (key === 'students' && deletedStudentIds.includes(item.id)) {
       deleteFromFirestore('students', item.id);
+      continue;
+    }
+    if (key === 'tests' && deletedTestIds.includes(item.id)) {
+      deleteFromFirestore('tests', item.id);
+      continue;
+    }
+    if (key === 'doubts' && deletedDoubtIds.includes(item.id)) {
+      deleteFromFirestore('doubts', item.id);
       continue;
     }
     const existing = map.get(item.id);
@@ -240,6 +264,28 @@ function mergeAndStore(key: string, col: string, remoteItems: any[]): any[] {
       console.debug('Error storing clean liveMeetings:', e);
     }
     return cleanList;
+  }
+
+  // For doubts: if remoteItems was non-empty from Firestore, Firestore is source of truth.
+  // Never keep records that were deleted in cloud or are on blacklist.
+  if (key === 'doubts' && remoteItems.length > 0) {
+    const remoteIdSet = new Set(remoteItems.map(r => r.id));
+    for (const [id] of Array.from(map.entries())) {
+      if (deletedDoubtIds.includes(id) || !remoteIdSet.has(id)) {
+        map.delete(id);
+      }
+    }
+  }
+
+  // For tests: if remoteItems was non-empty from Firestore, Firestore is source of truth.
+  // Never keep records that were deleted in cloud or are on blacklist.
+  if (key === 'tests' && remoteItems.length > 0) {
+    const remoteIdSet = new Set(remoteItems.map(r => r.id));
+    for (const [id] of Array.from(map.entries())) {
+      if (deletedTestIds.includes(id) || !remoteIdSet.has(id)) {
+        map.delete(id);
+      }
+    }
   }
 
   // For students: if remoteItems was non-empty from Firestore, Firestore is source of truth.
@@ -303,6 +349,12 @@ export function setupFirestoreListeners() {
               if (doc.id === 'deletedStudentIds' && doc.ids) {
                 localStorage.setItem('apex_deleted_student_ids', JSON.stringify(doc.ids));
               }
+              if (doc.id === 'deletedTestIds' && doc.ids) {
+                localStorage.setItem('apex_deleted_test_ids', JSON.stringify(doc.ids));
+              }
+              if (doc.id === 'deletedDoubtIds' && doc.ids) {
+                localStorage.setItem('apex_deleted_doubt_ids', JSON.stringify(doc.ids));
+              }
             });
           } else {
             // ── MERGE instead of overwrite ──
@@ -310,6 +362,18 @@ export function setupFirestoreListeners() {
             // fee records we also dedupe by (studentId + month).
             mergeAndStore(key, col, items);
           }
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new Event('apex_storage_updated'));
+          }
+        } else if (col === 'tests') {
+          // If Firestore collection has no tests, clean local tests as well
+          localStorage.setItem('apex_tests_v2', JSON.stringify([]));
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new Event('apex_storage_updated'));
+          }
+        } else if (col === 'doubts') {
+          // If Firestore collection has no doubts, clean local doubts as well
+          localStorage.setItem('apex_doubts_v2', JSON.stringify([]));
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new Event('apex_storage_updated'));
           }
@@ -326,7 +390,7 @@ export function setupFirestoreListeners() {
 export async function fetchDataFromFirestore(): Promise<boolean> {
   let hasData = false;
 
-  // Load siteSettings first so deletedStudentIds blacklist is immediately populated
+  // Load siteSettings first so deletedStudentIds & deletedTestIds blacklists are immediately populated
   try {
     const settingsSnap = await getDocs(collection(db, 'siteSettings'));
     for (const docSnap of settingsSnap.docs) {
@@ -338,6 +402,10 @@ export async function fetchDataFromFirestore(): Promise<boolean> {
         if (data?.tagline) localStorage.setItem('apex_tagline', data.tagline);
       } else if (docSnap.id === 'deletedStudentIds' && Array.isArray(data?.ids)) {
         localStorage.setItem('apex_deleted_student_ids', JSON.stringify(data.ids));
+      } else if (docSnap.id === 'deletedTestIds' && Array.isArray(data?.ids)) {
+        localStorage.setItem('apex_deleted_test_ids', JSON.stringify(data.ids));
+      } else if (docSnap.id === 'deletedDoubtIds' && Array.isArray(data?.ids)) {
+        localStorage.setItem('apex_deleted_doubt_ids', JSON.stringify(data.ids));
       }
     }
   } catch (e) {
@@ -618,8 +686,15 @@ export function subscribeToDoubts(
   onNext: (doubts: any[]) => void,
   onError?: (err: Error) => void
 ): () => void {
+  let deletedDoubtIds: string[] = [];
   try {
-    onNext(readLocalDoubts());
+    const raw = localStorage.getItem('apex_deleted_doubt_ids');
+    deletedDoubtIds = raw ? JSON.parse(raw) : [];
+  } catch {}
+
+  try {
+    const initial = readLocalDoubts().filter((d: any) => d && d.id && !deletedDoubtIds.includes(d.id));
+    onNext(initial);
   } catch (e) {
     console.debug('subscribeToDoubts initial emit failed:', e);
   }
@@ -629,18 +704,53 @@ export function subscribeToDoubts(
     unsub = onSnapshot(
       collection(db, 'doubts'),
       (snapshot) => {
-        const remote: any[] = snapshot.empty
-          ? []
-          : snapshot.docs.map((d) => d.data());
+        let curDeleted: string[] = [];
+        try {
+          const raw = localStorage.getItem('apex_deleted_doubt_ids');
+          curDeleted = raw ? JSON.parse(raw) : [];
+        } catch {}
 
+        if (snapshot.empty) {
+          writeLocalDoubts([]);
+          onNext([]);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new Event('apex_storage_updated'));
+          }
+          return;
+        }
+
+        const remoteDocs: any[] = [];
+        for (const d of snapshot.docs) {
+          const item = d.data();
+          if (item && item.id) {
+            if (curDeleted.includes(item.id)) {
+              deleteFromFirestore('doubts', item.id);
+            } else {
+              remoteDocs.push(item);
+            }
+          }
+        }
+
+        const remoteIdSet = new Set(remoteDocs.map(r => r.id));
         const local = readLocalDoubts();
         const map = new Map<string, any>();
 
-        for (const item of local) {
-          if (item && item.id) map.set(item.id, item);
+        // Remote docs win
+        for (const item of remoteDocs) {
+          map.set(item.id, item);
         }
-        for (const item of remote) {
-          if (item && item.id) map.set(item.id, item);
+
+        // Keep local doubts that are on-going or in-flight (< 15 seconds) if not deleted
+        const now = Date.now();
+        for (const item of local) {
+          if (item && item.id && !curDeleted.includes(item.id) && !remoteIdSet.has(item.id)) {
+            if (item.createdAt) {
+              const dt = new Date(item.createdAt).getTime();
+              if (!isNaN(dt) && now - dt < 15000) {
+                map.set(item.id, item);
+              }
+            }
+          }
         }
 
         const merged = Array.from(map.values());

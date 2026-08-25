@@ -109,6 +109,10 @@ export const AdminTests: React.FC = () => {
   const [editingExpiryTest, setEditingExpiryTest] = useState<Test | null>(null);
   const [newExpiryInput, setNewExpiryInput] = useState<string>('');
 
+  // Delete Confirmation Modal State
+  const [testToDelete, setTestToDelete] = useState<Test | null>(null);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
+
   const refreshTests = () => {
     setTests(StorageService.getTests());
   };
@@ -425,10 +429,22 @@ export const AdminTests: React.FC = () => {
     alert('🎯 Test successfully hosted & published with AI questions and live ranking!');
   };
 
-  const handleDeleteTest = (id: string) => {
-    if (confirm('Are you sure you want to delete this test? All student scores will be removed.')) {
-      StorageService.deleteTest(id);
+  const handleDeleteTest = (t: Test) => {
+    setTestToDelete(t);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!testToDelete) return;
+    setIsDeleting(true);
+    try {
+      await StorageService.deleteTest(testToDelete.id);
       refreshTests();
+      setTestToDelete(null);
+    } catch (err) {
+      console.error('Failed to permanently delete test:', err);
+      alert('Failed to delete test. Please check your network and try again.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -1296,11 +1312,11 @@ export const AdminTests: React.FC = () => {
                       </div>
 
                       <button
-                        onClick={() => handleDeleteTest(t.id)}
-                        className="p-1.5 text-slate-400 hover:text-red-600 transition-colors"
-                        title="Delete Test"
+                        onClick={() => handleDeleteTest(t)}
+                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl border border-transparent hover:border-red-100 transition-all"
+                        title="Delete Test Permanently"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-4 h-4 text-red-500" />
                       </button>
                     </div>
 
@@ -1348,6 +1364,16 @@ export const AdminTests: React.FC = () => {
                         title={isLive ? 'End Live Exam' : 'Make Test Live Again'}
                       >
                         {isLive ? 'End Live' : 'Re-open'}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteTest(t)}
+                        className="px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 font-bold rounded-xl flex items-center gap-1 transition-all border border-red-100"
+                        title="Permanently Delete Test from Database & Students"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                        <span>Delete</span>
                       </button>
                     </div>
 
@@ -1495,10 +1521,23 @@ export const AdminTests: React.FC = () => {
               ))}
             </div>
 
-            <div className="pt-2 border-t border-slate-100 flex justify-end shrink-0">
+            <div className="pt-2 border-t border-slate-100 flex items-center justify-between shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  const target = previewTest;
+                  setPreviewTest(null);
+                  handleDeleteTest(target);
+                }}
+                className="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs rounded-xl flex items-center gap-1.5 border border-red-200 transition-all"
+                title="Delete this test paper permanently"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                <span>Delete Test</span>
+              </button>
               <button
                 onClick={() => setPreviewTest(null)}
-                className="px-5 py-2 bg-slate-900 text-white font-bold text-xs rounded-xl"
+                className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition-all"
               >
                 Close Preview
               </button>
@@ -1588,12 +1627,103 @@ export const AdminTests: React.FC = () => {
               )}
             </div>
 
-            <div className="pt-2 border-t border-slate-100 flex justify-end shrink-0">
+            <div className="pt-2 border-t border-slate-100 flex items-center justify-between shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  const target = viewLeaderboardTest;
+                  setViewLeaderboardTest(null);
+                  handleDeleteTest(target);
+                }}
+                className="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs rounded-xl flex items-center gap-1.5 border border-red-200 transition-all"
+                title="Delete this test permanently"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                <span>Delete Test</span>
+              </button>
               <button
                 onClick={() => setViewLeaderboardTest(null)}
-                className="px-5 py-2 bg-slate-900 text-white font-bold text-xs rounded-xl"
+                className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition-all"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Permanent Delete Test Confirmation Modal */}
+      {testToDelete && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 border border-red-100 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+              <div className="w-10 h-10 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center shrink-0">
+                <ShieldAlert className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900">Delete Test Permanently</h3>
+                <p className="text-xs text-slate-500">Database & Student Portal Removal</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-2 text-xs">
+              <div>
+                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Exam Title</span>
+                <p className="font-black text-slate-900 text-sm">{testToDelete.title}</p>
+              </div>
+              <div className="flex items-center justify-between text-slate-600 font-medium pt-1">
+                <span>Batch: <strong className="text-slate-800">{testToDelete.batchTitle}</strong></span>
+                <span>Subject: <strong className="text-slate-800">{testToDelete.topic}</strong></span>
+              </div>
+              <div className="flex flex-wrap gap-1.5 pt-1.5 text-[11px]">
+                <span className="px-2 py-0.5 rounded-lg bg-white border border-slate-200 font-bold text-slate-700">
+                  {testToDelete.questions?.length || 0} Questions
+                </span>
+                <span className="px-2 py-0.5 rounded-lg bg-white border border-slate-200 font-bold text-slate-700">
+                  {testToDelete.results?.length || 0} Submissions
+                </span>
+                <span className="px-2 py-0.5 rounded-lg bg-white border border-slate-200 font-bold text-slate-700">
+                  {testToDelete.totalMarks} Total Marks
+                </span>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-red-50/90 border border-red-200 rounded-2xl text-xs text-red-800 space-y-1.5">
+              <p className="font-black flex items-center gap-1.5 text-red-950">
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                Are you sure you want to delete this test?
+              </p>
+              <p className="text-[11px] leading-relaxed text-red-700 font-medium">
+                This test will be <strong>permanently deleted from the Firestore database</strong> and <strong>instantly removed from all students' test panels</strong>. All student results and leaderboard entries for this test will also be deleted. This cannot be undone.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setTestToDelete(null)}
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={handleConfirmDelete}
+                className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow-lg shadow-red-600/25 flex items-center gap-2 transition-all disabled:opacity-50"
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Deleting Test...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Yes, Delete Permanently</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
