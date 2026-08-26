@@ -113,6 +113,55 @@ export async function disablePushNotifications(
 }
 
 let foregroundListenerAttached = false;
+
+/**
+ * Triggers a native system popup notification on phone screen or desktop.
+ * Uses ServiceWorkerRegistration.showNotification() when available (which is required
+ * on Chrome Mobile/Android and iOS PWAs), falling back to new Notification().
+ */
+export async function triggerSystemNotification(
+  title: string,
+  body: string,
+  tag?: string
+): Promise<boolean> {
+  if (typeof window === 'undefined' || !('Notification' in window)) return false;
+  if (Notification.permission !== 'granted') return false;
+
+  const notifOptions: NotificationOptions & { vibrate?: number[] } = {
+    body,
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
+    tag: tag || 'apex-pop-' + Date.now(),
+    vibrate: [200, 100, 200, 100, 200],
+    requireInteraction: false
+  };
+
+  // 1. Try Service Worker showNotification first (essential for Chrome Android and Mobile)
+  if ('serviceWorker' in navigator) {
+    try {
+      let reg = await navigator.serviceWorker.getRegistration();
+      if (!reg) {
+        reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js').catch(() => undefined);
+      }
+      if (reg && reg.showNotification) {
+        await reg.showNotification(title, notifOptions);
+        return true;
+      }
+    } catch (err) {
+      console.debug('[FCM] SW showNotification failed, trying fallback:', err);
+    }
+  }
+
+  // 2. Fallback to standard window Notification constructor
+  try {
+    new Notification(title, notifOptions);
+    return true;
+  } catch (err) {
+    console.error('[FCM] Notification constructor failed:', err);
+    return false;
+  }
+}
+
 function attachForegroundListener() {
   if (foregroundListenerAttached) return;
   ensureMessaging().then((messaging) => {
@@ -122,16 +171,7 @@ function attachForegroundListener() {
       console.log('[FCM] Foreground message:', payload);
       const { title, body } = payload.notification ?? {};
       if (title && body) {
-        try {
-          new Notification(title, {
-            body,
-            icon: '/icon-192.png',
-            badge: '/icon-192.png',
-            tag: 'apex-push-' + Date.now()
-          });
-        } catch {
-          // ignore — some browsers block foreground Notification constructor
-        }
+        triggerSystemNotification(title, body);
       }
     });
     foregroundListenerAttached = true;

@@ -25,6 +25,7 @@ import { StorageService } from './lib/storage';
 import { runMonthlyFeeReminderTask } from './lib/scheduledTasks';
 import { AdminVideoCall } from './components/admin/AdminVideoCall';
 import { StudentVideoCall } from './components/student/StudentVideoCall';
+import { NotificationPermissionBanner } from './components/NotificationPermissionBanner';
 
 export default function App() {
   const MODERATOR_IDS = ['APEX2026101', 'APEX2026102'];
@@ -199,6 +200,9 @@ export default function App() {
 
   return (
     <div className="min-h-screen overflow-x-hidden transition-colors duration-200 flex flex-col font-sans selection:bg-amber-400 selection:text-slate-950 bg-slate-50 text-slate-900">
+      {/* Permission request banner for phone/website popup notifications */}
+      <NotificationPermissionBanner role={role} currentStudent={currentStudent} />
+
       {/* Top Navbar */}
       <Navbar
         role={role}

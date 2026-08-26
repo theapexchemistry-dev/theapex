@@ -369,16 +369,18 @@ export function setupFirestoreListeners() {
                 const currentStudent = currentStudentStr ? JSON.parse(currentStudentStr) : null;
                 
                 items.forEach((notif: any) => {
-                  if (!prevIds.has(notif.id) && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+                  if (!prevIds.has(notif.id)) {
                     const matchesRole = notif.targetRole === currentRole || notif.targetRole === 'all';
                     const matchesStudent = !notif.targetStudentId || notif.targetStudentId === currentStudent?.id;
                     
                     if (matchesRole && matchesStudent) {
-                      new Notification(notif.title || 'New Notification', {
-                        body: notif.message,
-                        icon: '/icon-192.png',
-                        tag: notif.id
-                      });
+                      import('./pushNotifications').then(({ triggerSystemNotification }) => {
+                        triggerSystemNotification(
+                          notif.title || 'THE APEX WORLD',
+                          notif.message,
+                          notif.id
+                        );
+                      }).catch(() => {});
                     }
                   }
                 });

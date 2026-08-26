@@ -8,6 +8,13 @@ import './index.css';
 import { loadInitialDataFromFirestore } from './lib/firebaseSync';
 import { StorageService } from './lib/storage';
 
+// ── Register Service Worker for Mobile / Phone Popup Notifications ────────
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/firebase-messaging-sw.js')
+    .then((reg) => console.log('[SW] Firebase messaging worker registered with scope:', reg.scope))
+    .catch((err) => console.debug('[SW] Service worker registration notice:', err));
+}
+
 // Render the app immediately (no loading screen)
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <App />

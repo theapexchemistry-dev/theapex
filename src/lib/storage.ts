@@ -1023,7 +1023,7 @@ export class StorageService {
     }
 
     import('./pushNotifications')
-      .then(({ enqueuePushNotification }) =>
+      .then(({ enqueuePushNotification, triggerSystemNotification }) => {
         enqueuePushNotification({
           id: newNotif.id,
           title: newNotif.title,
@@ -1031,9 +1031,11 @@ export class StorageService {
           type: newNotif.type,
           targetRole: newNotif.targetRole,
           targetStudentId: newNotif.targetStudentId
-        })
-      )
-      .catch((e) => console.warn('Push enqueue failed:', e));
+        });
+
+        triggerSystemNotification(newNotif.title, newNotif.message, newNotif.id);
+      })
+      .catch((e) => console.warn('Push enqueue or trigger failed:', e));
 
     return newNotif;
   }
