@@ -65,7 +65,10 @@ export default function App() {
     }
   }, []);
 
-  const [activeTab, setActiveTab] = useState<string>(() => {
+  const [activeTab, setActiveTabState] = useState<string>(() => {
+    const hash = window.location.hash.replace('#', '');
+    if (hash) return hash;
+    
     const savedRole = localStorage.getItem('apex_session_role');
     const savedTab = localStorage.getItem('apex_session_tab');
     const pendingTestId = localStorage.getItem('apex_pending_test_id');
@@ -77,6 +80,31 @@ export default function App() {
     }
     return 'home';
   });
+
+  const setActiveTab = (tab: string) => {
+    window.location.hash = tab;
+  };
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace('#', '');
+      if (hash) {
+        setActiveTabState(hash);
+      } else {
+        const savedRole = localStorage.getItem('apex_session_role');
+        setActiveTabState(savedRole && savedRole !== 'guest' ? 'dashboard' : 'home');
+      }
+    };
+    
+    if (!window.location.hash) {
+      window.history.replaceState(null, '', `#${activeTab}`);
+    } else {
+      handleHashChange();
+    }
+    
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
 
   // Sync tab changes to storage
   useEffect(() => {

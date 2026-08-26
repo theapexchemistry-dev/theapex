@@ -357,6 +357,36 @@ export function setupFirestoreListeners() {
               }
             });
           } else {
+            // ── Check for new notifications to trigger system push ──
+            if (col === 'notifications') {
+              try {
+                const prev = localStorage.getItem('apex_notifications_v2');
+                const prevIds = new Set(prev ? JSON.parse(prev).map((n: any) => n.id) : []);
+                
+                // Process the new notifications
+                const currentRole = localStorage.getItem('apex_session_role');
+                const currentStudentStr = localStorage.getItem('apex_session_student');
+                const currentStudent = currentStudentStr ? JSON.parse(currentStudentStr) : null;
+                
+                items.forEach((notif: any) => {
+                  if (!prevIds.has(notif.id) && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+                    const matchesRole = notif.targetRole === currentRole || notif.targetRole === 'all';
+                    const matchesStudent = !notif.targetStudentId || notif.targetStudentId === currentStudent?.id;
+                    
+                    if (matchesRole && matchesStudent) {
+                      new Notification(notif.title || 'New Notification', {
+                        body: notif.message,
+                        icon: '/icon-192.png',
+                        tag: notif.id
+                      });
+                    }
+                  }
+                });
+              } catch (e) {
+                console.debug('Failed to check for new notifications:', e);
+              }
+            }
+
             // ── MERGE instead of overwrite ──
             // This is the key fix: we union local + remote by ID, and for
             // fee records we also dedupe by (studentId + month).
