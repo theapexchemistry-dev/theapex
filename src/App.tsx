@@ -66,9 +66,30 @@ export default function App() {
     }
   }, []);
 
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth < 768;
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const [activeTab, setActiveTabState] = useState<string>(() => {
     const hash = window.location.hash.replace('#', '');
-    if (hash) return hash;
+    if (hash) {
+      if (hash === 'home' && typeof window !== 'undefined' && window.innerWidth < 768) {
+        return 'login';
+      }
+      return hash;
+    }
     
     const savedRole = localStorage.getItem('apex_session_role');
     const savedTab = localStorage.getItem('apex_session_tab');
@@ -79,21 +100,37 @@ export default function App() {
     if (savedRole && savedRole !== 'guest') {
       return savedTab || 'dashboard';
     }
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      return 'login';
+    }
     return 'home';
   });
 
   const setActiveTab = (tab: string) => {
-    window.location.hash = tab;
+    if (isMobile && tab === 'home' && role === 'guest') {
+      window.location.hash = 'login';
+    } else {
+      window.location.hash = tab;
+    }
   };
 
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#', '');
       if (hash) {
-        setActiveTabState(hash);
+        if (hash === 'home' && isMobile && role === 'guest') {
+          setActiveTabState('login');
+          window.location.hash = 'login';
+        } else {
+          setActiveTabState(hash);
+        }
       } else {
         const savedRole = localStorage.getItem('apex_session_role');
-        setActiveTabState(savedRole && savedRole !== 'guest' ? 'dashboard' : 'home');
+        if (savedRole && savedRole !== 'guest') {
+          setActiveTabState('dashboard');
+        } else {
+          setActiveTabState(isMobile ? 'login' : 'home');
+        }
       }
     };
     
@@ -105,7 +142,7 @@ export default function App() {
     
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
-  }, []);
+  }, [isMobile, role]);
 
   // Sync tab changes to storage
   useEffect(() => {
@@ -204,24 +241,30 @@ export default function App() {
       <NotificationPermissionBanner role={role} currentStudent={currentStudent} />
 
       {/* Top Navbar */}
-      <Navbar
-        role={role}
-        currentStudent={currentStudent}
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-        onLoginClick={() => setActiveTab('login')}
-        onLogout={handleLogout}
-        isModerator={isModeratorAccount || false}
-        onToggleRole={handleRoleToggle}
-      />
+      {!(role === 'guest' && isMobile) && (
+        <Navbar
+          role={role}
+          currentStudent={currentStudent}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          onLoginClick={() => setActiveTab('login')}
+          onLogout={handleLogout}
+          isModerator={isModeratorAccount || false}
+          onToggleRole={handleRoleToggle}
+        />
+      )}
 
       {/* Main Content Area */}
       <main className="flex-1">
         {role === 'guest' ? (
-          activeTab === 'login' ? (
+          (activeTab === 'login' || isMobile) ? (
             <LoginPage
               onLoginSuccess={handleLoginSuccess}
-              onBack={() => setActiveTab('home')}
+              onBack={() => {
+                if (!isMobile) {
+                  setActiveTab('home');
+                }
+              }}
             />
           ) : (
             <LandingPage
@@ -286,7 +329,7 @@ export default function App() {
       </main>
 
       {/* Global Footer */}
-      <Footer />
+      {!(role === 'guest' && isMobile) && <Footer />}
     </div>
   );
 }
