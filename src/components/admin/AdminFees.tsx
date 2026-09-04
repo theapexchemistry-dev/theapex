@@ -488,8 +488,8 @@ The Apex Chemistry`;
         </div>
       </div>
 
-      {/* Student Fee Records Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      {/* Student Fee Records Table (Desktop) */}
+      <div className="hidden md:block bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs whitespace-nowrap">
             <thead>
@@ -677,6 +677,158 @@ The Apex Chemistry`;
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Mobile Card-Based Fee List for Admin (Visible on mobile only, zero scroll!) */}
+      <div className="block md:hidden space-y-4">
+        {filteredStudents.length === 0 ? (
+          <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center text-slate-400 text-xs">
+            No students found matching filters.
+          </div>
+        ) : (
+          filteredStudents.map(student => {
+            const sRecords = dedupeFeeRecords(
+              feeRecords.filter(f => f.studentId === student.id)
+            ).sort((a, b) => {
+              const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+              const [mA, yA] = a.month.split(' ');
+              const [mB, yB] = b.month.split(' ');
+              const ia = monthNames.indexOf(mA) + parseInt(yA) * 12;
+              const ib = monthNames.indexOf(mB) + parseInt(yB) * 12;
+              return ib - ia;
+            });
+            const pendingRecords = sRecords.filter(f => f.status === 'unpaid' || f.status === 'pending_verification');
+            const totalDue = pendingRecords.reduce((acc, f) => acc + (f.amount || 0), 0);
+
+            return (
+              <div key={student.id} className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
+                {/* Header info */}
+                <div className="flex items-start justify-between gap-2 pb-3 border-b border-slate-100">
+                  <div>
+                    <p className="font-extrabold text-slate-900 text-sm leading-snug">{student.name}</p>
+                    <p className="text-[10px] font-mono text-amber-600 font-bold mt-1 bg-amber-50 px-2 py-0.5 rounded-md inline-block">
+                      {student.id}
+                    </p>
+                    <p className="text-[10px] text-slate-400 mt-1">{student.phone}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs font-extrabold text-slate-800">{student.className}</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">{student.batchTitle}</p>
+                    <p className="text-[11px] font-extrabold text-indigo-600 mt-1">₹{student.fees.toLocaleString()} / mo</p>
+                  </div>
+                </div>
+
+                {/* Ledger items */}
+                <div className="space-y-2">
+                  <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block">Payment History</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {sRecords.length === 0 ? (
+                      <span className="text-[11px] text-slate-400 italic">No records yet</span>
+                    ) : (
+                      sRecords.map(r => (
+                        <div
+                          key={r.id}
+                          className={`inline-flex items-center gap-1.5 px-2 py-1 text-[10px] font-bold rounded-lg border ${
+                            r.status === 'paid'
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              : r.status === 'pending_verification'
+                              ? 'bg-amber-50 text-amber-800 border-amber-300 animate-pulse'
+                              : 'bg-red-50 text-red-700 border-red-200'
+                          }`}
+                        >
+                          <span>{r.month.split(' ')[0]}</span>
+                          {r.screenshotUrl && (
+                            <button
+                              onClick={() => openScreenshotModal(r, student)}
+                              className="p-0.5 hover:bg-black/5 rounded transition-colors text-indigo-700 flex items-center"
+                            >
+                              <Eye className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Verification alerts or overall due */}
+                {sRecords.some(r => r.status === 'pending_verification') ? (
+                  <div className="p-3 bg-amber-50 border border-amber-200/80 rounded-xl space-y-2.5">
+                    <span className="text-[10px] text-amber-800 font-black uppercase tracking-wider block">Needs Verification</span>
+                    {sRecords.filter(r => r.status === 'pending_verification').map(p => (
+                      <div key={p.id} className="flex flex-col gap-2 border-t border-amber-200/40 pt-2.5 first:border-0 first:pt-0">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-black text-amber-900">{p.month} (₹{p.amount})</span>
+                          <span className="text-[9px] font-mono text-amber-700 bg-amber-200/80 px-1.5 py-0.5 rounded">
+                            Ref: {p.transactionRef || 'Pending'}
+                          </span>
+                        </div>
+                        <div className="flex gap-2">
+                          {p.screenshotUrl && (
+                            <button
+                              onClick={() => openScreenshotModal(p, student)}
+                              className="flex-1 py-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 font-extrabold text-[10px] rounded-lg flex items-center justify-center gap-1"
+                            >
+                              <Eye className="w-3.5 h-3.5" /> View Receipt
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleVerifyPayment(p.id, 'paid')}
+                            className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[10px] rounded-lg flex items-center justify-center gap-1 shadow-xs"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => handleVerifyPayment(p.id, 'unpaid')}
+                            className="flex-1 py-1.5 bg-red-600 hover:bg-red-700 text-white font-extrabold text-[10px] rounded-lg flex items-center justify-center gap-1 shadow-xs"
+                          >
+                            Decline
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between py-1 border-t border-slate-50 pt-3">
+                    <div>
+                      {totalDue === 0 ? (
+                        <span className="text-emerald-600 font-extrabold text-xs flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Up to Date
+                        </span>
+                      ) : (
+                        <span className="text-red-600 font-black text-xs">₹{totalDue.toLocaleString()} Total Due</span>
+                      )}
+                    </div>
+                    {totalDue > 0 && (
+                      <button
+                        onClick={() => handleSendReminder(student, totalDue)}
+                        className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 active:scale-[0.98] text-slate-700 font-bold text-xs rounded-xl transition-all flex items-center gap-1"
+                      >
+                        <MessageCircle className="w-3.5 h-3.5" /> Send Reminder
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Quick Manual Actions */}
+                <div className="pt-1 flex gap-2">
+                  <button
+                    onClick={() => handleMarkPaidManually(student)}
+                    className="flex-1 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Mark Paid (Cash)
+                  </button>
+                  <button
+                    onClick={() => openCustomPayment(student)}
+                    className="flex-1 py-2 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1"
+                  >
+                    <Wallet className="w-3.5 h-3.5" /> Custom Pay
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
 
       {/* Screenshot Viewer Modal */}
