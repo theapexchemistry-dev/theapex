@@ -236,7 +236,9 @@ export default function App() {
   }, [role, currentStudent]);
 
   return (
-    <div className="min-h-screen overflow-x-hidden transition-colors duration-200 flex flex-col font-sans selection:bg-amber-400 selection:text-slate-950 bg-slate-50 text-slate-900">
+    <div className={`min-h-screen overflow-x-hidden transition-colors duration-200 flex flex-col font-sans selection:bg-amber-400 selection:text-slate-950 ${
+      role === 'guest' && isMobile ? 'bg-[#060813]' : 'bg-slate-50 text-slate-900'
+    }`}>
       {/* Permission request banner for phone/website popup notifications */}
       <NotificationPermissionBanner role={role} currentStudent={currentStudent} />
 

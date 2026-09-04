@@ -593,260 +593,272 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       </div>
 
       {/* ── MOBILE VERSION (Premium Luxury Dark Theme styled after image.png) ── */}
-      <div className="md:hidden flex flex-col min-h-[92vh] w-full bg-[#060813] text-white relative overflow-hidden px-5 py-6 z-10">
-        {/* Ambient background blur behind the logo */}
-        <div className="absolute top-0 inset-x-0 h-96 pointer-events-none overflow-hidden z-0">
-          <div className={`absolute top-[-50px] left-1/2 -translate-x-1/2 w-[340px] h-[340px] rounded-full blur-[100px] opacity-35 transition-colors duration-1000 ${
-            activeTab === 'admin' ? 'bg-indigo-600/60' : 'bg-[#D2FF3A]/40'
-          }`} />
-        </div>
-
-        {/* Top Header Row */}
-        <div className="flex items-center justify-between z-10 mb-8">
-          <button
-            onClick={onBack}
-            className="p-3 bg-slate-900/60 border border-slate-800/80 rounded-full text-slate-300 hover:text-white transition-all flex items-center justify-center active:scale-90"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          
-          <div className="text-xs font-black tracking-widest text-[#D2FF3A] uppercase">
-            {activeTab === 'admin' ? '🔑 SECURE PORTAL' : 'THE APEX WORLD'}
-          </div>
-
-          <button
-            onClick={handleLogoTap}
-            className="p-3 bg-slate-900/60 border border-slate-800/80 rounded-full text-slate-300 flex items-center justify-center active:scale-90"
-          >
-            <Sparkles className="w-5 h-5 text-amber-400" />
-          </button>
-        </div>
-
-        {/* Dynamic Round Globe Logo at Top */}
-        <div className="flex flex-col items-center justify-center z-10 mb-7">
-          <div className="relative group">
-            {/* Pulsing colored ring depending on active login type */}
-            <div className={`absolute -inset-1.5 rounded-full blur-md opacity-80 animate-pulse transition-all duration-1000 ${
-              activeTab === 'admin' 
-                ? 'bg-gradient-to-r from-purple-500 via-indigo-600 to-amber-500' 
-                : 'bg-gradient-to-r from-[#D2FF3A] via-emerald-500 to-[#D2FF3A]'
+      <div className="md:hidden flex flex-col min-h-screen w-full bg-[#060813] text-white relative overflow-hidden px-5 pt-6 pb-8 z-10 justify-between">
+        <div className="flex flex-col w-full">
+          {/* Ambient background blur behind the logo */}
+          <div className="absolute top-0 inset-x-0 h-96 pointer-events-none overflow-hidden z-0">
+            <div className={`absolute top-[-50px] left-1/2 -translate-x-1/2 w-[340px] h-[340px] rounded-full blur-[100px] opacity-35 transition-colors duration-1000 ${
+              activeTab === 'admin' ? 'bg-indigo-600/60' : 'bg-[#D2FF3A]/40'
             }`} />
+          </div>
 
-            <div 
+          {/* Top Header Row */}
+          <div className="flex items-center justify-between z-10 mb-8">
+            <button
+              onClick={onBack}
+              className="p-3 bg-slate-900/60 border border-slate-800/80 rounded-full text-slate-300 hover:text-white transition-all flex items-center justify-center active:scale-90"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            
+            <div className="text-xs font-black tracking-widest text-[#D2FF3A] uppercase">
+              {activeTab === 'admin' ? '🔑 SECURE PORTAL' : 'THE APEX WORLD'}
+            </div>
+
+            <button
               onClick={handleLogoTap}
-              className="w-28 h-28 rounded-full relative flex items-center justify-center border-4 border-slate-900 bg-slate-950 overflow-hidden shadow-2xl select-none cursor-pointer active:scale-95 transition-all duration-300"
+              className="p-3 bg-slate-900/60 border border-slate-800/80 rounded-full text-slate-300 flex items-center justify-center active:scale-90"
             >
-              <img
-                src={siteLogo || apexLogoFallback}
-                alt="The Apex"
-                className="w-full h-full object-cover rounded-full"
-              />
-            </div>
+              <Sparkles className="w-5 h-5 text-amber-400" />
+            </button>
           </div>
 
-          {logoTaps > 0 && logoTaps < 5 && (
-            <div className="text-[10px] text-slate-400 font-bold tracking-wider mt-2.5 animate-pulse uppercase">
-              Keep tapping... {5 - logoTaps} more to reveal admin
-            </div>
-          )}
-
-          {secretAdminRevealed && (
-            <motion.div 
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="mt-3.5 bg-indigo-950/90 border border-indigo-500/30 text-indigo-200 px-3.5 py-1 rounded-full text-[10px] font-black tracking-widest uppercase flex items-center gap-1.5 shadow-md shadow-indigo-950/50"
-            >
-              <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" /> Admin Mode Enabled
-            </motion.div>
-          )}
-        </div>
-
-        {/* Header Texts */}
-        <div className="text-center z-10 mb-6 px-1">
-          <h2 className="text-2xl font-black tracking-tight text-white leading-tight">
-            {activeTab === 'admin' ? 'Welcome Back, Sir!' : 'Welcome Back!'}
-          </h2>
-          <p className="text-slate-400 text-[11px] mt-2 max-w-sm mx-auto leading-relaxed font-medium">
-            {activeTab === 'admin' 
-              ? 'Secure admin authorization screen to manage batches, schedule tests, and view portal reports.'
-              : 'Sign in to access smart, personalized chemistry plans, study sheets, and portal activities.'}
-          </p>
-        </div>
-
-        {/* Proper Switch Selector (Revealed to Admin on Tap / Secret) */}
-        {secretAdminRevealed && (
-          <motion.div 
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-slate-900/85 p-1.5 rounded-2xl border border-slate-800 flex gap-2 z-10 mb-6 shadow-inner"
-          >
-            <button
-              onClick={() => { setActiveTab('student'); setError(''); }}
-              className={`flex-1 py-2 rounded-xl text-xs font-extrabold transition-all duration-200 flex items-center justify-center gap-1.5 ${
-                activeTab === 'student' 
-                  ? 'bg-[#D2FF3A] text-slate-950 shadow-md font-black' 
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <UserCheck className="w-4 h-4" /> Student Portal
-            </button>
-            <button
-              onClick={() => { setActiveTab('admin'); setError(''); }}
-              className={`flex-1 py-2 rounded-xl text-xs font-extrabold transition-all duration-200 flex items-center justify-center gap-1.5 ${
+          {/* Dynamic Round Globe Logo at Top */}
+          <div className="flex flex-col items-center justify-center z-10 mb-7">
+            <div className="relative group">
+              {/* Pulsing colored ring depending on active login type */}
+              <div className={`absolute -inset-1.5 rounded-full blur-md opacity-80 animate-pulse transition-all duration-1000 ${
                 activeTab === 'admin' 
-                  ? 'bg-indigo-600 text-white shadow-md font-black' 
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <ShieldCheck className="w-4 h-4" /> Admin Mode
-            </button>
-          </motion.div>
-        )}
+                  ? 'bg-gradient-to-r from-purple-500 via-indigo-600 to-amber-500' 
+                  : 'bg-gradient-to-r from-[#D2FF3A] via-emerald-500 to-[#D2FF3A]'
+              }`} />
 
-        {/* Error Alert inside mobile form layout */}
-        {error && (
-          <div className="p-3 rounded-2xl bg-rose-950/50 border border-rose-800/50 text-rose-200 text-xs font-semibold z-10 mb-4 animate-fade-in leading-relaxed">
-            {error}
-          </div>
-        )}
-
-        {/* Mobile Dark Input Form */}
-        <form onSubmit={handleLoginSubmit} className="space-y-4 z-10 flex-1 flex flex-col justify-between">
-          <div className="space-y-4">
-            {/* Custom Input: ID/Email */}
-            <div>
-              <label className="block text-slate-200 text-xs font-bold mb-2 uppercase tracking-widest pl-1">
-                {activeTab === 'student' ? 'Student ID *' : 'Admin Email Address *'}
-              </label>
-              <div className="relative">
-                <User className="w-4 h-4 text-slate-500 absolute left-4 top-3.5" />
-                <input
-                  type="text"
-                  required
-                  placeholder={activeTab === 'student' ? 'example: APEX2026101' : 'theapexchemistry@gmail.com'}
-                  value={username}
-                  onChange={e => setUsername(e.target.value)}
-                  className="w-full bg-[#121624]/90 border border-slate-800/80 rounded-2xl pl-11 pr-4 py-3.5 text-xs font-semibold text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-[#D2FF3A] focus:border-[#D2FF3A] transition-all"
+              <div 
+                onClick={handleLogoTap}
+                className="w-28 h-28 rounded-full relative flex items-center justify-center border-4 border-slate-900 bg-slate-950 overflow-hidden shadow-2xl select-none cursor-pointer active:scale-95 transition-all duration-300"
+              >
+                <img
+                  src={siteLogo || apexLogoFallback}
+                  alt="The Apex"
+                  className="w-full h-full object-cover rounded-full"
                 />
               </div>
             </div>
 
-            {/* Custom Input: Password */}
-            <div>
-              <div className="flex items-center justify-between mb-2 pl-1">
-                <label className="block text-slate-200 text-xs font-bold uppercase tracking-widest">
-                  Password *
-                </label>
-                {activeTab === 'admin' && (
-                  <button
-                    type="button"
-                    onClick={handleOpenForgotModal}
-                    className="text-xs font-bold text-[#D2FF3A] hover:underline"
-                  >
-                    Forgot Password?
-                  </button>
-                )}
-              </div>
-              <div className="relative">
-                <Lock className="w-4 h-4 text-slate-500 absolute left-4 top-3.5" />
-                <input
-                  type={showPassword ? "text" : "password"}
-                  required
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  className="w-full bg-[#121624]/90 border border-slate-800/80 rounded-2xl pl-11 pr-12 py-3.5 text-xs font-semibold text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-[#D2FF3A] focus:border-[#D2FF3A] transition-all"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-4 top-3.5 text-slate-500 hover:text-white"
-                >
-                  {showPassword ? <EyeOff className="w-4.5 h-4.5" /> : <Eye className="w-4.5 h-4.5" />}
-                </button>
-              </div>
-              {activeTab === 'student' && (
-                <p className="text-[10px] text-slate-500 mt-1.5 pl-1 leading-snug">
-                  Default new student password is <code className="bg-slate-900 text-slate-300 px-1 py-0.5 rounded font-bold">student123</code>
-                </p>
-              )}
-            </div>
-
-            {/* Remember Me and help links */}
-            <div className="flex items-center justify-between pt-1 pl-1">
-              <label className="flex items-center gap-2.5 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={e => setRememberMe(e.target.checked)}
-                  className="sr-only"
-                />
-                <div className={`w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all ${
-                  rememberMe ? 'bg-[#D2FF3A] border-[#D2FF3A]' : 'border-slate-700 bg-slate-950'
-                }`}>
-                  {rememberMe && <Check className="w-3.5 h-3.5 text-slate-950 stroke-[3]" />}
-                </div>
-                <span className="text-slate-400 text-xs font-semibold">Remember me</span>
-              </label>
-
-              {activeTab === 'student' && (
-                <button
-                  type="button"
-                  onClick={() => alert('Student IDs are generated instantly on registration. For help, contact Subhamoy Mondal.')}
-                  className="text-xs font-bold text-slate-500 hover:text-slate-300 flex items-center gap-1 transition-colors"
-                >
-                  <HelpCircle className="w-3.5 h-3.5" /> Need Help?
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Form Action Controls and Submit */}
-          <div className="space-y-5 pt-8">
-            <button
-              type="submit"
-              disabled={loading}
-              className={`w-full py-3.5 rounded-full font-black text-sm tracking-wide shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 ${
-                activeTab === 'admin'
-                  ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/25'
-                  : 'bg-[#D2FF3A] hover:bg-[#C2EE2A] text-slate-950 shadow-[0_4px_25px_rgba(210,255,58,0.2)]'
-              }`}
-            >
-              {loading ? (
-                <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <LogIn className="w-4.5 h-4.5" />
-              )}
-              {loading ? 'Authenticating...' : activeTab === 'admin' ? 'Sign in as Admin' : 'Sign in'}
-            </button>
-
-            {activeTab === 'student' && (
-              <div className="text-center pt-2">
-                <p className="text-slate-400 text-xs font-bold">
-                  Don't have an account?{' '}
-                  <button
-                    type="button"
-                    onClick={handleOpenCreateModal}
-                    className="text-[#D2FF3A] font-black hover:underline transition-all"
-                  >
-                    Sign up
-                  </button>
-                </p>
+            {logoTaps > 0 && logoTaps < 5 && (
+              <div className="text-[10px] text-slate-400 font-bold tracking-wider mt-2.5 animate-pulse uppercase">
+                Keep tapping... {5 - logoTaps} more to reveal admin
               </div>
             )}
 
-            {/* Invisible ultra-discreet secret area to toggle in case logo tapping is missed */}
-            <div 
-              onClick={() => {
-                setActiveTab('admin');
-                setSecretAdminRevealed(true);
-                setError('');
-              }}
-              className="h-2 w-12 mx-auto opacity-0 cursor-default"
-              title="Override Portal"
-            />
+            {secretAdminRevealed && (
+              <motion.div 
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className="mt-3.5 bg-indigo-950/90 border border-indigo-500/30 text-indigo-200 px-3.5 py-1 rounded-full text-[10px] font-black tracking-widest uppercase flex items-center gap-1.5 shadow-md shadow-indigo-950/50"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" /> Admin Mode Enabled
+              </motion.div>
+            )}
           </div>
-        </form>
+
+          {/* Header Texts */}
+          <div className="text-center z-10 mb-6 px-1">
+            <h2 className="text-2xl font-black tracking-tight text-white leading-tight">
+              {activeTab === 'admin' ? 'Welcome Back, Sir!' : 'Welcome Back!'}
+            </h2>
+            <p className="text-slate-400 text-[11px] mt-2 max-w-sm mx-auto leading-relaxed font-medium">
+              {activeTab === 'admin' 
+                ? 'Secure admin authorization screen to manage batches, schedule tests, and view portal reports.'
+                : 'Sign in to access smart, personalized chemistry plans, study sheets, and portal activities.'}
+            </p>
+          </div>
+
+          {/* Proper Switch Selector (Revealed to Admin on Tap / Secret) */}
+          {secretAdminRevealed && (
+            <motion.div 
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-slate-900/85 p-1.5 rounded-2xl border border-slate-800 flex gap-2 z-10 mb-6 shadow-inner"
+            >
+              <button
+                onClick={() => { setActiveTab('student'); setError(''); }}
+                className={`flex-1 py-2 rounded-xl text-xs font-extrabold transition-all duration-200 flex items-center justify-center gap-1.5 ${
+                  activeTab === 'student' 
+                    ? 'bg-[#D2FF3A] text-slate-950 shadow-md font-black' 
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <UserCheck className="w-4 h-4" /> Student Portal
+              </button>
+              <button
+                onClick={() => { setActiveTab('admin'); setError(''); }}
+                className={`flex-1 py-2 rounded-xl text-xs font-extrabold transition-all duration-200 flex items-center justify-center gap-1.5 ${
+                  activeTab === 'admin' 
+                    ? 'bg-indigo-600 text-white shadow-md font-black' 
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <ShieldCheck className="w-4 h-4" /> Admin Mode
+              </button>
+            </motion.div>
+          )}
+
+          {/* Error Alert inside mobile form layout */}
+          {error && (
+            <div className="p-3 rounded-2xl bg-rose-950/50 border border-rose-800/50 text-rose-200 text-xs font-semibold z-10 mb-4 animate-fade-in leading-relaxed">
+              {error}
+            </div>
+          )}
+
+          {/* Mobile Dark Input Form */}
+          <form onSubmit={handleLoginSubmit} className="space-y-4 z-10 w-full">
+            <div className="space-y-4">
+              {/* Custom Input: ID/Email */}
+              <div>
+                <label className="block text-slate-200 text-xs font-bold mb-2 uppercase tracking-widest pl-1">
+                  {activeTab === 'student' ? 'Student ID *' : 'Admin Email Address *'}
+                </label>
+                <div className="relative">
+                  <User className="w-4 h-4 text-slate-500 absolute left-4 top-3.5" />
+                  <input
+                    type="text"
+                    required
+                    placeholder={activeTab === 'student' ? 'example: APEX2026101' : 'theapexchemistry@gmail.com'}
+                    value={username}
+                    onChange={e => setUsername(e.target.value)}
+                    className="w-full bg-[#121624]/90 border border-slate-800/80 rounded-2xl pl-11 pr-4 py-3.5 text-xs font-semibold text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-[#D2FF3A] focus:border-[#D2FF3A] transition-all"
+                  />
+                </div>
+              </div>
+
+              {/* Custom Input: Password */}
+              <div>
+                <div className="flex items-center justify-between mb-2 pl-1">
+                  <label className="block text-slate-200 text-xs font-bold uppercase tracking-widest">
+                    Password *
+                  </label>
+                  {activeTab === 'admin' && (
+                    <button
+                      type="button"
+                      onClick={handleOpenForgotModal}
+                      className="text-xs font-bold text-[#D2FF3A] hover:underline"
+                    >
+                      Forgot Password?
+                  </button>
+                  )}
+                </div>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-slate-500 absolute left-4 top-3.5" />
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    required
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    className="w-full bg-[#121624]/90 border border-slate-800/80 rounded-2xl pl-11 pr-12 py-3.5 text-xs font-semibold text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-[#D2FF3A] focus:border-[#D2FF3A] transition-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-3.5 text-slate-500 hover:text-white"
+                  >
+                    {showPassword ? <EyeOff className="w-4.5 h-4.5" /> : <Eye className="w-4.5 h-4.5" />}
+                  </button>
+                </div>
+                {activeTab === 'student' && (
+                  <p className="text-[10px] text-slate-500 mt-1.5 pl-1 leading-snug">
+                    Default new student password is <code className="bg-slate-900 text-slate-300 px-1 py-0.5 rounded font-bold">student123</code>
+                  </p>
+                )}
+              </div>
+
+              {/* Remember Me and help links */}
+              <div className="flex items-center justify-between pt-1 pl-1">
+                <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={e => setRememberMe(e.target.checked)}
+                    className="sr-only"
+                  />
+                  <div className={`w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all ${
+                    rememberMe ? 'bg-[#D2FF3A] border-[#D2FF3A]' : 'border-slate-700 bg-slate-950'
+                  }`}>
+                    {rememberMe && <Check className="w-3.5 h-3.5 text-slate-950 stroke-[3]" />}
+                  </div>
+                  <span className="text-slate-400 text-xs font-semibold">Remember me</span>
+                </label>
+
+                {activeTab === 'student' && (
+                  <button
+                    type="button"
+                    onClick={() => alert('Student IDs are generated instantly on registration. For help, contact Subhamoy Mondal.')}
+                    className="text-xs font-bold text-slate-500 hover:text-slate-300 flex items-center gap-1 transition-colors"
+                  >
+                    <HelpCircle className="w-3.5 h-3.5" /> Need Help?
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Form Action Controls and Submit */}
+            <div className="space-y-5 pt-8">
+              <button
+                type="submit"
+                disabled={loading}
+                className={`w-full py-3.5 rounded-full font-black text-sm tracking-wide shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 ${
+                  activeTab === 'admin'
+                    ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/25'
+                    : 'bg-[#D2FF3A] hover:bg-[#C2EE2A] text-slate-950 shadow-[0_4px_25px_rgba(210,255,58,0.2)]'
+                }`}
+              >
+                {loading ? (
+                  <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <LogIn className="w-4.5 h-4.5" />
+                )}
+                {loading ? 'Authenticating...' : activeTab === 'admin' ? 'Sign in as Admin' : 'Sign in'}
+              </button>
+
+              {activeTab === 'student' && (
+                <div className="text-center pt-2">
+                  <p className="text-slate-400 text-xs font-bold">
+                    Don't have an account?{' '}
+                    <button
+                      type="button"
+                      onClick={handleOpenCreateModal}
+                      className="text-[#D2FF3A] font-black hover:underline transition-all"
+                    >
+                      Sign up
+                    </button>
+                  </p>
+                </div>
+              )}
+
+              {/* Invisible ultra-discreet secret area to toggle in case logo tapping is missed */}
+              <div 
+                onClick={() => {
+                  setActiveTab('admin');
+                  setSecretAdminRevealed(true);
+                  setError('');
+                }}
+                className="h-2 w-12 mx-auto opacity-0 cursor-default"
+                title="Override Portal"
+              />
+            </div>
+          </form>
+        </div>
+
+        {/* Dynamic Mobile Footer with custom credit lines */}
+        <div className="mt-8 text-center space-y-2 z-10 w-full border-t border-slate-900 pt-5">
+          <p className="text-[10px] text-slate-500 font-bold leading-normal px-4">
+            © 2026 The Apex World • Faculty: Mr. Subhamoy Mondal. All rights reserved.
+          </p>
+          <p className="text-[10px] text-slate-500 font-bold tracking-wide flex items-center justify-center gap-1.5">
+            Built with <span className="text-rose-500 animate-pulse text-xs">❤️</span> by <span className="text-[#D2FF3A] font-black">A&T Tech Firm</span>
+          </p>
+        </div>
       </div>
 
       {/* Forgot Password Modal */}
