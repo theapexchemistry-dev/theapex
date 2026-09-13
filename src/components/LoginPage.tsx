@@ -27,6 +27,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [secretAdminRevealed, setSecretAdminRevealed] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [siteLogo, setSiteLogo] = useState<string | null>(null);
+  const [showMobileSignup, setShowMobileSignup] = useState(false);
 
   useEffect(() => {
     setSiteLogo(StorageService.getSiteLogo());
@@ -93,7 +94,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     setCreateSuccess('');
     setGeneratedId('');
     setGeneratedPass('');
-    setShowCreateModal(true);
+    
+    if (window.innerWidth < 768) {
+      setShowMobileSignup(true);
+      setShowCreateModal(false);
+    } else {
+      setShowCreateModal(true);
+      setShowMobileSignup(false);
+    }
   };
 
   const handleCreateAccount = async (e: React.FormEvent) => {
@@ -597,271 +605,485 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         </motion.div>
       </div>
 
-      {/* ── MOBILE VERSION (Premium Luxury Dark Theme styled after image.png) ── */}
-      <div className="md:hidden flex flex-col min-h-screen w-full bg-[#060813] text-white relative overflow-hidden px-5 pt-6 pb-8 z-10 justify-between">
-        <div className="flex flex-col w-full">
-          {/* Ambient background blur behind the logo */}
-          <div className="absolute top-0 inset-x-0 h-96 pointer-events-none overflow-hidden z-0">
-            <div className={`absolute top-[-50px] left-1/2 -translate-x-1/2 w-[340px] h-[340px] rounded-full blur-[100px] opacity-35 transition-colors duration-1000 ${
-              activeTab === 'admin' ? 'bg-indigo-600/60' : 'bg-[#D2FF3A]/40'
-            }`} />
+      {/* ── MOBILE VERSION (Premium Warm Beige Theme styled after reference image) ── */}
+      <div className="md:hidden flex flex-col min-h-screen w-full bg-[#EFECE6] text-slate-800 relative overflow-hidden px-5 pt-6 pb-8 z-10 justify-between">
+        <div className="flex flex-col w-full relative">
+          
+          {/* Top-Right Organic Fluid Wave Shape (Precise SVG reproduction from reference image) */}
+          <div className="absolute -top-6 -right-5 w-44 h-44 pointer-events-none z-0">
+            <svg className="w-full h-full" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M45 0C70 40 120 45 180 25V0H45Z" fill="url(#orangeBlobMobile)" />
+              <path d="M75 0C95 30 145 32 180 12V0H75Z" fill="url(#yellowBlobMobile)" opacity="0.85" />
+              <defs>
+                <linearGradient id="orangeBlobMobile" x1="45" y1="0" x2="180" y2="120" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stopColor="#FB8C00" />
+                  <stop offset="100%" stopColor="#E65100" />
+                </linearGradient>
+                <linearGradient id="yellowBlobMobile" x1="75" y1="0" x2="180" y2="80" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stopColor="#FFD54F" />
+                  <stop offset="100%" stopColor="#FF8F00" />
+                </linearGradient>
+              </defs>
+            </svg>
           </div>
 
-          {/* Top Header Row */}
-          <div className="flex items-center justify-between z-10 mb-8">
-            <button
-              onClick={onBack}
-              className="p-3 bg-slate-900/60 border border-slate-800/80 rounded-full text-slate-300 hover:text-white transition-all flex items-center justify-center active:scale-90"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            
-            <div className="text-xs font-black tracking-widest text-[#D2FF3A] uppercase">
-              {activeTab === 'admin' ? '🔑 SECURE PORTAL' : 'THE APEX WORLD'}
+          {/* Top Row: Back action and title */}
+          {!showMobileSignup && (
+            <div className="flex items-center justify-between z-10 mb-6">
+              <button
+                onClick={onBack}
+                className="p-2.5 bg-white shadow-[0_4px_12px_rgba(0,0,0,0.04)] border border-slate-200/80 rounded-full text-slate-600 hover:text-slate-900 transition-all flex items-center justify-center active:scale-90"
+              >
+                <ArrowLeft className="w-4.5 h-4.5" />
+              </button>
+              <div className="text-[10px] font-black tracking-widest text-slate-400 uppercase">
+                {activeTab === 'admin' ? '🔑 SECURE PORTAL' : 'THE APEX WORLD'}
+              </div>
+              <div className="w-9" />
             </div>
+          )}
 
-            <button
+          {/* Centered App Logo - Egg trigger on 5 silent clicks (no labels/counters) */}
+          <div className="flex justify-center w-full mt-2 mb-7 z-10 relative">
+            <div 
               onClick={handleLogoTap}
-              className="p-3 bg-slate-900/60 border border-slate-800/80 rounded-full text-slate-300 flex items-center justify-center active:scale-90"
+              className="w-20 h-20 rounded-full bg-white p-1.5 shadow-[0_8px_25px_rgba(0,0,0,0.06)] border border-slate-200/60 cursor-pointer active:scale-95 transition-all flex items-center justify-center select-none"
             >
-              <Sparkles className="w-5 h-5 text-amber-400" />
-            </button>
-          </div>
-
-          {/* Dynamic Round Globe Logo at Top */}
-          <div className="flex flex-col items-center justify-center z-10 mb-7">
-            <div className="relative group">
-              {/* Pulsing colored ring depending on active login type */}
-              <div className={`absolute -inset-1.5 rounded-full blur-md opacity-80 animate-pulse transition-all duration-1000 ${
-                activeTab === 'admin' 
-                  ? 'bg-gradient-to-r from-purple-500 via-indigo-600 to-amber-500' 
-                  : 'bg-gradient-to-r from-[#D2FF3A] via-emerald-500 to-[#D2FF3A]'
-              }`} />
-
-              <div 
-                onClick={handleLogoTap}
-                className="w-28 h-28 rounded-full relative flex items-center justify-center border-4 border-slate-900 bg-slate-950 overflow-hidden shadow-2xl select-none cursor-pointer active:scale-95 transition-all duration-300"
-              >
-                <img
-                  src={siteLogo || apexLogoFallback}
-                  alt="The Apex"
-                  className="w-full h-full object-cover rounded-full"
-                />
-              </div>
-            </div>
-
-            {logoTaps > 0 && logoTaps < 5 && (
-              <div className="text-[10px] text-slate-400 font-bold tracking-wider mt-2.5 animate-pulse uppercase">
-                Keep tapping... {5 - logoTaps} more to reveal admin
-              </div>
-            )}
-
-            {secretAdminRevealed && (
-              <motion.div 
-                initial={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                className="mt-3.5 bg-indigo-950/90 border border-indigo-500/30 text-indigo-200 px-3.5 py-1 rounded-full text-[10px] font-black tracking-widest uppercase flex items-center gap-1.5 shadow-md shadow-indigo-950/50"
-              >
-                <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" /> Admin Mode Enabled
-              </motion.div>
-            )}
-          </div>
-
-          {/* Header Texts */}
-          <div className="text-center z-10 mb-6 px-1">
-            <h2 className="text-2xl font-black tracking-tight text-white leading-tight">
-              {activeTab === 'admin' ? 'Welcome Back, Sir!' : 'Welcome Back!'}
-            </h2>
-            <p className="text-slate-400 text-[11px] mt-2 max-w-sm mx-auto leading-relaxed font-medium">
-              {activeTab === 'admin' 
-                ? 'Secure admin authorization screen to manage batches, schedule tests, and view portal reports.'
-                : 'Sign in to access smart, personalized chemistry plans, study sheets, and portal activities.'}
-            </p>
-          </div>
-
-          {/* Proper Switch Selector (Revealed to Admin on Tap / Secret) */}
-          {secretAdminRevealed && (
-            <motion.div 
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-slate-900/85 p-1.5 rounded-2xl border border-slate-800 flex gap-2 z-10 mb-6 shadow-inner"
-            >
-              <button
-                onClick={() => { setActiveTab('student'); setError(''); }}
-                className={`flex-1 py-2 rounded-xl text-xs font-extrabold transition-all duration-200 flex items-center justify-center gap-1.5 ${
-                  activeTab === 'student' 
-                    ? 'bg-[#D2FF3A] text-slate-950 shadow-md font-black' 
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <UserCheck className="w-4 h-4" /> Student Portal
-              </button>
-              <button
-                onClick={() => { setActiveTab('admin'); setError(''); }}
-                className={`flex-1 py-2 rounded-xl text-xs font-extrabold transition-all duration-200 flex items-center justify-center gap-1.5 ${
-                  activeTab === 'admin' 
-                    ? 'bg-indigo-600 text-white shadow-md font-black' 
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <ShieldCheck className="w-4 h-4" /> Admin Mode
-              </button>
-            </motion.div>
-          )}
-
-          {/* Error Alert inside mobile form layout */}
-          {error && (
-            <div className="p-3 rounded-2xl bg-rose-950/50 border border-rose-800/50 text-rose-200 text-xs font-semibold z-10 mb-4 animate-fade-in leading-relaxed">
-              {error}
-            </div>
-          )}
-
-          {/* Mobile Dark Input Form */}
-          <form onSubmit={handleLoginSubmit} className="space-y-4 z-10 w-full">
-            <div className="space-y-4">
-              {/* Custom Input: ID/Email */}
-              <div>
-                <label className="block text-slate-200 text-xs font-bold mb-2 uppercase tracking-widest pl-1">
-                  {activeTab === 'student' ? 'Student ID *' : 'Admin Email Address *'}
-                </label>
-                <div className="relative">
-                  <User className="w-4 h-4 text-slate-500 absolute left-4 top-3.5" />
-                  <input
-                    type="text"
-                    required
-                    placeholder={activeTab === 'student' ? 'example: APEX2026101' : 'theapexchemistry@gmail.com'}
-                    value={username}
-                    onChange={e => setUsername(e.target.value)}
-                    className="w-full bg-[#121624]/90 border border-slate-800/80 rounded-2xl pl-11 pr-4 py-3.5 text-xs font-semibold text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-[#D2FF3A] focus:border-[#D2FF3A] transition-all"
-                  />
-                </div>
-              </div>
-
-              {/* Custom Input: Password */}
-              <div>
-                <div className="flex items-center justify-between mb-2 pl-1">
-                  <label className="block text-slate-200 text-xs font-bold uppercase tracking-widest">
-                    Password *
-                  </label>
-                  {activeTab === 'admin' && (
-                    <button
-                      type="button"
-                      onClick={handleOpenForgotModal}
-                      className="text-xs font-bold text-[#D2FF3A] hover:underline"
-                    >
-                      Forgot Password?
-                  </button>
-                  )}
-                </div>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-500 absolute left-4 top-3.5" />
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    required
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    className="w-full bg-[#121624]/90 border border-slate-800/80 rounded-2xl pl-11 pr-12 py-3.5 text-xs font-semibold text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-[#D2FF3A] focus:border-[#D2FF3A] transition-all"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-3.5 text-slate-500 hover:text-white"
-                  >
-                    {showPassword ? <EyeOff className="w-4.5 h-4.5" /> : <Eye className="w-4.5 h-4.5" />}
-                  </button>
-                </div>
-                {activeTab === 'student' && (
-                  <p className="text-[10px] text-slate-500 mt-1.5 pl-1 leading-snug">
-                    Default new student password is <code className="bg-slate-900 text-slate-300 px-1 py-0.5 rounded font-bold">student123</code>
-                  </p>
-                )}
-              </div>
-
-              {/* Remember Me and help links */}
-              <div className="flex items-center justify-between pt-1 pl-1">
-                <label className="flex items-center gap-2.5 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={rememberMe}
-                    onChange={e => setRememberMe(e.target.checked)}
-                    className="sr-only"
-                  />
-                  <div className={`w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all ${
-                    rememberMe ? 'bg-[#D2FF3A] border-[#D2FF3A]' : 'border-slate-700 bg-slate-950'
-                  }`}>
-                    {rememberMe && <Check className="w-3.5 h-3.5 text-slate-950 stroke-[3]" />}
-                  </div>
-                  <span className="text-slate-400 text-xs font-semibold">Remember me</span>
-                </label>
-
-                {activeTab === 'student' && (
-                  <button
-                    type="button"
-                    onClick={() => alert('Student IDs are generated instantly on registration. For help, contact Subhamoy Mondal.')}
-                    className="text-xs font-bold text-slate-500 hover:text-slate-300 flex items-center gap-1 transition-colors"
-                  >
-                    <HelpCircle className="w-3.5 h-3.5" /> Need Help?
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Form Action Controls and Submit */}
-            <div className="space-y-5 pt-8">
-              <button
-                type="submit"
-                disabled={loading}
-                className={`w-full py-3.5 rounded-full font-black text-sm tracking-wide shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 ${
-                  activeTab === 'admin'
-                    ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/25'
-                    : 'bg-[#D2FF3A] hover:bg-[#C2EE2A] text-slate-950 shadow-[0_4px_25px_rgba(210,255,58,0.2)]'
-                }`}
-              >
-                {loading ? (
-                  <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <LogIn className="w-4.5 h-4.5" />
-                )}
-                {loading ? 'Authenticating...' : activeTab === 'admin' ? 'Sign in as Admin' : 'Sign in'}
-              </button>
-
-              {activeTab === 'student' && (
-                <div className="text-center pt-2">
-                  <p className="text-slate-400 text-xs font-bold">
-                    Don't have an account?{' '}
-                    <button
-                      type="button"
-                      onClick={handleOpenCreateModal}
-                      className="text-[#D2FF3A] font-black hover:underline transition-all"
-                    >
-                      Sign up
-                    </button>
-                  </p>
-                </div>
-              )}
-
-              {/* Invisible ultra-discreet secret area to toggle in case logo tapping is missed */}
-              <div 
-                onClick={() => {
-                  setActiveTab('admin');
-                  setSecretAdminRevealed(true);
-                  setError('');
-                }}
-                className="h-2 w-12 mx-auto opacity-0 cursor-default"
-                title="Override Portal"
+              <img
+                src={siteLogo || apexLogoFallback}
+                alt="App Logo"
+                className="w-full h-full object-cover rounded-full"
               />
             </div>
-          </form>
+            
+            {secretAdminRevealed && (
+              <span className="absolute bottom-[-10px] bg-slate-900 text-white text-[8px] font-black px-2.5 py-0.5 rounded-full tracking-widest uppercase border border-slate-700">
+                ADMIN ENGAGED
+              </span>
+            )}
+          </div>
+
+          {/* Smooth, premium transitions between Login and Sign Up blocks */}
+          <AnimatePresence mode="wait" initial={false}>
+            {!showMobileSignup ? (
+              <motion.div
+                key="login-form"
+                initial={{ opacity: 0, x: -16, filter: "blur(4px)" }}
+                animate={{ opacity: 1, x: 0, filter: "blur(0px)" }}
+                exit={{ opacity: 0, x: 16, filter: "blur(4px)" }}
+                transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+                className="w-full flex flex-col"
+              >
+                {/* Header Texts matching reference image design */}
+                <div className="z-10 mb-6 pl-1">
+                  <h2 className="text-3xl font-black tracking-tight text-slate-900">
+                    {activeTab === 'admin' ? 'Login' : 'Login'}
+                  </h2>
+                  <p className="text-slate-500 text-xs font-semibold mt-1">
+                    Please sign in to continue.
+                  </p>
+                </div>
+
+                {/* Secret Admin switcher toggler */}
+                {secretAdminRevealed && (
+                  <div className="bg-slate-200/70 p-1 rounded-xl flex gap-1 z-10 mb-5 border border-slate-300/30">
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTab('student'); setError(''); }}
+                      className={`flex-1 py-1.5 rounded-lg text-[10px] font-black tracking-wider uppercase transition-all ${
+                        activeTab === 'student' 
+                          ? 'bg-amber-500 text-slate-950 shadow-sm' 
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      Student Mode
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTab('admin'); setError(''); }}
+                      className={`flex-1 py-1.5 rounded-lg text-[10px] font-black tracking-wider uppercase transition-all ${
+                        activeTab === 'admin' 
+                          ? 'bg-indigo-600 text-white shadow-sm' 
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      Admin Mode
+                    </button>
+                  </div>
+                )}
+
+                {/* Error messages display */}
+                {error && (
+                  <div className="p-3 bg-rose-100/80 border border-rose-200 text-rose-800 text-xs font-bold rounded-xl z-10 mb-4 animate-fade-in leading-relaxed">
+                    {error}
+                  </div>
+                )}
+
+                {/* Inputs and submission */}
+                <form onSubmit={handleLoginSubmit} className="space-y-4 z-10 w-full">
+                  {/* Elevated white card container like EMAIL box on image.png */}
+                  <div className="bg-white rounded-2xl p-4 shadow-[0_8px_30px_rgba(0,0,0,0.03)] border border-slate-200/40 mb-3.5 transition-all focus-within:ring-2 focus-within:ring-amber-500/40">
+                    <label className="block text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1 pl-0.5">
+                      {activeTab === 'student' ? 'Student ID' : 'Admin Email Address'}
+                    </label>
+                    <div className="relative flex items-center">
+                      <User className="w-4 h-4 text-slate-400 absolute left-0" />
+                      <input
+                        type="text"
+                        required
+                        placeholder={activeTab === 'student' ? 'example: APEX2026101' : 'theapexchemistry@gmail.com'}
+                        value={username}
+                        onChange={e => setUsername(e.target.value)}
+                        className="w-full pl-6 pr-2 bg-transparent text-xs font-bold text-slate-800 placeholder-slate-300 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Sleek bottom-bordered flat field for Password like PASSWORD line on image.png */}
+                  <div className="border-b border-slate-300 py-2.5 mb-5 transition-all focus-within:border-amber-500">
+                    <div className="flex items-center justify-between pl-0.5 mb-1">
+                      <label className="block text-[9px] font-black uppercase tracking-widest text-slate-400">
+                        Password
+                      </label>
+                      {activeTab === 'admin' ? (
+                        <button
+                          type="button"
+                          onClick={handleOpenForgotModal}
+                          className="text-[9px] font-black text-orange-500 hover:text-orange-600 tracking-wider uppercase"
+                        >
+                          Forgot?
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => alert('Default student password is student123. For credential help, contact Subhamoy Mondal.')}
+                          className="text-[9px] font-black text-slate-400 hover:text-slate-600 tracking-wider uppercase"
+                        >
+                          Help?
+                        </button>
+                      )}
+                    </div>
+                    <div className="relative flex items-center">
+                      <Lock className="w-4 h-4 text-slate-400 absolute left-0" />
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        required
+                        placeholder="••••••••"
+                        value={password}
+                        onChange={e => setPassword(e.target.value)}
+                        className="w-full pl-6 pr-8 bg-transparent text-xs font-bold text-slate-800 placeholder-slate-300 focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-0 text-slate-400 hover:text-slate-600"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Remember me row */}
+                  <div className="flex items-center justify-between pt-1 pb-2">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={rememberMe}
+                        onChange={e => setRememberMe(e.target.checked)}
+                        className="sr-only"
+                      />
+                      <div className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${
+                        rememberMe ? 'bg-orange-500 border-orange-500' : 'border-slate-300 bg-white'
+                      }`}>
+                        {rememberMe && <Check className="w-3 h-3 text-white stroke-[3]" />}
+                      </div>
+                      <span className="text-slate-500 text-[11px] font-bold">Remember me</span>
+                    </label>
+                  </div>
+
+                  {/* Golden orange gradient pill button aligned on right like LOGIN -> on image.png */}
+                  <div className="flex justify-end pt-3 mb-6">
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="px-8 py-3.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-extrabold text-xs rounded-full shadow-[0_6px_20px_rgba(249,115,22,0.3)] hover:brightness-105 transition-all active:scale-95 flex items-center gap-2 uppercase tracking-widest"
+                    >
+                      {loading ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                      ) : (
+                        <>
+                          <span>Login</span>
+                          <span className="font-mono text-xs">→</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Account sign up footer switcher */}
+                  {activeTab === 'student' && (
+                    <div className="text-center mt-4">
+                      <p className="text-slate-500 text-xs font-semibold">
+                        Don't have an account?{' '}
+                        <button
+                          type="button"
+                          onClick={handleOpenCreateModal}
+                          className="text-orange-500 font-extrabold hover:underline"
+                        >
+                          Sign up
+                        </button>
+                      </p>
+                    </div>
+                  )}
+                </form>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="signup-form"
+                initial={{ opacity: 0, x: 16, filter: "blur(4px)" }}
+                animate={{ opacity: 1, x: 0, filter: "blur(0px)" }}
+                exit={{ opacity: 0, x: -16, filter: "blur(4px)" }}
+                transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+                className="w-full flex flex-col"
+              >
+                {/* Back button and Title */}
+                <div className="z-10 mb-6 pl-1">
+                  <button
+                    type="button"
+                    onClick={() => { setShowMobileSignup(false); setCreateSuccess(''); }}
+                    className="p-1.5 bg-white shadow-sm border border-slate-200/80 rounded-full text-slate-600 hover:text-slate-900 transition-all flex items-center justify-center active:scale-90 mb-4 inline-flex"
+                  >
+                    <ArrowLeft className="w-4.5 h-4.5" />
+                  </button>
+                  <h2 className="text-3xl font-black tracking-tight text-slate-900">
+                    Create Account
+                  </h2>
+                </div>
+
+                {/* Student credentials display after registration success */}
+                {createSuccess ? (
+                  <div className="space-y-4 z-10 w-full animate-fade-in">
+                    <div className="p-4 bg-gradient-to-br from-indigo-950 to-slate-900 text-white rounded-2xl shadow-xl border border-indigo-500/20 text-center space-y-2">
+                      <div className="w-10 h-10 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto border border-emerald-500/30">
+                        <CheckCircle2 className="w-5 h-5" />
+                      </div>
+                      <h4 className="font-black text-sm tracking-tight text-white">Registered Successfully!</h4>
+                      <p className="text-[11px] text-indigo-200 leading-relaxed font-medium">
+                        Request sent to <strong className="text-white">Mr. Subhamoy Mondal</strong>. Your account will be approved & assigned a batch within 24 hours.
+                      </p>
+                    </div>
+
+                    <div className="bg-white border border-slate-200/80 p-4 rounded-2xl space-y-3 shadow-[0_4px_15px_rgba(0,0,0,0.02)]">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Access Credentials</span>
+                        <span className="text-[9px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-bold">Save these now</span>
+                      </div>
+
+                      <div className="flex justify-between items-center bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                        <div>
+                          <span className="block text-[8px] font-bold text-slate-400 uppercase">Student ID</span>
+                          <span className="text-xs font-black text-slate-900 font-mono">{generatedId}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(generatedId);
+                            setCopiedId(true);
+                            setTimeout(() => setCopiedId(false), 2000);
+                          }}
+                          className="px-2.5 py-1 bg-white border border-slate-200 rounded text-[10px] font-extrabold text-slate-700 active:scale-95 transition-all"
+                        >
+                          {copiedId ? 'Copied' : 'Copy'}
+                        </button>
+                      </div>
+
+                      <div className="flex justify-between items-center bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                        <div>
+                          <span className="block text-[8px] font-bold text-slate-400 uppercase">Password</span>
+                          <span className="text-xs font-black text-slate-900 font-mono">{generatedPass}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(generatedPass);
+                            setCopiedPass(true);
+                            setTimeout(() => setCopiedPass(false), 2000);
+                          }}
+                          className="px-2.5 py-1 bg-white border border-slate-200 rounded text-[10px] font-extrabold text-slate-700 active:scale-95 transition-all"
+                        >
+                          {copiedPass ? 'Copied' : 'Copy'}
+                        </button>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMobileSignup(false);
+                        setCreateSuccess('');
+                      }}
+                      className="w-full py-3.5 text-xs font-black text-white bg-orange-500 hover:bg-orange-600 rounded-xl transition-all shadow-md shadow-orange-500/20 uppercase tracking-widest"
+                    >
+                      Return to Login
+                    </button>
+                  </div>
+                ) : (
+                  <form onSubmit={handleCreateAccount} className="space-y-4.5 z-10 w-full animate-fade-in">
+                    {createError && (
+                      <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold rounded-xl leading-relaxed">
+                        {createError}
+                      </div>
+                    )}
+
+                    {/* Elevated white container card for STUDENT NAME like FULL NAME in image.png */}
+                    <div className="bg-white rounded-2xl p-4 shadow-[0_8px_30px_rgba(0,0,0,0.03)] border border-slate-200/40 space-y-3">
+                      <label className="block text-[9px] font-black uppercase tracking-widest text-slate-400 pl-0.5">
+                        Full Student Name
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="relative flex items-center">
+                          <User className="w-4 h-4 text-slate-400 absolute left-0" />
+                          <input
+                            type="text"
+                            required
+                            placeholder="First Name"
+                            value={createData.firstName}
+                            onChange={e => setCreateData({...createData, firstName: e.target.value})}
+                            className="w-full pl-6 pr-1 bg-transparent text-xs font-bold text-slate-800 placeholder-slate-300 focus:outline-none"
+                          />
+                        </div>
+                        <div className="relative flex items-center">
+                          <input
+                            type="text"
+                            required
+                            placeholder="Last Name"
+                            value={createData.lastName}
+                            onChange={e => setCreateData({...createData, lastName: e.target.value})}
+                            className="w-full px-2 bg-transparent text-xs font-bold text-slate-800 placeholder-slate-300 focus:outline-none border-l border-slate-200"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Flat bottom-bordered inputs below */}
+                    {/* Mobile Number */}
+                    <div className="border-b border-slate-300 py-2 transition-all focus-within:border-orange-500">
+                      <label className="block text-[9px] font-black uppercase tracking-widest text-slate-400 mb-0.5 pl-0.5">
+                        Mobile Number
+                      </label>
+                      <div className="relative flex items-center">
+                        <User className="w-4 h-4 text-slate-400 absolute left-0" />
+                        <input
+                          type="tel"
+                          required
+                          placeholder="e.g. 9876543210"
+                          value={createData.phone}
+                          onChange={e => setCreateData({...createData, phone: e.target.value})}
+                          className="w-full pl-6 pr-2 bg-transparent text-xs font-bold text-slate-800 placeholder-slate-300 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Email ID */}
+                    <div className="border-b border-slate-300 py-2 transition-all focus-within:border-orange-500">
+                      <label className="block text-[9px] font-black uppercase tracking-widest text-slate-400 mb-0.5 pl-0.5">
+                        Email Address
+                      </label>
+                      <div className="relative flex items-center">
+                        <Mail className="w-4 h-4 text-slate-400 absolute left-0" />
+                        <input
+                          type="email"
+                          required
+                          placeholder="student@example.com"
+                          value={createData.email}
+                          onChange={e => setCreateData({...createData, email: e.target.value})}
+                          className="w-full pl-6 pr-2 bg-transparent text-xs font-bold text-slate-800 placeholder-slate-300 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Flat dropdown lines */}
+                    <div className="grid grid-cols-2 gap-3.5 pt-1">
+                      <div className="border-b border-slate-300 py-1">
+                        <label className="block text-[9px] font-black uppercase tracking-widest text-slate-400 mb-0.5 pl-0.5">
+                          Assigned Batch
+                        </label>
+                        <select
+                          required
+                          value={createData.batchId}
+                          onChange={e => setCreateData({...createData, batchId: e.target.value})}
+                          className="w-full bg-transparent text-xs font-bold text-slate-800 focus:outline-none py-1.5 cursor-pointer"
+                        >
+                          {StorageService.getBatches().map(b => (
+                            <option key={b.id} value={b.id}>
+                              {b.title}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="border-b border-slate-300 py-1">
+                        <label className="block text-[9px] font-black uppercase tracking-widest text-slate-400 mb-0.5 pl-0.5">
+                          Academic Board
+                        </label>
+                        <select
+                          value={createData.board}
+                          onChange={e => setCreateData({...createData, board: e.target.value})}
+                          className="w-full bg-transparent text-xs font-bold text-slate-800 focus:outline-none py-1.5 cursor-pointer"
+                        >
+                          <option value="CBSE">CBSE</option>
+                          <option value="ICSE">ICSE</option>
+                          <option value="ISC">ISC</option>
+                          <option value="WBCHSE">WBCHSE (State)</option>
+                          <option value="Other Board">Other Board</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Golden orange gradient button on right like SIGN UP -> on image.png */}
+                    <div className="flex justify-end pt-3 mb-6">
+                      <button
+                        type="submit"
+                        disabled={createLoading}
+                        className="px-8 py-3.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-extrabold text-xs rounded-full shadow-[0_6px_20px_rgba(249,115,22,0.3)] hover:brightness-105 transition-all active:scale-95 flex items-center gap-2 uppercase tracking-widest"
+                      >
+                        {createLoading ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                        ) : (
+                          <>
+                            <span>Sign Up</span>
+                            <span className="font-mono text-xs">→</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Sign in footer switcher */}
+                    <div className="text-center mt-4">
+                      <p className="text-slate-500 text-xs font-semibold">
+                        Already have an account?{' '}
+                        <button
+                          type="button"
+                          onClick={() => { setShowMobileSignup(false); setCreateSuccess(''); }}
+                          className="text-orange-500 font-extrabold hover:underline"
+                        >
+                          Sign in
+                        </button>
+                      </p>
+                    </div>
+                  </form>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
-        {/* Dynamic Mobile Footer with custom credit lines */}
-        <div className="mt-8 text-center space-y-2 z-10 w-full border-t border-slate-900 pt-5">
-          <p className="text-[10px] text-slate-500 font-bold leading-normal px-4">
+        {/* Dynamic Mobile Footer with custom credit lines matching warm layout */}
+        <div className="mt-8 text-center space-y-2 z-10 w-full border-t border-slate-300/60 pt-5">
+          <p className="text-[9px] text-slate-400 font-extrabold leading-normal px-4">
             © 2026 The Apex World • Faculty: Mr. Subhamoy Mondal. All rights reserved.
           </p>
-          <p className="text-[10px] text-slate-500 font-bold tracking-wide flex items-center justify-center gap-1.5">
-            Built with <span className="text-rose-500 animate-pulse text-xs">❤️</span> by <span className="text-[#D2FF3A] font-black">A&T Tech Firm</span>
+          <p className="text-[9px] text-slate-400 font-extrabold tracking-wide flex items-center justify-center gap-1.5">
+            Built with <span className="text-rose-500 text-xs">❤️</span> by <span className="text-orange-500 font-black">A&T Tech Firm</span>
           </p>
         </div>
       </div>
