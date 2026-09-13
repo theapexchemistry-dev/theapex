@@ -34,6 +34,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [showBioPrompt, setShowBioPrompt] = useState(false);
   const [bioScanning, setBioScanning] = useState(false);
   const [bioError, setBioError] = useState('');
+  const [isIframeBlocked, setIsIframeBlocked] = useState(false);
+  const [quickUnlockPassword, setQuickUnlockPassword] = useState('');
+  const [showQuickPassword, setShowQuickPassword] = useState(false);
 
   useEffect(() => {
     const key = activeTab === 'student' ? 'apex_bio_student' : 'apex_bio_admin';
@@ -158,6 +161,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const handleBiometricTrigger = async () => {
     setError('');
     setBioError('');
+    setIsIframeBlocked(false);
     const key = activeTab === 'student' ? 'apex_bio_student' : 'apex_bio_admin';
     const cached = localStorage.getItem(key);
     if (!cached) {
@@ -168,32 +172,38 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     setShowBioPrompt(true);
     setBioScanning(true);
 
+    // Pre-emptively detect iframe context to avoid triggering console SecurityErrors
+    if (window.self !== window.top) {
+      setIsIframeBlocked(true);
+      setBioScanning(false);
+      setBioError("Security Restrict: Browser policy blocks fingerprint checks inside cross-origin child iframes. To use your phone's real Face ID / Touch ID, please open the portal directly in your mobile browser or use password login.");
+      return;
+    }
+
     try {
       // 1. Check if browser supports the credentials API
       if (!window.PublicKeyCredential || !navigator.credentials) {
-        throw new Error('Your browser or device does not support secure biometric credentials. Please login manually with your password.');
+        throw new Error('Device biometrics (Fingerprint / Face ID) are not supported on this browser. Please login manually with your password.');
       }
 
-      // 2. Check if platform authenticator is available
-      const isAvailable = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-      if (!isAvailable) {
-        throw new Error('Device biometrics (Fingerprint / Face ID) are not enabled or supported on this browser. Please enable them in your device settings.');
-      }
-
-      // 3. Trigger native device fingerprint/face verification popup
+      // 2. Trigger native device fingerprint/face verification popup (Platform Authenticator)
       const challenge = new Uint8Array(32);
       window.crypto.getRandomValues(challenge);
 
-      await navigator.credentials.get({
+      const assertion = await navigator.credentials.get({
         publicKey: {
           challenge,
           rpId: window.location.hostname,
           userVerification: "required",
-          timeout: 20000
+          timeout: 30000
         }
       });
 
-      // 4. Verify successful authentication
+      if (!assertion) {
+        throw new Error('Biometric verification returned empty response.');
+      }
+
+      // 3. Only login if real native check succeeds
       const credentials = JSON.parse(cached);
       setUsername(credentials.username);
       setPassword(credentials.password);
@@ -205,14 +215,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       }, 100);
 
     } catch (err: any) {
-      console.error('Biometric verification failed:', err);
+      console.error('Real biometric verification failed:', err);
       setBioScanning(false);
       
-      let friendlyMessage = 'Biometric scan failed or was canceled. Please try again or sign in with your password.';
-      if (err.name === 'SecurityError' || err.message?.includes('SecurityError') || err.message?.includes('not allowed')) {
-        friendlyMessage = 'Security Access Blocked: Secure biometric APIs are blocked within the iframe preview. To experience real device Touch ID / Face ID, please open the application in a new browser tab (use the top-right button) or log in with your password.';
+      let friendlyMessage = 'Device biometric scan failed or was canceled. Please try again or sign in with your password.';
+      if (err.name === 'SecurityError' || err.message?.includes('publickey-credentials-get') || err.message?.includes('Permissions Policy') || err.message?.includes('feature is not enabled')) {
+        setIsIframeBlocked(true);
+        friendlyMessage = 'Security Restrict: Browser policy blocks fingerprint checks inside cross-origin child iframes. To use your phone\'s real Face ID / Touch ID, please open the portal directly in your mobile browser or use password login.';
       } else if (err.name === 'NotAllowedError') {
-        friendlyMessage = 'Authentication Canceled: Device biometric scan was dismissed or canceled.';
+        friendlyMessage = 'Device verification canceled: Biometric prompt was dismissed.';
       } else if (err.message) {
         friendlyMessage = err.message;
       }
@@ -1590,46 +1601,114 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             >
               {/* Header */}
               <div className="space-y-1">
-                <h3 className="text-lg font-black text-slate-900 tracking-tight">Biometric Sign In</h3>
+                <h3 className="text-lg font-black text-slate-900 tracking-tight">
+                  {isIframeBlocked ? 'Secure Passcode Unlock' : 'Biometric Sign In'}
+                </h3>
                 <p className="text-xs text-slate-500 font-semibold">
-                  Secure instant unlock via {activeTab === 'student' ? 'Student ID' : 'Admin Profile'}
+                  {isIframeBlocked 
+                    ? 'Verify your profile password to authenticate securely'
+                    : `Secure instant unlock via ${activeTab === 'student' ? 'Student ID' : 'Admin Profile'}`
+                  }
                 </p>
               </div>
 
-              {/* Animating scan graphics */}
-              <div className="py-6 flex flex-col items-center justify-center relative">
-                {/* Ambient pulse ring */}
-                <div className="absolute w-28 h-28 rounded-full border border-indigo-500/10 bg-indigo-50/20 animate-ping" />
-                <div className="absolute w-24 h-24 rounded-full border border-indigo-500/30 bg-indigo-50/50 animate-pulse" />
-                
-                {/* High fidelity scanner icon and sweep effect */}
-                <div className="relative w-20 h-20 rounded-2xl bg-[#0B132B] flex items-center justify-center text-amber-400 shadow-xl border border-slate-700 overflow-hidden group">
-                  <Fingerprint className="w-10 h-10 animate-pulse stroke-[1.5]" />
-                  {bioScanning && (
-                    <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-amber-400 to-orange-500 animate-[bounce_1.5s_infinite] shadow-[0_2px_10px_rgba(245,158,11,0.5)]" />
+              {/* Icon / Scanner graphics */}
+              {isIframeBlocked ? (
+                <div className="py-4 flex flex-col items-center justify-center">
+                  <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center border border-indigo-100 shadow-inner">
+                    <Lock className="w-6 h-6 stroke-[2]" />
+                  </div>
+                </div>
+              ) : (
+                <div className="py-6 flex flex-col items-center justify-center relative">
+                  {/* Ambient pulse ring */}
+                  <div className="absolute w-28 h-28 rounded-full border border-indigo-500/10 bg-indigo-50/20 animate-ping" />
+                  <div className="absolute w-24 h-24 rounded-full border border-indigo-500/30 bg-indigo-50/50 animate-pulse" />
+                  
+                  {/* High fidelity scanner icon and sweep effect */}
+                  <div className="relative w-20 h-20 rounded-2xl bg-[#0B132B] flex items-center justify-center text-amber-400 shadow-xl border border-slate-700 overflow-hidden group">
+                    <Fingerprint className="w-10 h-10 animate-pulse stroke-[1.5]" />
+                    {bioScanning && (
+                      <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-amber-400 to-orange-500 animate-[bounce_1.5s_infinite] shadow-[0_2px_10px_rgba(245,158,11,0.5)]" />
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Status or Password input field */}
+              {isIframeBlocked ? (
+                <div className="space-y-3 text-left w-full">
+                  <p className="text-[11px] text-slate-500 font-bold leading-normal">
+                    Secure Biometrics is restricted inside browser preview iframes. Verify your account password to securely authenticate on this screen.
+                  </p>
+                  <div className="relative">
+                    <input
+                      type={showQuickPassword ? "text" : "password"}
+                      value={quickUnlockPassword}
+                      onChange={(e) => setQuickUnlockPassword(e.target.value)}
+                      placeholder="Enter password to verify"
+                      className="w-full px-3.5 py-2.5 text-xs font-semibold border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-600 bg-slate-50/50 focus:bg-white transition-all shadow-sm pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowQuickPassword(!showQuickPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                    >
+                      {showQuickPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const key = activeTab === 'student' ? 'apex_bio_student' : 'apex_bio_admin';
+                      const cached = localStorage.getItem(key);
+                      if (cached) {
+                        const credentials = JSON.parse(cached);
+                        if (quickUnlockPassword.trim() === credentials.password) {
+                          setUsername(credentials.username);
+                          setPassword(credentials.password);
+                          setShowBioPrompt(false);
+                          setIsIframeBlocked(false);
+                          setQuickUnlockPassword('');
+                          setBioError('');
+                          setTimeout(() => {
+                            handleAutoLoginSubmit(credentials.username, credentials.password);
+                          }, 100);
+                        } else {
+                          setBioError('Incorrect password. Please verify and try again.');
+                        }
+                      }
+                    }}
+                    className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-[11px] rounded-xl shadow-md active:scale-95 transition-all text-center uppercase tracking-wider"
+                  >
+                    Verify & Unlock
+                  </button>
+                  {bioError && !bioError.includes('Security Restrict') && (
+                    <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-bold rounded-xl leading-relaxed">
+                      {bioError}
+                    </div>
                   )}
                 </div>
-              </div>
-
-              {/* State status text feedback */}
-              <div className="space-y-2">
-                {bioScanning ? (
-                  <div className="space-y-1">
-                    <p className="text-xs font-bold text-slate-800 animate-pulse">Scanning biometric sensor...</p>
-                    <p className="text-[10px] text-slate-400 font-medium">Verify your fingerprint or face scanner to authenticate</p>
-                  </div>
-                ) : bioError ? (
-                  <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-bold rounded-xl leading-relaxed">
-                    {bioError}
-                  </div>
-                ) : (
-                  <p className="text-xs font-extrabold text-emerald-600">Verification approved!</p>
-                )}
-              </div>
+              ) : (
+                <div className="space-y-2">
+                  {bioScanning ? (
+                    <div className="space-y-1">
+                      <p className="text-xs font-bold text-slate-800 animate-pulse">Scanning biometric sensor...</p>
+                      <p className="text-[10px] text-slate-400 font-medium">Verify your fingerprint or face scanner to authenticate</p>
+                    </div>
+                  ) : bioError ? (
+                    <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-bold rounded-xl leading-relaxed">
+                      {bioError}
+                    </div>
+                  ) : (
+                    <p className="text-xs font-extrabold text-emerald-600">Verification approved!</p>
+                  )}
+                </div>
+              )}
 
               {/* Action triggers */}
-              <div className="flex gap-2.5 pt-2">
-                {bioError && (
+              <div className="flex gap-2 w-full pt-1">
+                {bioError && !isIframeBlocked && (
                   <button
                     type="button"
                     onClick={handleBiometricTrigger}
@@ -1644,6 +1723,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     setShowBioPrompt(false);
                     setBioScanning(false);
                     setBioError('');
+                    setIsIframeBlocked(false);
+                    setQuickUnlockPassword('');
                   }}
                   className="flex-1 py-2.5 text-xs font-extrabold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all"
                 >
