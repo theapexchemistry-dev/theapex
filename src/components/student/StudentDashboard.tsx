@@ -251,7 +251,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               <Sparkles className="w-3.5 h-3.5" /> Welcome back, {student.name}!
             </div>
             <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tight text-white">
-              {student.className} • {student.batchTitle || 'Chemistry Regular Batch'}
+              {student.batchTitle || 'Chemistry Regular Batch'}
             </h2>
             <p className="text-xs sm:text-sm text-slate-300">
               Timing: <span className="text-indigo-300 font-bold">{studentBatch?.time || '04:00 PM - 05:30 PM'}</span> • Student ID: <span className="font-mono text-indigo-200 font-bold">{student.id}</span>

@@ -73,7 +73,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     lastName: '',
     phone: '',
     email: '',
-    className: 'Class 11',
+    batchId: '',
     board: 'CBSE'
   });
   const [createError, setCreateError] = useState('');
@@ -85,7 +85,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [copiedPass, setCopiedPass] = useState(false);
 
   const handleOpenCreateModal = () => {
-    setCreateData({ firstName: '', lastName: '', phone: '', email: '', className: 'Class 11', board: 'CBSE' });
+    const activeBatches = StorageService.getBatches();
+    const defaultBatchId = activeBatches.length > 0 ? activeBatches[0].id : '';
+    setCreateData({ firstName: '', lastName: '', phone: '', email: '', batchId: defaultBatchId, board: 'CBSE' });
     setCreateError('');
     setCreateLoading(false);
     setCreateSuccess('');
@@ -151,17 +153,20 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
       const { id: newId, pass: newPass } = StorageService.generateStudentCredentials();
 
+      const activeBatches = StorageService.getBatches();
+      const selectedBatch = activeBatches.find(b => b.id === createData.batchId);
+
       const newStudent: Student = {
         id: newId,
         password: newPass,
         name: `${createData.firstName} ${createData.lastName}`.trim(),
         phone: createData.phone,
         email: createData.email,
-        className: createData.className,
+        className: selectedBatch ? selectedBatch.className : 'Unassigned',
         board: createData.board,
-        batchId: 'PENDING_BATCH', // placeholder until assigned
-        batchTitle: 'Unassigned',
-        fees: 0,
+        batchId: createData.batchId || 'PENDING_BATCH',
+        batchTitle: selectedBatch ? selectedBatch.title : 'Unassigned',
+        fees: selectedBatch ? selectedBatch.fees : 0,
         joiningDate: new Date().toISOString(),
         status: 'pending'
       };
@@ -173,7 +178,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       
       StorageService.addNotification({
         title: 'New Student Registration Pending Approval',
-        message: `${newStudent.name} (${newStudent.className}, ${newStudent.board}) requested an account [${newStudent.id}]. Awaiting batch assignment & approval.`,
+        message: `${newStudent.name} (${newStudent.batchTitle || 'No Batch'}, ${newStudent.board}) requested an account [${newStudent.id}]. Awaiting approval.`,
         type: 'student',
         timestamp: 'Just now',
         targetRole: 'admin',
@@ -1103,17 +1108,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-[11px] font-extrabold text-slate-700 mb-1 uppercase tracking-wider">Class *</label>
+                      <label className="block text-[11px] font-extrabold text-slate-700 mb-1 uppercase tracking-wider">Select Batch *</label>
                       <select
-                        value={createData.className}
-                        onChange={e => setCreateData({...createData, className: e.target.value})}
+                        required
+                        value={createData.batchId}
+                        onChange={e => setCreateData({...createData, batchId: e.target.value})}
                         className="w-full px-3.5 py-2.5 text-xs font-medium border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-600 bg-slate-50/50 focus:bg-white transition-all shadow-sm"
                       >
-                        <option value="Class 9">Class 9</option>
-                        <option value="Class 10">Class 10</option>
-                        <option value="Class 11">Class 11</option>
-                        <option value="Class 12">Class 12</option>
-                        <option value="Repeater">Repeater</option>
+                        {StorageService.getBatches().map(b => (
+                          <option key={b.id} value={b.id}>
+                            {b.title}
+                          </option>
+                        ))}
                       </select>
                     </div>
 

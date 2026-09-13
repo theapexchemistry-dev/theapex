@@ -126,13 +126,15 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ isModerator = fals
     e.preventDefault();
     if (!studentName.trim() || !selectedBatchId) return;
 
+    const selectedBatch = batches.find(b => b.id === selectedBatchId);
+    const targetClass = selectedBatch ? selectedBatch.className : studentClass;
+
     if (editingStudentId) {
-      const selectedBatch = batches.find(b => b.id === selectedBatchId);
       const isActivating = selectedBatchId && selectedBatchId !== 'PENDING_BATCH';
 
       const updateData: Partial<Student> = {
         name: studentName,
-        className: studentClass,
+        className: targetClass,
         batchId: selectedBatchId,
         batchTitle: selectedBatch ? selectedBatch.title : undefined,
         phone: studentPhone || '9876543210',
@@ -172,7 +174,7 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ isModerator = fals
 
     const newStudent = StorageService.addStudent({
       name: studentName,
-      className: studentClass,
+      className: targetClass,
       batchId: selectedBatchId,
       phone: studentPhone || '9876543210',
       email: studentEmail.trim() || undefined,
@@ -203,13 +205,15 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ isModerator = fals
   const handleQuickApprove = async (student: Student, batchId?: string) => {
     setApprovingStudentId(student.id);
     try {
-      const targetBatchId = batchId || (batches.length > 0 ? batches[0].id : 'BATCH_DEFAULT');
+      const studentBatchId = student.batchId && student.batchId !== 'PENDING_BATCH' ? student.batchId : '';
+      const targetBatchId = batchId || studentBatchId || (batches.length > 0 ? batches[0].id : 'BATCH_DEFAULT');
       const targetBatch = batches.find(b => b.id === targetBatchId);
       const assignedFees = targetBatch ? targetBatch.fees : (student.fees > 0 ? student.fees : 2500);
 
       StorageService.updateStudent(student.id, {
         batchId: targetBatchId,
         batchTitle: targetBatch ? targetBatch.title : 'Chemistry Batch',
+        className: targetBatch ? targetBatch.className : student.className,
         fees: assignedFees,
         status: 'active'
       });
@@ -394,7 +398,7 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ isModerator = fals
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-slate-500 font-semibold uppercase tracking-wider">
                 <th className="p-3.5">Student ID & Name</th>
-                <th className="p-3.5">Class & Batch</th>
+                <th className="p-3.5">Assigned Batch</th>
                 <th className="p-3.5">Phone Number</th>
                 {!isModerator && <th className="p-3.5">Monthly Fee</th>}
                 <th className="p-3.5">Joining Date</th>
@@ -424,12 +428,11 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ isModerator = fals
                     </td>
                     <td className="p-3.5">
                       <div className="flex items-center gap-2">
-                        <span className="font-semibold text-slate-800">{student.className}</span>
+                        <span className="font-semibold text-slate-800">{student.batchTitle}</span>
                         {student.status === 'pending' && (
                           <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-800 uppercase tracking-wider">Pending</span>
                         )}
                       </div>
-                      <p className="text-[11px] text-slate-500">{student.batchTitle}</p>
                     </td>
                     <td className="p-3.5 font-mono text-slate-600">
                       <div className="flex items-center gap-1">
@@ -541,20 +544,6 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ isModerator = fals
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Class</label>
-                  <select
-                    value={studentClass}
-                    onChange={e => setStudentClass(e.target.value)}
-                    className="w-full text-xs px-3 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none"
-                  >
-                    <option value="Class 9">Class 9</option>
-                    <option value="Class 10">Class 10</option>
-                    <option value="Class 11">Class 11</option>
-                    <option value="Class 12">Class 12</option>
-                  </select>
-                </div>
-
-                <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Phone Number *</label>
                   <input
                     type="tel"
@@ -566,7 +555,7 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ isModerator = fals
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Email (Optional, for Calendar Sync)</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Email (Optional)</label>
                   <input
                     type="email"
                     placeholder="e.g. student@example.com"
@@ -656,13 +645,16 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ isModerator = fals
                       onChange={e => {
                         setSelectedBatchId(e.target.value);
                         const b = batches.find(x => x.id === e.target.value);
-                        if (b) setStudentFees(b.fees);
+                        if (b) {
+                          setStudentFees(b.fees);
+                          setStudentClass(b.className);
+                        }
                       }}
                       className="w-full text-xs px-3 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none"
                     >
                       {filteredBatchesInModal.map(b => (
                         <option key={b.id} value={b.id}>
-                          {b.title} ({b.className}) • ₹{b.fees}/mo
+                          {b.title} • ₹{b.fees}/mo
                         </option>
                       ))}
                     </select>

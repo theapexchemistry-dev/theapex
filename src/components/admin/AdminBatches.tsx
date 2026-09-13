@@ -42,11 +42,33 @@ export const AdminBatches: React.FC<AdminBatchesProps> = ({ isModerator = false 
   };
 
   const handlePromoteBatch = (batch: Batch) => {
+    if (batch.className.includes('12')) {
+      const confirmDelete = window.confirm(
+        `Promoting "${batch.title}" (Class 12) will graduate/pass out this batch.\n\n` +
+        `This will PERMANENTLY delete the batch and all of its students from the system.\n\n` +
+        `Are you sure you want to proceed? This cannot be undone.`
+      );
+      if (!confirmDelete) return;
+
+      // 1. Delete all students belonging to this batch
+      const allStudents = StorageService.getStudents();
+      const studentsInBatch = allStudents.filter(s => s.batchId === batch.id);
+      studentsInBatch.forEach(s => {
+        StorageService.deleteStudent(s.id);
+      });
+
+      // 2. Delete the batch
+      StorageService.deleteBatch(batch.id);
+
+      alert(`Batch "${batch.title}" has successfully passed out! All student details and the batch have been deleted.`);
+      refreshData();
+      return;
+    }
+
     let nextClass = batch.className;
     if (batch.className.includes('9')) nextClass = 'Class 10';
     else if (batch.className.includes('10')) nextClass = 'Class 11';
     else if (batch.className.includes('11')) nextClass = 'Class 12';
-    else if (batch.className.includes('12')) nextClass = 'Repeater';
     else return;
 
     const newTitle = batch.title.replace(batch.className, nextClass);
@@ -117,10 +139,11 @@ export const AdminBatches: React.FC<AdminBatchesProps> = ({ isModerator = false 
       </div>
 
       <div className="grid lg:grid-cols-12 gap-6">
-        {/* Create Batch Form */}
+        {/* Create/Edit Batch Form */}
         <div className="lg:col-span-5 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
           <h3 className="text-base font-bold text-slate-900 flex items-center gap-2 pb-2 border-b border-slate-100">
-            <Plus className="w-5 h-5 text-indigo-600" /> Create New Batch
+            {editingBatchId ? <Edit2 className="w-5 h-5 text-indigo-600" /> : <Plus className="w-5 h-5 text-indigo-600" />}
+            {editingBatchId ? 'Edit Batch Details' : 'Create New Batch'}
           </h3>
 
           <form onSubmit={handleCreateBatch} className="space-y-4">

@@ -89,7 +89,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({ student }) => {
           </span>
           <h2 className="text-3xl font-black text-white">{student.name}</h2>
           <p className="text-sm font-mono text-indigo-300 font-bold">Student ID: {student.id}</p>
-          <p className="text-xs text-slate-300">{student.className} • {student.batchTitle}</p>
+          <p className="text-xs text-slate-300">{student.batchTitle}</p>
         </div>
       </div>
 
@@ -108,11 +108,6 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({ student }) => {
           <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
             <span className="text-slate-400 block font-medium">Full Name</span>
             <span className="text-sm font-bold text-slate-900">{student.name}</span>
-          </div>
-
-          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-            <span className="text-slate-400 block font-medium">Academic Class</span>
-            <span className="text-sm font-bold text-indigo-600">{student.className}</span>
           </div>
 
           <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
