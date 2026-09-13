@@ -31,11 +31,29 @@ export default function App() {
   const MODERATOR_IDS = ['APEX2026101', 'APEX2026102'];
 
   const [role, setRole] = useState<Role>(() => {
-    return (localStorage.getItem('apex_session_role') as Role) || 'guest';
+    const savedRole = localStorage.getItem('apex_session_role') as Role;
+    if (savedRole && savedRole !== 'guest') {
+      const savedTimeStr = localStorage.getItem('apex_session_created_at');
+      if (savedTimeStr) {
+        const savedTime = parseInt(savedTimeStr, 10);
+        const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000; // 48 hours
+        if (Date.now() - savedTime > TWO_DAYS_MS) {
+          // Session expired! Purge details immediately
+          localStorage.removeItem('apex_session_role');
+          localStorage.removeItem('apex_session_student');
+          localStorage.removeItem('apex_session_tab');
+          localStorage.removeItem('apex_session_created_at');
+          return 'guest';
+        }
+      }
+    }
+    return savedRole || 'guest';
   });
 
   const [currentStudent, setCurrentStudent] = useState<Student | null>(() => {
     try {
+      const savedRole = localStorage.getItem('apex_session_role');
+      if (!savedRole || savedRole === 'guest') return null;
       const saved = localStorage.getItem('apex_session_student');
       return saved ? JSON.parse(saved) : null;
     } catch {
@@ -160,6 +178,7 @@ export default function App() {
   const handleLoginSuccess = (userRole: Role, studentObj?: Student) => {
     setRole(userRole);
     localStorage.setItem('apex_session_role', userRole);
+    localStorage.setItem('apex_session_created_at', Date.now().toString());
     if (userRole === 'student' && studentObj) {
       setCurrentStudent(studentObj);
       localStorage.setItem('apex_session_student', JSON.stringify(studentObj));
@@ -183,7 +202,35 @@ export default function App() {
     localStorage.removeItem('apex_session_role');
     localStorage.removeItem('apex_session_student');
     localStorage.removeItem('apex_session_tab');
+    localStorage.removeItem('apex_session_created_at');
   };
+
+  // ---------------------------------------------------------------------
+  // 2-Day Session Automatic Expiration & Clean Cleanup (Every 1 Minute)
+  // ---------------------------------------------------------------------
+  useEffect(() => {
+    const checkSessionExpiry = () => {
+      const savedRole = localStorage.getItem('apex_session_role');
+      if (savedRole && savedRole !== 'guest') {
+        const savedTimeStr = localStorage.getItem('apex_session_created_at');
+        if (savedTimeStr) {
+          const savedTime = parseInt(savedTimeStr, 10);
+          const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000; // 48 hours
+          if (Date.now() - savedTime > TWO_DAYS_MS) {
+            handleLogout();
+            alert('Your session has expired after 2 days. Please log in again.');
+          }
+        }
+      }
+    };
+
+    // Run immediately on boot
+    checkSessionExpiry();
+
+    // Check periodically every minute
+    const interval = setInterval(checkSessionExpiry, 60000);
+    return () => clearInterval(interval);
+  }, [role]);
 
   // ---------------------------------------------------------------------
   // Auto-logout for suspended (deleted) students.

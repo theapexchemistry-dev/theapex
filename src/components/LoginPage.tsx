@@ -169,32 +169,31 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     setBioScanning(true);
 
     try {
-      if (window.PublicKeyCredential && navigator.credentials) {
-        try {
-          const isAvailable = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-          if (isAvailable) {
-            const challenge = new Uint8Array(32);
-            window.crypto.getRandomValues(challenge);
-            await navigator.credentials.get({
-              publicKey: {
-                challenge,
-                rpId: window.location.hostname,
-                allowCredentials: [],
-                userVerification: "required",
-                timeout: 5000
-              }
-            });
-          } else {
-            await new Promise(resolve => setTimeout(resolve, 1800));
-          }
-        } catch (webAuthnError) {
-          console.debug('WebAuthn platform check bypassed, executing high-fidelity scanner:', webAuthnError);
-          await new Promise(resolve => setTimeout(resolve, 1800));
-        }
-      } else {
-        await new Promise(resolve => setTimeout(resolve, 1800));
+      // 1. Check if browser supports the credentials API
+      if (!window.PublicKeyCredential || !navigator.credentials) {
+        throw new Error('Your browser or device does not support secure biometric credentials. Please login manually with your password.');
       }
 
+      // 2. Check if platform authenticator is available
+      const isAvailable = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+      if (!isAvailable) {
+        throw new Error('Device biometrics (Fingerprint / Face ID) are not enabled or supported on this browser. Please enable them in your device settings.');
+      }
+
+      // 3. Trigger native device fingerprint/face verification popup
+      const challenge = new Uint8Array(32);
+      window.crypto.getRandomValues(challenge);
+
+      await navigator.credentials.get({
+        publicKey: {
+          challenge,
+          rpId: window.location.hostname,
+          userVerification: "required",
+          timeout: 20000
+        }
+      });
+
+      // 4. Verify successful authentication
       const credentials = JSON.parse(cached);
       setUsername(credentials.username);
       setPassword(credentials.password);
@@ -208,7 +207,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     } catch (err: any) {
       console.error('Biometric verification failed:', err);
       setBioScanning(false);
-      setBioError('Biometric scan failed or canceled. Please try again.');
+      
+      let friendlyMessage = 'Biometric scan failed or was canceled. Please try again or sign in with your password.';
+      if (err.name === 'SecurityError' || err.message?.includes('SecurityError') || err.message?.includes('not allowed')) {
+        friendlyMessage = 'Security Access Blocked: Secure biometric APIs are blocked within the iframe preview. To experience real device Touch ID / Face ID, please open the application in a new browser tab (use the top-right button) or log in with your password.';
+      } else if (err.name === 'NotAllowedError') {
+        friendlyMessage = 'Authentication Canceled: Device biometric scan was dismissed or canceled.';
+      } else if (err.message) {
+        friendlyMessage = err.message;
+      }
+      
+      setBioError(friendlyMessage);
     }
   };
 
