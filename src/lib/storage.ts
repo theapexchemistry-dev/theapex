@@ -220,13 +220,17 @@ export class StorageService {
   // -------- Deleted student IDs blacklist (prevents ID reuse after deletion) --------
   static getDeletedStudentIds(): string[] {
     try {
-      return JSON.parse(localStorage.getItem(KEYS.DELETED_STUDENT_IDS) || '[]');
+      const raw = JSON.parse(localStorage.getItem(KEYS.DELETED_STUDENT_IDS) || '[]');
+      return raw.filter((id: string) => !['APEX2026101', 'APEX2026102'].includes(id.toUpperCase()));
     } catch {
       return [];
     }
   }
 
   static async addDeletedStudentId(id: string): Promise<void> {
+    if (['APEX2026101', 'APEX2026102'].includes(id.toUpperCase())) {
+      return;
+    }
     const deleted = this.getDeletedStudentIds();
     if (!deleted.includes(id)) {
       deleted.push(id);
@@ -343,9 +347,61 @@ export class StorageService {
   // -------- Students --------
   static getStudents(): Student[] {
     const deletedIds = this.getDeletedStudentIds();
-    const raw = getItem<Student[]>(KEYS.STUDENTS, INITIAL_STUDENTS);
+    let raw = getItem<Student[]>(KEYS.STUDENTS, INITIAL_STUDENTS);
+
+    // Permanent moderators (Tirtharaj & Aditya Singh) are immune to data wipes and student graduation/deletion
+    const permanentModerators: Student[] = [
+      {
+        id: 'APEX2026101',
+        password: 'APEX1122',
+        name: 'Tirtharaj',
+        className: 'Class 12',
+        board: 'CBSE',
+        batchId: 'permanent-mod-1',
+        batchTitle: 'Class 12 Moderator Batch',
+        phone: '9876543210',
+        email: 'tirtharaj@theapexchemistry.com',
+        fees: 0,
+        joiningDate: '2026-04-01',
+        status: 'active'
+      },
+      {
+        id: 'APEX2026102',
+        password: 'APEX2233',
+        name: 'Aditya Singh',
+        className: 'Class 12',
+        board: 'CBSE',
+        batchId: 'permanent-mod-2',
+        batchTitle: 'Class 12 Moderator Batch',
+        phone: '9876543211',
+        email: 'adityasingh@theapexchemistry.com',
+        fees: 0,
+        joiningDate: '2026-04-01',
+        status: 'active'
+      }
+    ];
+
+    for (const mod of permanentModerators) {
+      if (!raw.some(s => s && s.id && s.id.toUpperCase() === mod.id)) {
+        raw.unshift(mod);
+      } else {
+        raw = raw.map(s => {
+          if (s && s.id && s.id.toUpperCase() === mod.id) {
+            return {
+              ...s,
+              password: mod.password,
+              name: s.name || mod.name,
+              className: s.className || mod.className,
+              status: 'active'
+            };
+          }
+          return s;
+        });
+      }
+    }
+
     if (deletedIds.length > 0) {
-      const filtered = raw.filter(s => s && s.id && !deletedIds.includes(s.id));
+      const filtered = raw.filter(s => s && s.id && (!deletedIds.includes(s.id) || ['APEX2026101', 'APEX2026102'].includes(s.id.toUpperCase())));
       if (filtered.length !== raw.length) {
         setItem(KEYS.STUDENTS, filtered);
       }
@@ -423,7 +479,11 @@ export class StorageService {
 
     if (studentData.batchId) {
       const batch = batches.find(b => b.id === studentData.batchId);
-      if (batch) updatedBatchTitle = batch.title;
+      if (batch) {
+        updatedBatchTitle = batch.title;
+      } else if (studentData.batchId.startsWith('permanent-mod')) {
+        updatedBatchTitle = 'Class 12 Moderator Batch';
+      }
     }
 
     let updatedStudentObj: Student | null = null;
@@ -460,6 +520,9 @@ export class StorageService {
   }
 
   static deleteStudent(id: string): void {
+    if (['APEX2026101', 'APEX2026102'].includes(id.toUpperCase())) {
+      return;
+    }
     this.addDeletedStudentId(id);
 
     // 1. Delete student from Firestore

@@ -7,6 +7,7 @@ export interface Batch {
   time: string; // e.g. "05:00 PM - 06:30 PM"
   days: string[]; // ["Mon", "Wed", "Fri"]
   fees: number; // e.g. 2500
+  description?: string; // Batch description set by admin
   createdAt: string;
 }
 

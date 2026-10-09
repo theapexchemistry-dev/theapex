@@ -249,9 +249,9 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ isModerator = fals
     setStudentName(student.name);
     setStudentClass(student.className);
     
-    // If pending, default to the first real batch if available
+    // If pending or permanent mod batch not in batches, default to first batch if available
     let bId = student.batchId;
-    if (bId === 'PENDING_BATCH' && batches.length > 0) {
+    if ((bId === 'PENDING_BATCH' || bId?.startsWith('permanent-mod')) && batches.length > 0) {
       bId = batches[0].id;
       setStudentFees(batches[0].fees);
     } else {
@@ -652,12 +652,44 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ isModerator = fals
                       }}
                       className="w-full text-xs px-3 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none"
                     >
+                      {selectedBatchId && !batches.some(b => b.id === selectedBatchId) && (
+                        <option value={selectedBatchId}>
+                          Permanent / Custom Batch
+                        </option>
+                      )}
                       {filteredBatchesInModal.map(b => (
                         <option key={b.id} value={b.id}>
                           {b.title} • ₹{b.fees}/mo
                         </option>
                       ))}
                     </select>
+
+                    {/* Show selected batch details & description set by admin */}
+                    {(() => {
+                      const currentBatch = batches.find(b => b.id === selectedBatchId);
+                      if (!currentBatch) return null;
+                      return (
+                        <div className="mt-2.5 p-3.5 bg-amber-50/80 border border-amber-200/90 rounded-2xl space-y-1.5 text-xs text-amber-950 animate-in fade-in">
+                          <div className="flex items-center justify-between font-bold">
+                            <span className="text-amber-900">{currentBatch.title}</span>
+                            <span className="font-mono text-indigo-700 bg-white px-2 py-0.5 rounded-md border border-indigo-100">
+                              ₹{currentBatch.fees}/mo • {currentBatch.className}
+                            </span>
+                          </div>
+                          <div className="text-slate-600 flex items-center gap-3 font-mono text-[11px]">
+                            <span>🕒 {currentBatch.time}</span>
+                            <span>📅 {currentBatch.days.join(', ')}</span>
+                          </div>
+                          {currentBatch.description ? (
+                            <p className="text-slate-700 font-normal pt-1 border-t border-amber-200/50 leading-relaxed">
+                              <strong className="text-amber-900">Batch Description:</strong> {currentBatch.description}
+                            </p>
+                          ) : (
+                            <p className="text-slate-400 italic text-[11px]">No description provided for this batch.</p>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
               </div>

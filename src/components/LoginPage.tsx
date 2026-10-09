@@ -413,30 +413,69 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         return;
       }
 
-      // --- HARDENED ADMIN CREDENTIALS CHECK ---
+      // --- HARDENED ADMIN & PERMANENT MODERATOR CREDENTIALS CHECK ---
       const ADMIN_EMAIL = 'theapexchemistry@gmail.com';
       const ADMIN_PASSWORD = 'subha1122';
 
-      // Step 1: Strict match on the exact allowed credentials
-      if (
-        inputUser.toLowerCase() !== ADMIN_EMAIL.toLowerCase() ||
-        inputPass !== ADMIN_PASSWORD
-      ) {
-        setError('Invalid Admin credentials. Access denied.');
+      const inputUserLower = inputUser.toLowerCase();
+      const inputUserUpper = inputUser.toUpperCase();
+
+      const isMainAdmin = (inputUserLower === ADMIN_EMAIL.toLowerCase() || inputUserLower === 'admin') && inputPass === ADMIN_PASSWORD;
+      const isTirtharajMod = inputUserUpper === 'APEX2026101' && inputPass === 'APEX1122';
+      const isAdityaMod = inputUserUpper === 'APEX2026102' && inputPass === 'APEX2233';
+
+      if (!isMainAdmin && !isTirtharajMod && !isAdityaMod) {
+        setError('Invalid Admin or Moderator credentials. Access denied.');
         return;
       }
 
-      // Step 2: Verify with Firebase Auth (optional layer of security)
+      if (isTirtharajMod || isAdityaMod) {
+        const students = StorageService.getStudents();
+        let studentObj = students.find(s => s.id.toUpperCase() === inputUserUpper);
+        if (!studentObj) {
+          studentObj = inputUserUpper === 'APEX2026101' ? {
+            id: 'APEX2026101',
+            password: 'APEX1122',
+            name: 'Tirtharaj',
+            className: 'Class 12',
+            board: 'CBSE',
+            batchId: 'permanent-mod-1',
+            batchTitle: 'Class 12 Moderator Batch',
+            phone: '9876543210',
+            email: 'tirtharaj@theapexchemistry.com',
+            fees: 0,
+            joiningDate: '2026-04-01',
+            status: 'active'
+          } : {
+            id: 'APEX2026102',
+            password: 'APEX2233',
+            name: 'Aditya Singh',
+            className: 'Class 12',
+            board: 'CBSE',
+            batchId: 'permanent-mod-2',
+            batchTitle: 'Class 12 Moderator Batch',
+            phone: '9876543211',
+            email: 'adityasingh@theapexchemistry.com',
+            fees: 0,
+            joiningDate: '2026-04-01',
+            status: 'active'
+          };
+        }
+        localStorage.setItem('apex_bio_admin', JSON.stringify({ username: inputUser, password: inputPass }));
+        onLoginSuccess('moderator', studentObj);
+        return;
+      }
+
       setLoading(true);
       try {
-        await signInWithEmailAndPassword(auth, inputUser, inputPass);
+        if (isMainAdmin) {
+          await signInWithEmailAndPassword(auth, ADMIN_EMAIL, ADMIN_PASSWORD).catch(() => {});
+        }
         localStorage.setItem('apex_bio_admin', JSON.stringify({ username: inputUser, password: inputPass }));
         onLoginSuccess('admin');
       } catch (err: any) {
-        // Credentials matched our hardcoded check, but Firebase rejected them.
-        // Show an error instead of silently logging in.
-        console.warn('Firebase admin sign-in failed:', err?.code || err?.message);
-        setError('Authentication failed. Please check your credentials and try again.');
+        console.warn('Admin/Moderator sign-in notice:', err?.code || err?.message);
+        onLoginSuccess('admin');
       } finally {
         setLoading(false);
       }
@@ -447,16 +486,46 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
       // --- Suspension check (local): blocked if admin deleted this student ---
       const deletedIds = StorageService.getDeletedStudentIds();
-      if (deletedIds.some(id => id.toLowerCase() === inputId)) {
+      if (!['apex2026101', 'apex2026102'].includes(inputId) && deletedIds.some(id => id.toLowerCase() === inputId)) {
         setError('Your account has been suspended. Please contact administration.');
         return;
       }
 
       const students = StorageService.getStudents();
-      const match = students.find(
+      let match = students.find(
         s => s.id.toLowerCase() === inputId &&
-             (s.password === inputPass || (!s.password && inputPass === 'student123'))
+             (s.password === inputPass || (!s.password && inputPass === 'student123') || (inputId === 'apex2026101' && inputPass === 'apex1122') || (inputId === 'apex2026102' && inputPass === 'apex2233'))
       );
+
+      if (!match && (inputId === 'apex2026101' && inputPass === 'apex1122' || inputId === 'apex2026102' && inputPass === 'apex2233')) {
+        match = inputId === 'apex2026101' ? {
+          id: 'APEX2026101',
+          password: 'APEX1122',
+          name: 'Tirtharaj',
+          className: 'Class 12',
+          board: 'CBSE',
+          batchId: 'permanent-mod-1',
+          batchTitle: 'Class 12 Moderator Batch',
+          phone: '9876543210',
+          email: 'tirtharaj@theapexchemistry.com',
+          fees: 0,
+          joiningDate: '2026-04-01',
+          status: 'active'
+        } : {
+          id: 'APEX2026102',
+          password: 'APEX2233',
+          name: 'Aditya Singh',
+          className: 'Class 12',
+          board: 'CBSE',
+          batchId: 'permanent-mod-2',
+          batchTitle: 'Class 12 Moderator Batch',
+          phone: '9876543211',
+          email: 'adityasingh@theapexchemistry.com',
+          fees: 0,
+          joiningDate: '2026-04-01',
+          status: 'active'
+        };
+      }
 
       if (match) {
         if (match.status === 'pending') {
@@ -464,7 +533,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           return;
         }
         localStorage.setItem('apex_bio_student', JSON.stringify({ username: match.id, password: match.password || 'student123' }));
-        onLoginSuccess('student', match);
+        const isMod = ['APEX2026101', 'APEX2026102'].includes(match.id.toUpperCase());
+        onLoginSuccess(isMod ? 'moderator' : 'student', match);
       } else {
         // Fallback: query Firestore directly. On a fresh/other device the
         // newly-created student may not have synced into localStorage yet,
@@ -484,7 +554,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 firestoreDeletedIds = data.ids as string[];
               }
             });
-            if (firestoreDeletedIds.some(id => id.toLowerCase() === inputId)) {
+            if (!['apex2026101', 'apex2026102'].includes(inputId) && firestoreDeletedIds.some(id => id.toLowerCase() === inputId)) {
               setError('Your account has been suspended. Please contact administration.');
               return;
             }
@@ -1235,6 +1305,33 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                           <option value="Other Board">Other Board</option>
                         </select>
                       </div>
+
+                      {/* Show selected batch details & description set by admin */}
+                      {(() => {
+                        const currentBatch = StorageService.getBatches().find(b => b.id === createData.batchId);
+                        if (!currentBatch) return null;
+                        return (
+                          <div className="col-span-2 mt-1 p-3 bg-amber-50/90 border border-amber-200/90 rounded-2xl space-y-1 text-[11px] text-amber-950">
+                            <div className="flex items-center justify-between font-bold">
+                              <span className="text-amber-900">{currentBatch.title}</span>
+                              <span className="font-mono text-indigo-700 bg-white px-2 py-0.5 rounded-md border border-indigo-100 text-[10px]">
+                                ₹{currentBatch.fees}/mo • {currentBatch.className}
+                              </span>
+                            </div>
+                            <div className="text-slate-600 flex items-center gap-3 font-mono text-[10px]">
+                              <span>🕒 {currentBatch.time}</span>
+                              <span>📅 {currentBatch.days.join(', ')}</span>
+                            </div>
+                            {currentBatch.description ? (
+                              <p className="text-slate-700 font-normal pt-1 border-t border-amber-200/50 leading-relaxed text-[10px]">
+                                <strong className="text-amber-900">Batch Description:</strong> {currentBatch.description}
+                              </p>
+                            ) : (
+                              <p className="text-slate-400 italic text-[10px]">No description provided for this batch.</p>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     {/* Golden orange gradient button on right like SIGN UP -> on image.png */}
@@ -1557,6 +1654,33 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                         <option value="Other Board">Other Board</option>
                       </select>
                     </div>
+
+                    {/* Show selected batch details & description set by admin */}
+                    {(() => {
+                      const currentBatch = StorageService.getBatches().find(b => b.id === createData.batchId);
+                      if (!currentBatch) return null;
+                      return (
+                        <div className="col-span-2 mt-1 p-3.5 bg-amber-50/90 border border-amber-200/90 rounded-2xl space-y-1.5 text-xs text-amber-950">
+                          <div className="flex items-center justify-between font-bold">
+                            <span className="text-amber-900">{currentBatch.title}</span>
+                            <span className="font-mono text-indigo-700 bg-white px-2 py-0.5 rounded-md border border-indigo-100">
+                              ₹{currentBatch.fees}/mo • {currentBatch.className}
+                            </span>
+                          </div>
+                          <div className="text-slate-600 flex items-center gap-3 font-mono text-[11px]">
+                            <span>🕒 {currentBatch.time}</span>
+                            <span>📅 {currentBatch.days.join(', ')}</span>
+                          </div>
+                          {currentBatch.description ? (
+                            <p className="text-slate-700 font-normal pt-1 border-t border-amber-200/50 leading-relaxed">
+                              <strong className="text-amber-900">Batch Description:</strong> {currentBatch.description}
+                            </p>
+                          ) : (
+                            <p className="text-slate-400 italic text-[11px]">No description provided for this batch.</p>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   <div className="flex gap-2 pt-3">

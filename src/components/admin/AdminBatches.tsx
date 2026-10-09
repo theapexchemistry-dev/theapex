@@ -16,6 +16,7 @@ export const AdminBatches: React.FC<AdminBatchesProps> = ({ isModerator = false 
   const [className, setClassName] = useState('Class 11');
   const [time, setTime] = useState('04:00 PM - 05:30 PM');
   const [fees, setFees] = useState(2500);
+  const [description, setDescription] = useState('');
   const [selectedDays, setSelectedDays] = useState<string[]>(['Mon', 'Wed', 'Fri']);
 
   const weekDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -38,6 +39,7 @@ export const AdminBatches: React.FC<AdminBatchesProps> = ({ isModerator = false 
     setClassName(batch.className);
     setTime(batch.time);
     setFees(batch.fees);
+    setDescription(batch.description || '');
     setSelectedDays(batch.days);
   };
 
@@ -95,6 +97,7 @@ export const AdminBatches: React.FC<AdminBatchesProps> = ({ isModerator = false 
     setClassName('Class 11');
     setTime('04:00 PM - 05:30 PM');
     setFees(2500);
+    setDescription('');
     setSelectedDays(['Mon', 'Wed', 'Fri']);
   };
 
@@ -108,7 +111,8 @@ export const AdminBatches: React.FC<AdminBatchesProps> = ({ isModerator = false 
         className,
         time,
         days: selectedDays,
-        fees: Number(fees)
+        fees: Number(fees),
+        description: description.trim() || undefined
       });
       cancelEdit();
     } else {
@@ -117,9 +121,11 @@ export const AdminBatches: React.FC<AdminBatchesProps> = ({ isModerator = false 
         className,
         time,
         days: selectedDays,
-        fees: Number(fees)
+        fees: Number(fees),
+        description: description.trim() || undefined
       });
       setTitle('');
+      setDescription('');
     }
 
     refreshData();
@@ -197,6 +203,17 @@ export const AdminBatches: React.FC<AdminBatchesProps> = ({ isModerator = false 
                 value={time}
                 onChange={e => setTime(e.target.value)}
                 className="w-full text-xs px-3 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-600 outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Batch Description (Optional)</label>
+              <textarea
+                rows={2}
+                placeholder="e.g. Comprehensive Organic Chemistry JEE batch covering GOC, Hydrocarbons, and Oxygen/Nitrogen compounds."
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                className="w-full text-xs px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-600 outline-none resize-none"
               />
             </div>
 

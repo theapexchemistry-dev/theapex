@@ -143,7 +143,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           { id: 'dashboard', label: 'Dashboard' },
           { id: 'students', label: 'Students' },
           { id: 'batches', label: 'Batches' },
-          ...(role === 'moderator' ? [] : [{ id: 'fees', label: 'Fees' }]),
+          { id: 'fees', label: 'Fees' },
           { id: 'notes', label: 'Notes' },
           { id: 'doubts', label: 'Doubts' },
           { id: 'tests', label: 'Tests' },

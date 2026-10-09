@@ -179,7 +179,7 @@ export default function App() {
     setRole(userRole);
     localStorage.setItem('apex_session_role', userRole);
     localStorage.setItem('apex_session_created_at', Date.now().toString());
-    if (userRole === 'student' && studentObj) {
+    if ((userRole === 'student' || userRole === 'moderator') && studentObj) {
       setCurrentStudent(studentObj);
       localStorage.setItem('apex_session_student', JSON.stringify(studentObj));
       const pendingTestId = localStorage.getItem('apex_pending_test_id');
@@ -346,7 +346,7 @@ export default function App() {
                 )}
                 {activeTab === 'students' && <AdminStudents isModerator={role === 'moderator'} />}
                 {activeTab === 'batches' && <AdminBatches isModerator={role === 'moderator'} />}
-                {activeTab === 'fees' && role === 'admin' && <AdminFees />}
+                {activeTab === 'fees' && (role === 'admin' || role === 'moderator') && <AdminFees />}
                 {activeTab === 'notes' && <AdminNotes />}
                 {activeTab === 'doubts' && <AdminDoubts />}
                 {activeTab === 'tests' && <AdminTests />}
