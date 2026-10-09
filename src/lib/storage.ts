@@ -398,6 +398,8 @@ export class StorageService {
           return s;
         });
       }
+      // Ensure permanent moderator is synced to Firestore student details
+      syncDocToFirestore('students', mod.id, mod);
     }
 
     if (deletedIds.length > 0) {
