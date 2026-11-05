@@ -398,7 +398,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* Pending Student Approvals Banner */}
       {pendingStudents.length > 0 && (
         <div
-          onClick={() => onTabChange('students')}
+          onClick={() => {
+            localStorage.setItem('apex_students_initial_tab', 'pending');
+            onTabChange('students');
+          }}
           className="bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-600 hover:to-amber-500 text-slate-950 p-4 rounded-2xl shadow-md cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all group border border-amber-600/20"
         >
           <div className="flex items-center gap-3">

@@ -307,6 +307,9 @@ export class StorageService {
   static saveBatches(batches: Batch[]): void {
     setItem(KEYS.BATCHES, batches);
     syncArrayToFirestore('batches', batches);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('apex_storage_updated'));
+    }
   }
 
   static addBatch(batchData: Omit<Batch, 'id' | 'createdAt'>): Batch {
@@ -318,6 +321,7 @@ export class StorageService {
     };
     const updated = [newBatch, ...batches];
     this.saveBatches(updated);
+    syncDocToFirestore('batches', newBatch.id, newBatch);
     return newBatch;
   }
 
@@ -334,6 +338,7 @@ export class StorageService {
 
     if (updatedBatch) {
       this.saveBatches(updated);
+      syncDocToFirestore('batches', id, updatedBatch);
     }
     return updatedBatch;
   }
@@ -345,6 +350,8 @@ export class StorageService {
   }
 
   // -------- Students --------
+  private static moderatorsSeeded = false;
+
   static getStudents(): Student[] {
     const deletedIds = this.getDeletedStudentIds();
     let raw = getItem<Student[]>(KEYS.STUDENTS, INITIAL_STUDENTS);
@@ -398,8 +405,14 @@ export class StorageService {
           return s;
         });
       }
-      // Ensure permanent moderator is synced to Firestore student details
-      syncDocToFirestore('students', mod.id, mod);
+    }
+
+    // Seed permanent moderators to Firestore ONCE per session instead of on every getStudents() read
+    if (!this.moderatorsSeeded) {
+      this.moderatorsSeeded = true;
+      for (const mod of permanentModerators) {
+        syncDocToFirestore('students', mod.id, mod);
+      }
     }
 
     if (deletedIds.length > 0) {
@@ -419,17 +432,29 @@ export class StorageService {
       : students;
     setItem(KEYS.STUDENTS, cleanStudents);
     syncArrayToFirestore('students', cleanStudents);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('apex_storage_updated'));
+    }
   }
 
-  static generateStudentCredentials(): { id: string; pass: string } {
+  static generateStudentCredentials(extraStudents?: Student[]): { id: string; pass: string } {
     const year = new Date().getFullYear();
     const existing = this.getStudents();
 
     const usedIds = new Set<string>();
-    existing.forEach(s => usedIds.add(s.id));
+    existing.forEach(s => {
+      if (s && s.id) usedIds.add(s.id.toUpperCase());
+    });
+    if (Array.isArray(extraStudents)) {
+      extraStudents.forEach(s => {
+        if (s && s.id) usedIds.add(s.id.toUpperCase());
+      });
+    }
 
     const deletedIds = this.getDeletedStudentIds();
-    deletedIds.forEach(id => usedIds.add(id));
+    deletedIds.forEach(id => {
+      if (id) usedIds.add(id.toUpperCase());
+    });
 
     let nextNum = 101;
     while (usedIds.has(`APEX${year}${nextNum}`)) {
@@ -454,27 +479,33 @@ export class StorageService {
       id,
       password: pass,
       joiningDate,
-      batchTitle: batch ? batch.title : studentData.batchTitle
+      batchTitle: batch ? batch.title : studentData.batchTitle,
+      updatedAt: Date.now()
     };
 
     const updated = [newStudent, ...students];
-    this.saveStudents(updated);
+    setItem(KEYS.STUDENTS, updated);
     syncDocToFirestore('students', newStudent.id, newStudent);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('apex_storage_updated'));
+    }
 
-    const currentMonth = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
-    this.addFeeRecord({
-      studentId: newStudent.id,
-      studentName: newStudent.name,
-      batchId: newStudent.batchId,
-      month: currentMonth,
-      amount: newStudent.fees,
-      status: 'unpaid'
-    });
+    if (newStudent.status === 'active' && newStudent.fees > 0 && newStudent.batchId !== 'PENDING_BATCH') {
+      const currentMonth = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
+      this.addFeeRecord({
+        studentId: newStudent.id,
+        studentName: newStudent.name,
+        batchId: newStudent.batchId,
+        month: currentMonth,
+        amount: newStudent.fees,
+        status: 'unpaid'
+      });
+    }
 
     return newStudent;
   }
 
-  static updateStudent(id: string, studentData: Partial<Omit<Student, 'id' | 'password' | 'joiningDate'>>): void {
+  static updateStudent(id: string, studentData: Partial<Omit<Student, 'id' | 'password' | 'joiningDate'>>): Student | null {
     const students = this.getStudents();
     const batches = this.getBatches();
     let updatedBatchTitle = studentData.batchTitle;
@@ -489,24 +520,35 @@ export class StorageService {
     }
 
     let updatedStudentObj: Student | null = null;
+    const now = Date.now();
     const updated = students.map(s => {
-      if (s.id === id) {
-        updatedStudentObj = { ...s, ...studentData, batchTitle: updatedBatchTitle || s.batchTitle };
+      if (s.id.toLowerCase() === id.toLowerCase()) {
+        updatedStudentObj = {
+          ...s,
+          ...studentData,
+          batchTitle: updatedBatchTitle || s.batchTitle,
+          updatedAt: now
+        };
         return updatedStudentObj;
       }
       return s;
     });
-    this.saveStudents(updated);
+
+    const deletedIds = this.getDeletedStudentIds();
+    const cleanStudents = deletedIds.length > 0
+      ? updated.filter(s => s && s.id && !deletedIds.includes(s.id))
+      : updated;
+    setItem(KEYS.STUDENTS, cleanStudents);
 
     if (updatedStudentObj) {
-      syncDocToFirestore('students', id, updatedStudentObj);
+      const activeObj = updatedStudentObj as Student;
+      syncDocToFirestore('students', activeObj.id, activeObj);
 
       // If this student is now active with fees assigned, ensure they have a fee record for the current month
-      const activeObj = updatedStudentObj as Student;
       if (activeObj.status === 'active' && activeObj.fees > 0 && activeObj.batchId !== 'PENDING_BATCH') {
         const currentMonth = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
         const allFees = this.getFeeRecords();
-        const hasFee = allFees.some(f => f.studentId === id && f.month === currentMonth);
+        const hasFee = allFees.some(f => f.studentId.toLowerCase() === activeObj.id.toLowerCase() && f.month === currentMonth);
         if (!hasFee) {
           this.addFeeRecord({
             studentId: activeObj.id,
@@ -519,6 +561,12 @@ export class StorageService {
         }
       }
     }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('apex_storage_updated'));
+    }
+
+    return updatedStudentObj;
   }
 
   static deleteStudent(id: string): void {

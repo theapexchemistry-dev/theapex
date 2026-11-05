@@ -247,7 +247,7 @@ export default function App() {
     if (role !== 'student' || !currentStudent) return;
     const studentId = currentStudent.id;
 
-    const checkSuspended = () => {
+    const checkSuspendedAndSync = () => {
       try {
         const deletedIds = StorageService.getDeletedStudentIds();
         const isSuspended = deletedIds.some(
@@ -262,6 +262,20 @@ export default function App() {
           localStorage.removeItem('apex_session_student');
           localStorage.removeItem('apex_session_tab');
           alert('Your account has been suspended. Please contact administration.');
+          return;
+        }
+
+        // Keep logged-in student's profile, batch, and fee details live-synced
+        const latestStudent = StorageService.getStudents().find(
+          s => s.id.toLowerCase() === studentId.toLowerCase()
+        );
+        if (latestStudent) {
+          const prevJson = JSON.stringify(currentStudent);
+          const nextJson = JSON.stringify(latestStudent);
+          if (prevJson !== nextJson) {
+            setCurrentStudent(latestStudent);
+            localStorage.setItem('apex_session_student', nextJson);
+          }
         }
       } catch (e) {
         // ignore — never break the app over a suspension check
@@ -270,15 +284,15 @@ export default function App() {
 
     // Check immediately (covers the case where they were deleted before
     // this browser session re-opened, but the session was still cached).
-    checkSuspended();
+    checkSuspendedAndSync();
 
     // Re-check whenever storage updates arrive from Firestore sync.
-    window.addEventListener('apex_storage_updated', checkSuspended);
-    window.addEventListener('storage', checkSuspended);
+    window.addEventListener('apex_storage_updated', checkSuspendedAndSync);
+    window.addEventListener('storage', checkSuspendedAndSync);
 
     return () => {
-      window.removeEventListener('apex_storage_updated', checkSuspended);
-      window.removeEventListener('storage', checkSuspended);
+      window.removeEventListener('apex_storage_updated', checkSuspendedAndSync);
+      window.removeEventListener('storage', checkSuspendedAndSync);
     };
   }, [role, currentStudent]);
 

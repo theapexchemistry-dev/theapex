@@ -77,12 +77,18 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     setAnnouncements(StorageService.getAnnouncements());
   };
 
+  const [, setSyncTick] = useState(0);
   useEffect(() => {
     const handleStorageUpdate = () => {
       setAnnouncements(StorageService.getAnnouncements());
+      setSyncTick(t => t + 1);
     };
     window.addEventListener('apex_storage_updated', handleStorageUpdate);
-    return () => window.removeEventListener('apex_storage_updated', handleStorageUpdate);
+    window.addEventListener('storage', handleStorageUpdate);
+    return () => {
+      window.removeEventListener('apex_storage_updated', handleStorageUpdate);
+      window.removeEventListener('storage', handleStorageUpdate);
+    };
   }, []);
 
     // ===== REAL SYNCED CALENDAR =====

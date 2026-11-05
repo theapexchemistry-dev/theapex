@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StorageService } from '../../lib/storage';
 import { Batch } from '../../types';
 import { Mail, Send, CheckCircle2, FileText, SendHorizontal, History, Clock, Trash2 } from 'lucide-react';
@@ -20,10 +20,22 @@ interface NoteEmailLog {
 }
 
 export const AdminNotes: React.FC = () => {
-  const [batches] = useState<Batch[]>(() => StorageService.getBatches());
+  const [batches, setBatches] = useState<Batch[]>(() => StorageService.getBatches());
   const [notes, setNotes] = useState<any[]>(() => StorageService.getNotes());
 
-  const refreshNotes = () => setNotes(StorageService.getNotes());
+  const refreshNotes = () => {
+    setBatches(StorageService.getBatches());
+    setNotes(StorageService.getNotes());
+  };
+
+  useEffect(() => {
+    window.addEventListener('apex_storage_updated', refreshNotes);
+    window.addEventListener('storage', refreshNotes);
+    return () => {
+      window.removeEventListener('apex_storage_updated', refreshNotes);
+      window.removeEventListener('storage', refreshNotes);
+    };
+  }, []);
 
   const handleDeleteNote = (id: string, noteTitle: string) => {
     if (window.confirm(`Are you sure you want to delete "${noteTitle}" from the notes log?`)) {

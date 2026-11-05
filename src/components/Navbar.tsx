@@ -102,7 +102,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   };
 
   const notifications = [...allNotifications].filter(n => {
-    if (role === 'admin') return n.targetRole === 'admin';
+    if (role === 'admin' || role === 'moderator') return n.targetRole === 'admin';
     if (role === 'student') {
       if (n.targetRole !== 'student') return false;
       if (n.targetStudentId) {
@@ -117,7 +117,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const handleMarkNotificationsRead = () => {
-    StorageService.markNotificationsRead(role === 'admin' ? 'admin' : 'student', currentStudent?.id);
+    StorageService.markNotificationsRead((role === 'admin' || role === 'moderator') ? 'admin' : 'student', currentStudent?.id);
     setAllNotifications(StorageService.getNotifications());
   };
 
@@ -134,6 +134,15 @@ export const Navbar: React.FC<NavbarProps> = ({
       onTabChange('notes');
     } else if (n.type === 'test') {
       onTabChange('tests');
+    } else if (n.type === 'student' || n.type === 'student_registration') {
+      if (role === 'admin' || role === 'moderator') {
+        localStorage.setItem('apex_students_initial_tab', 'pending');
+        onTabChange('students');
+      } else {
+        onTabChange('profile');
+      }
+    } else if (n.type === 'support_request') {
+      onTabChange(role === 'student' ? 'help' : 'support');
     }
   };
 

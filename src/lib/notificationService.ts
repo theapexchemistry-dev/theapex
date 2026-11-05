@@ -1,4 +1,5 @@
 import { Student } from '../types';
+import { StorageService } from './storage';
 
 export interface DispatchNotificationResult {
   email: { sent: boolean; error: string | null };
@@ -6,7 +7,7 @@ export interface DispatchNotificationResult {
 }
 
 /**
- * Automatically dispatches credentials to student via Email and opens/triggers WhatsApp automated dispatch.
+ * Automatically dispatches credentials to student via Email and WhatsApp API.
  */
 export async function autoDispatchCredentials(
   student: Student,
@@ -16,6 +17,7 @@ export async function autoDispatchCredentials(
   }
 ): Promise<DispatchNotificationResult> {
   const currentUrl = typeof window !== 'undefined' ? window.location.origin : 'https://theapexchemistry.web.app';
+  const emailConfig = StorageService.getEmailConfig();
   
   const payload = {
     studentId: student.id,
@@ -25,7 +27,8 @@ export async function autoDispatchCredentials(
     email: student.email || '',
     className: student.className,
     batchTitle: options?.batchTitle || student.batchTitle || 'Regular Chemistry Batch',
-    portalUrl: currentUrl
+    portalUrl: currentUrl,
+    config: emailConfig?.gmailAppPassword ? emailConfig : undefined
   };
 
   let serverResult: DispatchNotificationResult = {
@@ -54,10 +57,9 @@ export async function autoDispatchCredentials(
     serverResult.email.error = err.message || 'Server notification endpoint unavailable';
   }
 
-  // 2. Automated WhatsApp direct dispatch fallback
-  // If server-side cloud API wasn't configured, we trigger seamless direct WhatsApp delivery
+  // 2. Optional direct WhatsApp fallback when explicitly requested
   const cleanPhone = (student.phone || '').replace(/\D/g, '');
-  if (cleanPhone) {
+  if (cleanPhone && options?.openWhatsAppFallback === true && !serverResult.whatsapp.sent) {
     const waPhone = cleanPhone.startsWith('91') && cleanPhone.length > 10 ? cleanPhone : `91${cleanPhone}`;
     const shareMessage = `🎓 *Welcome to The Apex Chemistry!*
 Dear *${student.name}*,
@@ -72,17 +74,15 @@ Please log in to attend live classes, access handwritten notes, view tests, and 
 
 *The Apex Chemistry*`;
 
-    if (options?.openWhatsAppFallback !== false && !serverResult.whatsapp.sent) {
-      try {
-        const waUrl = `https://wa.me/${waPhone}?text=${encodeURIComponent(shareMessage)}`;
-        // Open WhatsApp web/app in a new tab for instant zero-click ready delivery
-        window.open(waUrl, '_blank', 'noopener,noreferrer');
-        serverResult.whatsapp.sent = true;
-      } catch (e: any) {
-        serverResult.whatsapp.error = e.message;
-      }
+    try {
+      const waUrl = `https://wa.me/${waPhone}?text=${encodeURIComponent(shareMessage)}`;
+      window.open(waUrl, '_blank', 'noopener,noreferrer');
+      serverResult.whatsapp.sent = true;
+    } catch (e: any) {
+      serverResult.whatsapp.error = e.message;
     }
   }
 
   return serverResult;
 }
+

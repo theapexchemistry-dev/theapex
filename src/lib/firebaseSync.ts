@@ -244,6 +244,23 @@ function mergeAndStore(key: string, col: string, remoteItems: any[]): any[] {
         continue;
       }
     }
+    // Special-case: students — never downgrade an 'active' student back to 'pending'
+    // or overwrite a newer local update with a stale remote snapshot
+    if (key === 'students') {
+      const existingUpdated = existing.updatedAt || 0;
+      const remoteUpdated = item.updatedAt || 0;
+      const existingIsActive = existing.status === 'active' && existing.batchId !== 'PENDING_BATCH';
+      const remoteIsPending = item.status === 'pending' || item.batchId === 'PENDING_BATCH';
+
+      if (existingUpdated > remoteUpdated || (existingIsActive && remoteIsPending)) {
+        map.set(item.id, existing);
+        // Re-push authoritative local active state to Firestore if remote is stale
+        if (existingIsActive && remoteIsPending) {
+          syncDocToFirestore('students', existing.id, existing);
+        }
+        continue;
+      }
+    }
     // Default: remote wins
     map.set(item.id, item);
   }
@@ -288,13 +305,23 @@ function mergeAndStore(key: string, col: string, remoteItems: any[]): any[] {
     }
   }
 
-  // For students: if remoteItems was non-empty from Firestore, Firestore is source of truth.
-  // Never keep records that were deleted in cloud or are on blacklist.
+  // For students: if remoteItems was non-empty from Firestore, Firestore is source of truth,
+  // EXCEPT for permanent moderators and recently created/updated local students (<30s) whose
+  // Firestore write may still be in flight.
   if (key === 'students' && remoteItems.length > 0) {
+    const now = Date.now();
     const remoteIdSet = new Set(remoteItems.map(r => r.id));
-    for (const [id] of Array.from(map.entries())) {
-      if (deletedStudentIds.includes(id) || !remoteIdSet.has(id)) {
+    for (const [id, st] of Array.from(map.entries())) {
+      if (deletedStudentIds.includes(id)) {
         map.delete(id);
+        continue;
+      }
+      if (!remoteIdSet.has(id)) {
+        const isModerator = ['APEX2026101', 'APEX2026102'].includes(id.toUpperCase());
+        const isRecentLocal = st && st.updatedAt && (now - st.updatedAt < 30000);
+        if (!isModerator && !isRecentLocal) {
+          map.delete(id);
+        }
       }
     }
   }
@@ -345,6 +372,13 @@ export function setupFirestoreListeners() {
               if (doc.id === 'branding') {
                 if (doc.siteName) localStorage.setItem('apex_site_name', doc.siteName);
                 if (doc.tagline) localStorage.setItem('apex_tagline', doc.tagline);
+              }
+              if (doc.id === 'emailConfig' && doc.gmailUser) {
+                localStorage.setItem('apex_email_config_v2', JSON.stringify({
+                  gmailUser: doc.gmailUser,
+                  gmailAppPassword: doc.gmailAppPassword || '',
+                  senderName: doc.senderName || 'The Apex Chemistry'
+                }));
               }
               if (doc.id === 'deletedStudentIds' && doc.ids) {
                 localStorage.setItem('apex_deleted_student_ids', JSON.stringify(doc.ids));
@@ -432,6 +466,12 @@ export async function fetchDataFromFirestore(): Promise<boolean> {
       } else if (docSnap.id === 'branding') {
         if (data?.siteName) localStorage.setItem('apex_site_name', data.siteName);
         if (data?.tagline) localStorage.setItem('apex_tagline', data.tagline);
+      } else if (docSnap.id === 'emailConfig' && data?.gmailUser) {
+        localStorage.setItem('apex_email_config_v2', JSON.stringify({
+          gmailUser: data.gmailUser,
+          gmailAppPassword: data.gmailAppPassword || '',
+          senderName: data.senderName || 'The Apex Chemistry'
+        }));
       } else if (docSnap.id === 'deletedStudentIds' && Array.isArray(data?.ids)) {
         localStorage.setItem('apex_deleted_student_ids', JSON.stringify(data.ids));
       } else if (docSnap.id === 'deletedTestIds' && Array.isArray(data?.ids)) {

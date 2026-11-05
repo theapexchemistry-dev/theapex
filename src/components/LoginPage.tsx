@@ -114,12 +114,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                (s.password === passVal || (!s.password && passVal === 'student123'))
         );
 
-        if (match) {
-          if (match.status === 'pending') {
-            setError('Account creation request is pending. Come back in 24 hours.');
-            setLoading(false);
-            return;
-          }
+        if (match && match.status !== 'pending') {
           onLoginSuccess('student', match);
         } else {
           const snap = await getDocs(collection(db, 'students'));
@@ -140,11 +135,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               setLoading(false);
               return;
             }
-            const existing = StorageService.getStudents();
-            if (!existing.some(s => s.id === firestoreMatch!.id)) {
-              StorageService.saveStudents([firestoreMatch!, ...existing]);
-            }
+            StorageService.updateStudent((firestoreMatch as Student).id, firestoreMatch as Student);
             onLoginSuccess('student', firestoreMatch as Student);
+          } else if (match && match.status === 'pending') {
+            setError('Account creation request is pending. Come back in 24 hours.');
           } else {
             setError('Biometric login failed. Please sign in with password.');
           }
@@ -298,13 +292,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         return;
       }
 
-      // 2. Authoritative check in Firestore students collection
+      // 2. Authoritative check in Firestore students collection & collect remote IDs to prevent collisions
+      const remoteStudents: Student[] = [];
       try {
         const snap = await getDocs(collection(db, 'students'));
         let isFirestoreDuplicate = false;
         snap.forEach(d => {
           const s = d.data() as Student;
-          if (s) {
+          if (s && s.id) {
+            remoteStudents.push(s);
             const sPhone = (s.phone || '').replace(/\D/g, '').trim();
             const sEmail = (s.email || '').trim().toLowerCase();
             const sName = (s.name || '').trim().toLowerCase();
@@ -324,7 +320,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         console.debug('Firestore duplicate check error:', err);
       }
 
-      const { id: newId, pass: newPass } = StorageService.generateStudentCredentials();
+      const { id: newId, pass: newPass } = StorageService.generateStudentCredentials(remoteStudents);
 
       const activeBatches = StorageService.getBatches();
       const selectedBatch = activeBatches.find(b => b.id === createData.batchId);
@@ -333,21 +329,26 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         id: newId,
         password: newPass,
         name: `${createData.firstName} ${createData.lastName}`.trim(),
-        phone: createData.phone,
-        email: createData.email,
-        className: selectedBatch ? selectedBatch.className : 'Unassigned',
+        phone: createData.phone.trim(),
+        email: createData.email.trim(),
+        className: selectedBatch ? selectedBatch.className : 'Class 11',
         board: createData.board,
         batchId: createData.batchId || 'PENDING_BATCH',
-        batchTitle: selectedBatch ? selectedBatch.title : 'Unassigned',
+        batchTitle: selectedBatch ? selectedBatch.title : 'Pending Batch Assignment',
         fees: selectedBatch ? selectedBatch.fees : 0,
-        joiningDate: new Date().toISOString(),
-        status: 'pending'
+        joiningDate: new Date().toISOString().split('T')[0],
+        status: 'pending',
+        updatedAt: Date.now()
       };
 
-      // Ensure we push it to storage and firestore
+      // Save to localStorage and sync the single new student document to Firestore atomically
       const currentStudents = StorageService.getStudents();
-      StorageService.saveStudents([newStudent, ...currentStudents]);
+      const updatedList = [newStudent, ...currentStudents.filter(s => s.id !== newStudent.id)];
+      localStorage.setItem('apex_students_v2', JSON.stringify(updatedList));
       await syncDocToFirestore('students', newStudent.id, newStudent);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('apex_storage_updated'));
+      }
       
       StorageService.addNotification({
         title: 'New Student Registration Pending Approval',
@@ -404,7 +405,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     e.preventDefault();
     setError('');
 
-        if (activeTab === 'admin') {
+    if (activeTab === 'admin') {
       const inputUser = username.trim();
       const inputPass = password.trim();
 
@@ -494,10 +495,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       const students = StorageService.getStudents();
       let match = students.find(
         s => s.id.toLowerCase() === inputId &&
-             (s.password === inputPass || (!s.password && inputPass === 'student123') || (inputId === 'apex2026101' && inputPass === 'apex1122') || (inputId === 'apex2026102' && inputPass === 'apex2233'))
+             (s.password === inputPass || (!s.password && inputPass === 'student123') || (inputId === 'apex2026101' && inputPass.toLowerCase() === 'apex1122') || (inputId === 'apex2026102' && inputPass.toLowerCase() === 'apex2233'))
       );
 
-      if (!match && (inputId === 'apex2026101' && inputPass === 'apex1122' || inputId === 'apex2026102' && inputPass === 'apex2233')) {
+      if (!match && ((inputId === 'apex2026101' && inputPass.toLowerCase() === 'apex1122') || (inputId === 'apex2026102' && inputPass.toLowerCase() === 'apex2233'))) {
         match = inputId === 'apex2026101' ? {
           id: 'APEX2026101',
           password: 'APEX1122',
@@ -527,24 +528,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         };
       }
 
-      if (match) {
-        if (match.status === 'pending') {
-          setError('Account creation request sent to Mr. Subhamoy Mondal, come back in 24 hours.');
-          return;
-        }
+      if (match && match.status !== 'pending' && match.batchId !== 'PENDING_BATCH') {
         localStorage.setItem('apex_bio_student', JSON.stringify({ username: match.id, password: match.password || 'student123' }));
         const isMod = ['APEX2026101', 'APEX2026102'].includes(match.id.toUpperCase());
         onLoginSuccess(isMod ? 'moderator' : 'student', match);
       } else {
-        // Fallback: query Firestore directly. On a fresh/other device the
-        // newly-created student may not have synced into localStorage yet,
-        // so we verify credentials against the live Firestore collection.
+        // Query Firestore directly: either the student isn't in localStorage yet,
+        // OR the local copy still says 'pending' while the Admin already approved them in Firestore!
         setLoading(true);
         try {
-          // --- Authoritative suspension check from Firestore ---
-          // Covers the case where this device's local deletedStudentIds list
-          // is stale/empty (e.g. brand new browser) and the admin already
-          // deleted this student on another device.
           try {
             const settingsSnap = await getDocs(collection(db, 'siteSettings'));
             let firestoreDeletedIds: string[] = [];
@@ -559,7 +551,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               return;
             }
           } catch (settingsErr) {
-            // If we can't reach siteSettings, continue to student lookup
             console.debug('Could not verify suspension status from Firestore:', settingsErr);
           }
 
@@ -576,23 +567,35 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           });
 
           if (firestoreMatch) {
-            if ((firestoreMatch as Student).status === 'pending') {
+            const remoteStudent = firestoreMatch as Student;
+            if (remoteStudent.status === 'pending' || remoteStudent.batchId === 'PENDING_BATCH') {
               setError('Account creation request sent to Mr. Subhamoy Mondal, come back in 24 hours.');
               return;
             }
-            // Persist to localStorage so future logins on this device are instant
+            // Update local storage with the approved student record from Firestore
             const existing = StorageService.getStudents();
-            if (!existing.some(s => s.id === firestoreMatch!.id)) {
-              StorageService.saveStudents([firestoreMatch!, ...existing]);
+            const updatedList = existing.some(s => s.id.toLowerCase() === remoteStudent.id.toLowerCase())
+              ? existing.map(s => s.id.toLowerCase() === remoteStudent.id.toLowerCase() ? remoteStudent : s)
+              : [remoteStudent, ...existing];
+            localStorage.setItem('apex_students_v2', JSON.stringify(updatedList));
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new Event('apex_storage_updated'));
             }
-            localStorage.setItem('apex_bio_student', JSON.stringify({ username: (firestoreMatch as Student).id, password: (firestoreMatch as Student).password || 'student123' }));
-            onLoginSuccess('student', firestoreMatch as Student);
+            localStorage.setItem('apex_bio_student', JSON.stringify({ username: remoteStudent.id, password: remoteStudent.password || 'student123' }));
+            const isMod = ['APEX2026101', 'APEX2026102'].includes(remoteStudent.id.toUpperCase());
+            onLoginSuccess(isMod ? 'moderator' : 'student', remoteStudent);
+          } else if (match && (match.status === 'pending' || match.batchId === 'PENDING_BATCH')) {
+            setError('Account creation request sent to Mr. Subhamoy Mondal, come back in 24 hours.');
           } else {
             setError('Invalid Student ID or Password! Default password for new students is "student123".');
           }
         } catch (err) {
           console.error('Firestore student login fallback failed:', err);
-          setError('Invalid Student ID or Password! Default password for new students is "student123".');
+          if (match && (match.status === 'pending' || match.batchId === 'PENDING_BATCH')) {
+            setError('Account creation request sent to Mr. Subhamoy Mondal, come back in 24 hours.');
+          } else {
+            setError('Invalid Student ID or Password! Default password for new students is "student123".');
+          }
         } finally {
           setLoading(false);
         }

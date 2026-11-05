@@ -35,17 +35,26 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ isModerator = fals
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedBatchFilter, setSelectedBatchFilter] = useState('ALL');
-  const [activeStudentTab, setActiveStudentTab] = useState<'all' | 'pending'>('all');
+  const [activeStudentTab, setActiveStudentTab] = useState<'all' | 'pending'>(() => {
+    const initialTab = localStorage.getItem('apex_students_initial_tab');
+    if (initialTab === 'pending') {
+      localStorage.removeItem('apex_students_initial_tab');
+      return 'pending';
+    }
+    return 'all';
+  });
 
   // Create Student Modal State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
+  const [editingWasPending, setEditingWasPending] = useState(false);
   const [studentName, setStudentName] = useState('');
   const [studentClass, setStudentClass] = useState('Class 11');
   const [selectedBatchId, setSelectedBatchId] = useState('');
   const [studentPhone, setStudentPhone] = useState('');
   const [studentEmail, setStudentEmail] = useState('');
   const [studentFees, setStudentFees] = useState(2500);
+  const [studentStatus, setStudentStatus] = useState<'active' | 'pending'>('active');
 
   // Batch search inside student modal
   const [batchSearchInModal, setBatchSearchInModal] = useState('');
@@ -72,6 +81,11 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ isModerator = fals
   useEffect(() => {
     const handleUpdate = () => {
       refreshData();
+      const initialTab = localStorage.getItem('apex_students_initial_tab');
+      if (initialTab === 'pending') {
+        localStorage.removeItem('apex_students_initial_tab');
+        setActiveStudentTab('pending');
+      }
     };
     window.addEventListener('apex_storage_updated', handleUpdate);
     window.addEventListener('storage', handleUpdate);
@@ -121,66 +135,89 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ isModerator = fals
     setInlineBatchTitle('');
   };
 
-  // Handle Create Student submission
+  // Handle Create / Edit Student submission
   const handleStudentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!studentName.trim() || !selectedBatchId) return;
+    const effectiveBatchId = selectedBatchId || (batches.length > 0 ? batches[0].id : 'BATCH_DEFAULT');
+    if (!studentName.trim()) return;
 
-    const selectedBatch = batches.find(b => b.id === selectedBatchId);
+    const selectedBatch = batches.find(b => b.id === effectiveBatchId);
     const targetClass = selectedBatch ? selectedBatch.className : studentClass;
 
     if (editingStudentId) {
-      const isActivating = selectedBatchId && selectedBatchId !== 'PENDING_BATCH';
+      const finalBatchId = effectiveBatchId === 'PENDING_BATCH' && studentStatus === 'active'
+        ? (batches.length > 0 ? batches[0].id : 'BATCH_DEFAULT')
+        : effectiveBatchId;
+      const finalBatch = batches.find(b => b.id === finalBatchId) || selectedBatch;
+      const isActivating = studentStatus === 'active';
 
       const updateData: Partial<Student> = {
-        name: studentName,
-        className: targetClass,
-        batchId: selectedBatchId,
-        batchTitle: selectedBatch ? selectedBatch.title : undefined,
-        phone: studentPhone || '9876543210',
+        name: studentName.trim(),
+        className: finalBatch ? finalBatch.className : targetClass,
+        batchId: finalBatchId,
+        batchTitle: finalBatch ? finalBatch.title : 'Chemistry Batch',
+        phone: studentPhone.trim() || '9876543210',
         email: studentEmail.trim() || undefined,
-        fees: Number(studentFees)
+        fees: Number(studentFees),
+        status: isActivating ? 'active' : 'pending'
       };
 
-      // If they were assigned a real batch, mark them active
-      if (isActivating) {
-        updateData.status = 'active';
+      const updatedStudent = StorageService.updateStudent(editingStudentId, updateData);
+      if (updatedStudent) {
+        const { syncDocToFirestore } = await import('../../lib/firebaseSync');
+        await syncDocToFirestore('students', updatedStudent.id, updatedStudent);
       }
-
-      StorageService.updateStudent(editingStudentId, updateData);
       refreshData();
       setIsCreateModalOpen(false);
 
-      const targetStudent = StorageService.getStudents().find(s => s.id === editingStudentId);
+      const targetStudent = updatedStudent || StorageService.getStudents().find(s => s.id.toLowerCase() === editingStudentId.toLowerCase());
+      const wasPendingApproval = editingWasPending && isActivating;
       setEditingStudentId(null);
+      setEditingWasPending(false);
       // Reset Form
       setStudentName('');
       setStudentPhone('');
       setStudentEmail('');
 
-      // If this was an approval of a student, trigger auto dispatch to WhatsApp and Email!
-      if (targetStudent && isActivating) {
+      // If this was an approval of a pending student, notify them & trigger auto dispatch!
+      if (targetStudent && wasPendingApproval) {
+        StorageService.addNotification({
+          title: '🎓 Your Student Account is Approved!',
+          message: `Welcome to The Apex Chemistry! You have been assigned to ${targetStudent.batchTitle || 'your batch'}.`,
+          type: 'student',
+          timestamp: 'Just now',
+          targetRole: 'student',
+          targetStudentId: targetStudent.id,
+          read: false
+        });
         setCreatedStudentForShare(targetStudent);
         setIsShareModalOpen(true);
         const autoResult = await autoDispatchCredentials(targetStudent, {
-          batchTitle: selectedBatch ? selectedBatch.title : targetStudent.batchTitle
+          batchTitle: finalBatch ? finalBatch.title : targetStudent.batchTitle
         });
         setAutoSentStatus(autoResult);
-        setToastMessage(`Credentials automatically sent to ${targetStudent.name} on WhatsApp & Email!`);
+        setToastMessage(`✓ ${targetStudent.name} approved & activated! Credentials ready to share.`);
         setTimeout(() => setToastMessage(null), 5000);
+      } else if (targetStudent) {
+        setToastMessage(`✓ Updated details for ${targetStudent.name}.`);
+        setTimeout(() => setToastMessage(null), 4000);
       }
       return;
     }
 
     const newStudent = StorageService.addStudent({
-      name: studentName,
+      name: studentName.trim(),
       className: targetClass,
-      batchId: selectedBatchId,
-      phone: studentPhone || '9876543210',
+      batchId: effectiveBatchId,
+      batchTitle: selectedBatch ? selectedBatch.title : 'Chemistry Batch',
+      phone: studentPhone.trim() || '9876543210',
       email: studentEmail.trim() || undefined,
       fees: Number(studentFees),
       status: 'active'
     });
+
+    const { syncDocToFirestore } = await import('../../lib/firebaseSync');
+    await syncDocToFirestore('students', newStudent.id, newStudent);
 
     refreshData();
     setIsCreateModalOpen(false);
@@ -194,10 +231,10 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ isModerator = fals
     setCreatedStudentForShare(newStudent);
     setIsShareModalOpen(true);
     const autoResult = await autoDispatchCredentials(newStudent, {
-      batchTitle: batches.find(b => b.id === selectedBatchId)?.title || newStudent.batchTitle
+      batchTitle: selectedBatch?.title || newStudent.batchTitle
     });
     setAutoSentStatus(autoResult);
-    setToastMessage(`Account created & credentials automatically sent to ${newStudent.name}!`);
+    setToastMessage(`Account created & credentials ready for ${newStudent.name}!`);
     setTimeout(() => setToastMessage(null), 5000);
   };
 
@@ -209,53 +246,86 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ isModerator = fals
       const targetBatchId = batchId || studentBatchId || (batches.length > 0 ? batches[0].id : 'BATCH_DEFAULT');
       const targetBatch = batches.find(b => b.id === targetBatchId);
       const assignedFees = targetBatch ? targetBatch.fees : (student.fees > 0 ? student.fees : 2500);
+      const resolvedBatchTitle = targetBatch
+        ? targetBatch.title
+        : (student.batchTitle && student.batchTitle !== 'Unassigned' && student.batchTitle !== 'Pending Batch Assignment'
+          ? student.batchTitle
+          : 'Chemistry Batch');
+      const resolvedClass = targetBatch
+        ? targetBatch.className
+        : (student.className && student.className !== 'Unassigned' ? student.className : 'Class 11');
 
-      StorageService.updateStudent(student.id, {
+      const updatedFromStorage = StorageService.updateStudent(student.id, {
         batchId: targetBatchId,
-        batchTitle: targetBatch ? targetBatch.title : 'Chemistry Batch',
-        className: targetBatch ? targetBatch.className : student.className,
+        batchTitle: resolvedBatchTitle,
+        className: resolvedClass,
         fees: assignedFees,
         status: 'active'
       });
 
-      refreshData();
-
-      const updatedStudent = StorageService.getStudents().find(s => s.id === student.id) || {
+      const updatedStudent: Student = updatedFromStorage || {
         ...student,
         batchId: targetBatchId,
-        batchTitle: targetBatch ? targetBatch.title : 'Chemistry Batch',
+        batchTitle: resolvedBatchTitle,
+        className: resolvedClass,
         fees: assignedFees,
-        status: 'active' as const
+        status: 'active',
+        updatedAt: Date.now()
       };
+
+      // Guarantee direct Firestore persistence before opening modal
+      const { syncDocToFirestore } = await import('../../lib/firebaseSync');
+      await syncDocToFirestore('students', updatedStudent.id, updatedStudent);
+
+      StorageService.addNotification({
+        title: '🎓 Your Student Account is Approved!',
+        message: `Welcome to The Apex Chemistry! Your enrollment in ${resolvedBatchTitle} is now active.`,
+        type: 'student',
+        timestamp: 'Just now',
+        targetRole: 'student',
+        targetStudentId: updatedStudent.id,
+        read: false
+      });
+
+      refreshData();
 
       setCreatedStudentForShare(updatedStudent);
       setIsShareModalOpen(true);
 
       const res = await autoDispatchCredentials(updatedStudent, {
-        batchTitle: targetBatch ? targetBatch.title : updatedStudent.batchTitle
+        batchTitle: resolvedBatchTitle
       });
       setAutoSentStatus(res);
-      setToastMessage(`✓ ${student.name} approved! Credentials dispatched to WhatsApp (+91 ${student.phone}) and Email.`);
+      setToastMessage(`✓ ${student.name} approved & saved to database! Credentials ready to send.`);
       setTimeout(() => setToastMessage(null), 5000);
     } catch (err: any) {
       console.error('Quick approve failed:', err);
+      setToastMessage(`Error approving ${student.name}. Please try again.`);
+      setTimeout(() => setToastMessage(null), 4000);
     } finally {
       setApprovingStudentId(null);
     }
   };
 
   const openEditModal = (student: Student) => {
+    const isPending = student.status === 'pending' || student.batchId === 'PENDING_BATCH';
     setEditingStudentId(student.id);
+    setEditingWasPending(isPending);
     setStudentName(student.name);
-    setStudentClass(student.className);
+    setStudentClass(student.className && student.className !== 'Unassigned' ? student.className : 'Class 11');
+    // Default status to 'active' so saving the modal approves a pending student automatically
+    setStudentStatus('active');
     
-    // If pending or permanent mod batch not in batches, default to first batch if available
     let bId = student.batchId;
-    if ((bId === 'PENDING_BATCH' || bId?.startsWith('permanent-mod')) && batches.length > 0) {
+    if ((bId === 'PENDING_BATCH' || !bId || bId.startsWith('permanent-mod')) && batches.length > 0) {
       bId = batches[0].id;
       setStudentFees(batches[0].fees);
+    } else if (bId === 'PENDING_BATCH' && batches.length === 0) {
+      bId = 'BATCH_DEFAULT';
+      setStudentFees(student.fees > 0 ? student.fees : 2500);
     } else {
-      setStudentFees(student.fees);
+      const matchedBatch = batches.find(b => b.id === bId);
+      setStudentFees(student.fees > 0 ? student.fees : (matchedBatch ? matchedBatch.fees : 2500));
     }
     
     setSelectedBatchId(bId);
@@ -320,6 +390,9 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ isModerator = fals
           </button>
           <button
             onClick={() => {
+              setEditingStudentId(null);
+              setEditingWasPending(false);
+              setStudentStatus('active');
               setIsCreateModalOpen(true);
               if (batches.length > 0 && !selectedBatchId) {
                 setSelectedBatchId(batches[0].id);
@@ -353,7 +426,7 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ isModerator = fals
               : 'bg-white text-amber-700 hover:bg-amber-50 border border-amber-200'
           }`}
         >
-          <span>Pending Batch Assignment</span>
+          <span>Pending Approvals</span>
           {pendingCount > 0 && (
             <span className="px-1.5 py-0.5 rounded-full bg-slate-900 text-white text-[10px] font-mono">
               {pendingCount}
@@ -398,7 +471,7 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ isModerator = fals
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-slate-500 font-semibold uppercase tracking-wider">
                 <th className="p-3.5">Student ID & Name</th>
-                <th className="p-3.5">Assigned Batch</th>
+                <th className="p-3.5">Assigned Batch & Status</th>
                 <th className="p-3.5">Phone Number</th>
                 {!isModerator && <th className="p-3.5">Monthly Fee</th>}
                 <th className="p-3.5">Joining Date</th>
@@ -413,101 +486,113 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ isModerator = fals
                   </td>
                 </tr>
               ) : (
-                filteredStudents.map(student => (
-                  <tr key={student.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="p-3.5 font-bold text-slate-900">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-slate-900 text-indigo-400 flex items-center justify-center font-black text-xs">
-                          {student.name.charAt(0)}
-                        </div>
-                        <div>
-                          <span className="block font-bold text-slate-900">{student.name}</span>
-                          <span className="block text-[11px] font-mono text-indigo-600 font-bold">{student.id}</span>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="p-3.5">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-slate-800">{student.batchTitle}</span>
-                        {student.status === 'pending' && (
-                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-800 uppercase tracking-wider">Pending</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="p-3.5 font-mono text-slate-600">
-                      <div className="flex items-center gap-1">
-                        <Phone className="w-3.5 h-3.5 text-slate-400" /> {student.phone}
-                      </div>
-                    </td>
-                    {!isModerator && <td className="p-3.5 font-extrabold text-indigo-600">₹{student.fees.toLocaleString()}</td>}
-                    <td className="p-3.5 text-slate-500 font-mono">
-                      <div className="flex items-center gap-2">
-                        <span>{student.joiningDate}</span>
-                        {(student.status === 'pending' || student.batchId === 'PENDING_BATCH') && (
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              onClick={() => handleQuickApprove(student)}
-                              disabled={approvingStudentId === student.id}
-                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-lg text-[10px] tracking-wider uppercase shadow-sm transition-all flex items-center gap-1 disabled:opacity-60"
-                              title="Accept and automatically send credentials to student's WhatsApp and Email"
-                            >
-                              {approvingStudentId === student.id ? (
-                                <>
-                                  <Loader2 className="w-3 h-3 animate-spin" />
-                                  <span>Accepting...</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Check className="w-3 h-3 stroke-[3]" />
-                                  <span>Accept & Send</span>
-                                </>
-                              )}
-                            </button>
-                            <button
-                              onClick={() => openEditModal(student)}
-                              className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-lg text-[10px] tracking-wider uppercase shadow-sm transition-all"
-                              title="Assign custom batch before approval"
-                            >
-                              Edit Batch
-                            </button>
+                filteredStudents.map(student => {
+                  const isPending = student.status === 'pending' || student.batchId === 'PENDING_BATCH';
+                  const cleanJoiningDate = student.joiningDate ? student.joiningDate.split('T')[0] : '—';
+                  return (
+                    <tr key={student.id} className={`transition-colors ${isPending ? 'bg-amber-50/40 hover:bg-amber-50/80' : 'hover:bg-slate-50'}`}>
+                      <td className="p-3.5 font-bold text-slate-900">
+                        <div className="flex items-center gap-2.5">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs ${
+                            isPending ? 'bg-amber-500 text-slate-950' : 'bg-slate-900 text-indigo-400'
+                          }`}>
+                            {student.name.charAt(0)}
                           </div>
-                        )}
-                      </div>
-                    </td>
-                    <td className="p-3.5 text-right space-x-2">
-                      <button
-                        onClick={() => {
-                          setCreatedStudentForShare(student);
-                          setIsShareModalOpen(true);
-                        }}
-                        className="px-2.5 py-1 bg-emerald-100 text-emerald-800 hover:bg-emerald-200 font-bold rounded-lg transition-colors flex items-center gap-1 inline-flex"
-                      >
-                        <Share2 className="w-3.5 h-3.5" /> Share ID
-                      </button>
-                      <button
-                        onClick={() => openEditModal(student)}
-                        className="p-1 text-slate-400 hover:text-indigo-600 transition-colors inline-block"
-                        title="Edit Student"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteStudent(student.id)}
-                        className="p-1 text-slate-400 hover:text-red-600 transition-colors inline-block"
-                        title="Delete Student"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                          <div>
+                            <span className="block font-bold text-slate-900">{student.name}</span>
+                            <span className="block text-[11px] font-mono text-indigo-600 font-bold">{student.id}</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-3.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-slate-800">{student.batchTitle || 'Unassigned'}</span>
+                          {isPending ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-800 border border-amber-300 uppercase tracking-wider flex items-center gap-1">
+                              <Clock className="w-3 h-3" /> Pending Approval
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 uppercase tracking-wider">
+                              Active
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-3.5 font-mono text-slate-600">
+                        <div className="flex items-center gap-1">
+                          <Phone className="w-3.5 h-3.5 text-slate-400" /> {student.phone}
+                        </div>
+                      </td>
+                      {!isModerator && <td className="p-3.5 font-extrabold text-indigo-600">₹{student.fees.toLocaleString()}</td>}
+                      <td className="p-3.5 text-slate-500 font-mono">
+                        <span>{cleanJoiningDate}</span>
+                      </td>
+                      <td className="p-3.5 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          {isPending && (
+                            <>
+                              <button
+                                onClick={() => handleQuickApprove(student)}
+                                disabled={approvingStudentId === student.id}
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-lg text-[11px] tracking-wider uppercase shadow-sm transition-all flex items-center gap-1 disabled:opacity-60"
+                                title="Approve student and send login credentials"
+                              >
+                                {approvingStudentId === student.id ? (
+                                  <>
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    <span>Approving...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Check className="w-3.5 h-3.5 stroke-[3]" />
+                                    <span>Accept & Send</span>
+                                  </>
+                                )}
+                              </button>
+                              <button
+                                onClick={() => openEditModal(student)}
+                                className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-lg text-[11px] tracking-wider uppercase shadow-sm transition-all"
+                                title="Assign batch or edit fee before approval"
+                              >
+                                Assign Batch
+                              </button>
+                            </>
+                          )}
+                          <button
+                            onClick={() => {
+                              setCreatedStudentForShare(student);
+                              setIsShareModalOpen(true);
+                            }}
+                            className="px-2.5 py-1.5 bg-emerald-100 text-emerald-800 hover:bg-emerald-200 font-bold rounded-lg transition-colors flex items-center gap-1"
+                          >
+                            <Share2 className="w-3.5 h-3.5" /> Share ID
+                          </button>
+                          <button
+                            onClick={() => openEditModal(student)}
+                            className="p-1.5 text-slate-400 hover:text-indigo-600 transition-colors"
+                            title="Edit Student"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteStudent(student.id)}
+                            className="p-1.5 text-slate-400 hover:text-red-600 transition-colors"
+                            title="Delete Student"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* CREATE STUDENT MODAL with search batch & inline batch creation! */}
+      {/* CREATE / EDIT STUDENT MODAL with search batch & inline batch creation! */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-6 border border-amber-200 relative max-h-[90vh] overflow-y-auto">
@@ -515,6 +600,7 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ isModerator = fals
               onClick={() => {
                 setIsCreateModalOpen(false);
                 setEditingStudentId(null);
+                setEditingWasPending(false);
                 setStudentName('');
                 setStudentPhone('');
                 setStudentEmail('');
@@ -525,8 +611,20 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ isModerator = fals
             </button>
 
             <div className="mb-5">
-              <h3 className="text-xl font-bold text-slate-900">{editingStudentId ? 'Edit Student' : 'Create New Student'}</h3>
-              <p className="text-xs text-slate-500">{editingStudentId ? 'Update student details.' : 'Fill student details. ID & Password will be auto-generated.'}</p>
+              <h3 className="text-xl font-bold text-slate-900">
+                {editingStudentId
+                  ? editingWasPending
+                    ? 'Approve & Assign Student Batch'
+                    : 'Edit Student Details'
+                  : 'Create New Student'}
+              </h3>
+              <p className="text-xs text-slate-500">
+                {editingStudentId
+                  ? editingWasPending
+                    ? 'Confirm batch and fee details to activate this student account.'
+                    : 'Update student enrollment details and status.'
+                  : 'Fill student details. ID & Password will be auto-generated.'}
+              </p>
             </div>
 
             <form onSubmit={handleStudentSubmit} className="space-y-4">
@@ -652,11 +750,11 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ isModerator = fals
                       }}
                       className="w-full text-xs px-3 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none"
                     >
-                      {selectedBatchId && !batches.some(b => b.id === selectedBatchId) && (
-                        <option value={selectedBatchId}>
-                          Permanent / Custom Batch
+                      {(selectedBatchId && !batches.some(b => b.id === selectedBatchId)) || batches.length === 0 ? (
+                        <option value={selectedBatchId || 'BATCH_DEFAULT'}>
+                          {selectedBatchId?.startsWith('permanent-mod') ? 'Permanent Moderator Batch' : 'Regular Chemistry Batch'}
                         </option>
-                      )}
+                      ) : null}
                       {filteredBatchesInModal.map(b => (
                         <option key={b.id} value={b.id}>
                           {b.title} • ₹{b.fees}/mo
@@ -707,11 +805,33 @@ export const AdminStudents: React.FC<AdminStudentsProps> = ({ isModerator = fals
                 </div>
               )}
 
+              {editingStudentId && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Account Approval Status</label>
+                  <select
+                    value={studentStatus}
+                    onChange={e => setStudentStatus(e.target.value as 'active' | 'pending')}
+                    className="w-full text-xs px-3 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none font-bold"
+                  >
+                    <option value="active">✓ Active (Approved for Portal Login)</option>
+                    <option value="pending">⏳ Pending Approval</option>
+                  </select>
+                </div>
+              )}
+
               <button
                 type="submit"
-                className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm rounded-xl shadow-lg transition-all"
+                className={`w-full py-3 font-bold text-sm rounded-xl shadow-lg transition-all ${
+                  editingStudentId && editingWasPending && studentStatus === 'active'
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                    : 'bg-slate-900 hover:bg-slate-800 text-white'
+                }`}
               >
-                {editingStudentId ? 'Update Student Details' : 'Generate Student ID & Save'}
+                {editingStudentId
+                  ? editingWasPending && studentStatus === 'active'
+                    ? '✓ Approve Student & Send Credentials'
+                    : 'Update Student Details'
+                  : 'Generate Student ID & Save'}
               </button>
             </form>
           </div>

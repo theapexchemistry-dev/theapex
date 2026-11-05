@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Student } from '../../types';
+import React, { useState, useEffect } from 'react';
+import { Student, Note } from '../../types';
 import { Mail, Search, CheckCircle2, History, FileText, Clock } from 'lucide-react';
 import { StorageService } from '../../lib/storage';
 
@@ -9,8 +9,17 @@ interface StudentNotesProps {
 
 export const StudentNotes: React.FC<StudentNotesProps> = ({ student }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [notes, setNotes] = useState<Note[]>(() => StorageService.getNotes());
 
-  const notes = StorageService.getNotes();
+  useEffect(() => {
+    const refresh = () => setNotes(StorageService.getNotes());
+    window.addEventListener('apex_storage_updated', refresh);
+    window.addEventListener('storage', refresh);
+    return () => {
+      window.removeEventListener('apex_storage_updated', refresh);
+      window.removeEventListener('storage', refresh);
+    };
+  }, []);
 
   const studentNotes = notes.filter(note => note.batchId === student.batchId);
 

@@ -37,9 +37,23 @@ import {
 } from 'lucide-react';
 
 export const AdminTests: React.FC = () => {
-  const [batches] = useState<Batch[]>(() => StorageService.getBatches());
-  const [students] = useState<Student[]>(() => StorageService.getStudents());
+  const [batches, setBatches] = useState<Batch[]>(() => StorageService.getBatches());
+  const [students, setStudents] = useState<Student[]>(() => StorageService.getStudents());
   const [tests, setTests] = useState<Test[]>(() => StorageService.getTests());
+
+  useEffect(() => {
+    const handleStorageSync = () => {
+      setBatches(StorageService.getBatches());
+      setStudents(StorageService.getStudents());
+      setTests(StorageService.getTests());
+    };
+    window.addEventListener('apex_storage_updated', handleStorageSync);
+    window.addEventListener('storage', handleStorageSync);
+    return () => {
+      window.removeEventListener('apex_storage_updated', handleStorageSync);
+      window.removeEventListener('storage', handleStorageSync);
+    };
+  }, []);
 
   // Active Creation Mode: 'ai_builder' | 'csv' | 'manual' | 'offline'
   const [creationMode, setCreationMode] = useState<'ai_builder' | 'csv' | 'manual' | 'offline'>('ai_builder');

@@ -25,6 +25,7 @@ export interface Student {
   joiningDate: string;
   avatarUrl?: string;
   status?: 'active' | 'pending';
+  updatedAt?: number;
 }
 
 export interface FeeRecord {

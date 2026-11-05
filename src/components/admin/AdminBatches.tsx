@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StorageService } from '../../lib/storage';
-import { Batch } from '../../types';
+import { Batch, Student } from '../../types';
 import { Layers, Plus, Calendar, Clock, Trash2, Users, Edit2, TrendingUp } from 'lucide-react';
 
 interface AdminBatchesProps {
@@ -9,7 +9,7 @@ interface AdminBatchesProps {
 
 export const AdminBatches: React.FC<AdminBatchesProps> = ({ isModerator = false }) => {
   const [batches, setBatches] = useState<Batch[]>(() => StorageService.getBatches());
-  const students = StorageService.getStudents();
+  const [students, setStudents] = useState<Student[]>(() => StorageService.getStudents());
 
   const [editingBatchId, setEditingBatchId] = useState<string | null>(null);
   const [title, setTitle] = useState('');
@@ -23,7 +23,17 @@ export const AdminBatches: React.FC<AdminBatchesProps> = ({ isModerator = false 
 
   const refreshData = () => {
     setBatches(StorageService.getBatches());
+    setStudents(StorageService.getStudents());
   };
+
+  useEffect(() => {
+    window.addEventListener('apex_storage_updated', refreshData);
+    window.addEventListener('storage', refreshData);
+    return () => {
+      window.removeEventListener('apex_storage_updated', refreshData);
+      window.removeEventListener('storage', refreshData);
+    };
+  }, []);
 
   const toggleDay = (day: string) => {
     if (selectedDays.includes(day)) {
